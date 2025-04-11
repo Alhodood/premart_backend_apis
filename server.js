@@ -6,13 +6,15 @@ const cors = require('cors');
 require('dotenv').config();
 const authRoutes = require('./routes/authRoutes');
 const productRoutes = require('./routes/productRoutes');
-
+const connectDB =require("./config/db.js")
 // Use the product routes
 
 
 
 const app = express();
 const server = http.createServer(app);
+
+connectDB();
 const io = socketIo(server, {
   cors: {
     origin: '*',
@@ -25,9 +27,10 @@ app.use(cors());
 app.use(express.json());
 
 // Database connection (replace <connection_string> with your MongoDB URI)
-mongoose.connect(process.env.MONGO_URI || '<connection_string>', { useNewUrlParser: true, useUnifiedTopology: true })
-  .then(() => console.log('MongoDB connected'))
-  .catch((err) => console.error('MongoDB connection error:', err));
+
+// mongoose.connect(process.env.MONGO_URI || '<connection_string>', { useNewUrlParser: true, useUnifiedTopology: true })
+//   .then(() => console.log('MongoDB connected'))
+//   .catch((err) => console.error('MongoDB connection error:', err));
 
 // Authentication routes
 
