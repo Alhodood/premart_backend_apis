@@ -1,15 +1,17 @@
 const mongoose = require('mongoose');
 
-// const Brands = require('../models/brand');
-// const Category = require('../models/Categories');
-
+const Brands = require('../models/Brand');
+const Category = require('../models/Categories');
+const Model= require('../models/Model');
+const Year = require('../models/Year');
 const productSchema = new mongoose.Schema({
   name: String,
-  // brand: Brands,
-  // category: Category,
+  type:String,
+  brand: { type: mongoose.Schema.Types.ObjectId, ref: Brands },
+  category: { type: mongoose.Schema.Types.ObjectId, ref: Category },
+  model:{ type: mongoose.Schema.Types.ObjectId, ref: Model } ,
+  year:{ type: mongoose.Schema.Types.ObjectId, ref: Year } ,
   color: String,
-  year: Number,
-  model: String,
   price: Number,
   tax: String,
   images: [String],

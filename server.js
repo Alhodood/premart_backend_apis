@@ -5,14 +5,26 @@ const socketIo = require('socket.io');
 const cors = require('cors');
 require('dotenv').config();
 const authRoutes = require('./routes/authRoutes');
-const productRoutes = require('./routes/productRoutes');
+const productRoutes = require('./routes/productRoutes.js');
+const shopRoutes = require('./routes/shopRoutes.js');
+const customerAddress= require("./routes/customerAddressRoutes.js")
+const customerCard= require("./routes/customerCardRoutes.js")
+const banner = require("./routes/bannerRoutes.js")
 
+const notification = require('./routes/notificationRoutes.js')
+
+const cart = require('./routes/cartRouter.js')
+const wishlist = require('./routes/wishlistRoutes.js')
+
+const connectDB =require("./config/db.js")
 // Use the product routes
 
 
 
 const app = express();
 const server = http.createServer(app);
+
+connectDB();
 const io = socketIo(server, {
   cors: {
     origin: '*',
@@ -25,14 +37,27 @@ app.use(cors());
 app.use(express.json());
 
 // Database connection (replace <connection_string> with your MongoDB URI)
-mongoose.connect(process.env.MONGO_URI || '<connection_string>', { useNewUrlParser: true, useUnifiedTopology: true })
-  .then(() => console.log('MongoDB connected'))
-  .catch((err) => console.error('MongoDB connection error:', err));
+
+// mongoose.connect(process.env.MONGO_URI || '<connection_string>', { useNewUrlParser: true, useUnifiedTopology: true })
+//   .then(() => console.log('MongoDB connected'))
+//   .catch((err) => console.error('MongoDB connection error:', err));
 
 // Authentication routes
 
 app.use('/api/auth', authRoutes);
-app.use('/api/products', productRoutes);
+app.use('/api/shop', shopRoutes);
+app.use('/api',productRoutes);
+
+app.use('/api/customerAddress', customerAddress);
+app.use('/api/card', customerCard);
+app.use('/api/banner',banner);
+app.use('/api/notification',notification);
+app.use('/api/cart',cart);
+app.use('/api/whislist',wishlist);
+
+// 
+
+
 
 // Basic route
 app.get('/', (req, res) => {
