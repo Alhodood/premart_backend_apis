@@ -1,5 +1,8 @@
 const mongoose= require('mongoose');
+
 const cartSchema= new mongoose.Schema({
-    categoryName: String,
-    categoryImage: String
-},{timestamps: true })
+    userId: {type:String, required: true },
+    cartProduct: [{type:String}]
+},{timestamps: true });
+module.exports=mongoose.model('Cart',cartSchema);
+

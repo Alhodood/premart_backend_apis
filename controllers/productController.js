@@ -5,6 +5,7 @@ exports.createProduct = async (req, res) => {
   try {
     // For security, you can use middleware to ensure only Shop Admin can call this endpoint.
     const product = new Product(req.body);
+    console.log(product);
     const savedProduct = await product.save();
     res.status(201).json(savedProduct);
   } catch (error) {
