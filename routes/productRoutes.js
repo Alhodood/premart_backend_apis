@@ -11,19 +11,19 @@ const brandController = require('../controllers/brandController');
 const categoryController = require('../controllers/categoryController');
 
 // Create a new product (restricted to Shop Admin)
-router.post('product', productController.createProduct);
+router.post('product/:shopId', productController.addProduct);
 
-// Retrieve all products (public)
-router.get('product', productController.getProducts);
+// Get all products for a shop
+router.get('product/:shopId', productController.getProductsByShop);
 
 // Retrieve a specific product by ID (public)
-router.get('product/:id', productController.getProductById);
+router.get('product/:productId/:shopId', productController.getProductById);
 
 // Update product (restricted to Shop Admin)
-router.put('product/:id', productController.updateProduct);
+router.put('product//:productId/:shopId', productController.updateProduct);
 
 // Delete product (restricted to Shop Admin)
-router.delete('product/:id', productController.deleteProduct);
+router.delete('product//:productId/:shopId', productController.deleteProduct);
 
 
 // brand Routes

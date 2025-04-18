@@ -1,20 +1,24 @@
 const mongoose = require('mongoose');
 
-const Brands = require('../models/Brand');
-const Category = require('../models/Categories');
-const Model= require('../models/Model');
-const Year = require('../models/Year');
-const productSchema = new mongoose.Schema({
+// const Brands = require('../models/Brand');
+// const Category = require('../models/Categories');
+// const Model= require('../models/Model');
+// const Year = require('../models/Year');
+const productDetailesSchema = new mongoose.Schema({
   name: String,
   type:String,
-  brand: { type: mongoose.Schema.Types.ObjectId, ref: Brands },
-  category: { type: mongoose.Schema.Types.ObjectId, ref: Category },
-  model:{ type: mongoose.Schema.Types.ObjectId, ref: Model } ,
-  year:{ type: mongoose.Schema.Types.ObjectId, ref: Year } ,
+  brand: String,
+  category:String,
+  model:String ,
+  year:String ,
+  // brand: { type: mongoose.Schema.Types.ObjectId, ref: Brands },
+  // category: { type: mongoose.Schema.Types.ObjectId, ref: Category },
+  // model:{ type: mongoose.Schema.Types.ObjectId, ref: Model } ,
+  // year:{ type: mongoose.Schema.Types.ObjectId, ref: Year } ,
   color: String,
   price: Number,
   tax: String,
-  images: [String],
+  picture: [String],
   description: String,
   partNumber: String,
   partDescription: String,
@@ -27,5 +31,11 @@ const productSchema = new mongoose.Schema({
   warranty: String
 }, { timestamps: true });
 
+const productSchema= new mongoose.Schema({
+  shopId: {type:String, required: true },
+  cartProduct: [productDetailesSchema]
+},{timestamps: true });
+const Product=mongoose.model('Product',productSchema);
+const ProductDetails = mongoose.model('ProductDetails', productDetailesSchema);
 
-module.exports = mongoose.model('Product', productSchema);
+module.exports={Product,ProductDetails};
