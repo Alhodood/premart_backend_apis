@@ -6,7 +6,7 @@ const cors = require('cors');
 require('dotenv').config();
 const authRoutes = require('./routes/authRoutes');
 const productRoutes = require('./routes/productRoutes.js');
-const shopRoutes = require('./routes/shopRoutes.js');
+// const shopRoutes = require('./routes/shopRoutes.js');
 const customerAddress= require("./routes/customerAddressRoutes.js")
 const customerCard= require("./routes/customerCardRoutes.js")
 const banner = require("./routes/bannerRoutes.js")
@@ -15,6 +15,8 @@ const notification = require('./routes/notificationRoutes.js')
 
 const cart = require('./routes/cartRouter.js')
 const wishlist = require('./routes/wishlistRoutes.js')
+// const shopProfile = require('./routes/shopRoutes.js')
+
 
 const connectDB =require("./config/db.js")
 // Use the product routes
@@ -45,7 +47,7 @@ app.use(express.json());
 // Authentication routes
 
 app.use('/api/auth', authRoutes);
-app.use('/api/shop', shopRoutes);
+// app.use('/api/shop', shopRoutes);
 app.use('/api',productRoutes);
 
 app.use('/api/customerAddress', customerAddress);
@@ -54,6 +56,7 @@ app.use('/api/banner',banner);
 app.use('/api/notification',notification);
 app.use('/api/cart',cart);
 app.use('/api/whislist',wishlist);
+// app.use('/api/shopeAdmin',shopProfile );
 
 // 
 
