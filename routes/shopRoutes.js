@@ -1,17 +1,17 @@
-// const express = require('express');
-// const router = express.Router();
-// const shopController = require('../controllers/shopController');
-// // Optionally, import your authorization middleware if needed:
-// // const authorize = require('../middlewares/authorize');
+const express = require('express');
+const router = express.Router();
+const shopController = require('../controllers/shopController');
+// Optionally, import your authorization middleware if needed:
+// const authorize = require('../middlewares/authorize');
 
-// router.post('/', shopController.createShop);
+router.post('/', shopController.createShop);
 
-// router.get('/', shopController.getAllShops);
+router.get('/', shopController.getAllShops);
 
-// router.get('/:id', shopController.getShopById);
+router.get('/:shopId', shopController.getShopById);
 
-// router.put('/:id', shopController.updateShop);
+router.put('/:shopId', shopController.updateShop);
 
-// router.delete('/:id', shopController.deleteShop);
+router.delete('/:shopId', shopController.deleteShop);
 
-// module.exports = router;
+module.exports = router;
