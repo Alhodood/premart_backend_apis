@@ -34,9 +34,17 @@ const io = socketIo(server, {
 });
 
 // Middleware
-app.use(cors());
+
 app.use(express.json());
 
+app.use(cors({
+  origin: [
+    'http://property-erp.com',       // dev
+    'https://property-erp.com',      // production
+    'http://www.property-erp.com'   // if you support www
+  ],
+  credentials: true
+}));
 // Database connection (replace <connection_string> with your MongoDB URI)
 
 // mongoose.connect(process.env.MONGO_URI || '<connection_string>', { useNewUrlParser: true, useUnifiedTopology: true })
@@ -74,6 +82,10 @@ io.on('connection', (socket) => {
   });
 });
 
+
+const PORT = process.env.PORT || 3000;
+const HOST = process.env.HOST || '0.0.0.0';
+
 // Start server
-const PORT = process.env.PORT || 6000;
-server.listen(PORT, () => console.log(`Server running on port ${PORT}`));
+// const PORT =process.env.HOST || process.env.PORT || 6000;
+server.listen(PORT,HOST,() =>   console.log(`Server listening on http://${HOST}:${PORT}`));
