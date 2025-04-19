@@ -40,7 +40,7 @@ app.use(express.json());
 app.use(cors({
   origin: [
     'http://property-erp.com',       // dev
-    'http://property-erp.com',      // production
+    'https://property-erp.com',      // production
     'http://www.property-erp.com'   // if you support www
   ],
   credentials: true
