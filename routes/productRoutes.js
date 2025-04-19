@@ -7,7 +7,7 @@ const upload = require('../middleware/s3Upload');
 const fuelController = require('../controllers/fuelController');
 const modelController = require('../controllers/modelController');
 const yearController = require('../controllers/yearController');
-const brandController = require('../controllers/brandController');
+// const brandController = require('../controllers/brandController');
 const categoryController = require('../controllers/categoryController');
 
 // Create a new product (restricted to Shop Admin)
@@ -26,14 +26,14 @@ router.put('product//:productId/:shopId', productController.updateProduct);
 router.delete('product//:productId/:shopId', productController.deleteProduct);
 
 
-// brand Routes
-router.post('/brand', brandController.createBrand);
+// // brand Routes
+// router.post('/brand', brandController.createBrand);
 
-router.post('/brand', upload.single('brandImage'), brandController.createBrand);
-router.get('/brand', brandController.getAllBrands);
-router.get('/brand/:id', brandController.getBrandById);
-router.put('/brand/:id', brandController.updateBrand);
-router.delete('/brand/:id', brandController.deleteBrand);
+// router.post('/brand', upload.single('brandImage'), brandController.createBrand);
+// router.get('/brand', brandController.getAllBrands);
+// router.get('/brand/:id', brandController.getBrandById);
+// router.put('/brand/:id', brandController.updateBrand);
+// router.delete('/brand/:id', brandController.deleteBrand);
 
 
 // CATEGORY ROUTES
