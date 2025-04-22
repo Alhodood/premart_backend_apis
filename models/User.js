@@ -7,10 +7,12 @@ const UserSchema = new mongoose.Schema(
     email: { type: String, unique: true, sparse: true },
     phone: { type: String, unique: true, sparse: true },
     password: { type: String, required: true },
-    role: { type: String, enum: ['customer', 'shopAdmin', 'superAdmin', 'deliveryBoy'], default: 'customer' },
+    countryCode:{ type: String, required: true },
+    dob:{ type: String },
+    accountVerify:{type:Boolean},
+    role: { type: String, enum: ['customer', 'shopAdmin', 'superAdmin', 'deliveryBoy'], default: 'customer' }
     // Fields for OTP login
-    otp: { type: String },
-    otpExpires: { type: Date }
+   
   },
   { timestamps: true }
 );
