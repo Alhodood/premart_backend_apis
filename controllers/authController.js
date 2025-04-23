@@ -128,30 +128,25 @@ exports.login = async (req, res) => {
 
 
 
-exports.sendOtP = async () =>{
-  try {
-    const message = await client.messages.create(
-      {
-      body: `Your OTP code is: `,messagingServiceSid:"MGd6cd459ae374b36305530576a6fdf5f2",
-    to: "+971567760353", 
-    // from:"+12517660398"
-    });
-
-    // const verification = await client.verify.v2
-    //   .services("MGd6cd459ae374b36305530576a6fdf5f2")
-    //   .verifications
-    //   .create({ to: phone, channel: 'sms' });
-    // console.log('OTP sent, status:', verification.status);
-    // console.log("OTP sent:", message.sendOtP);
-    // console.log("OTP sent:", message.from);
-
-      // return res.status(200).json({ message: ' OTP send' });
-
-  } catch (error) {
-  // return  res.status(500).json({ message: 'OTP verification failed', });
-
+exports.sendOtP = async (req, res) => {
+  const { phone } = req.body;
+  if (!phone) {
+    return res.status(400).json({ error: 'Missing phone in request body' });
   }
-}
+
+  try {
+    const verification = await client.verify.v2
+      .services("VAb658e8e74273be5ea1b1a9b14b12c3b7")
+      .verifications
+      .create({ to: phone, channel: 'sms' });
+
+    console.log('OTP sent, status:', verification.status);
+    return res.status(200).json({ status: verification.status });
+  } catch (err) {
+    console.error('Error sending OTP:', err.code, err.message);
+    return res.status(500).json({ error: err.code ,});
+  }
+};
 
 // Verify OTP for phone login and generate a JWT token if the OTP is valid.
 // exports.sendOtp = async (req, res) => {
@@ -184,3 +179,9 @@ exports.sendOtP = async () =>{
 //     res.status(500).json({ message: 'OTP verification failed', error: error.message });
 //   }
 // };
+
+
+
+
+
+//// Admin Pannel User Creation

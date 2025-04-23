@@ -1,4 +1,36 @@
 const { Product, ProductDetails } = require('../models/Product');
+// upload files  
+exports.demo= async(req, res)=>{
+  console.log("file upload funtion is calling");
+  res.status(403).json({ status: false, error: "please upload a file" });
+
+}
+ exports.fileUpload = async (req, res) => {
+
+  console.log("file upload funtion is calling");
+    if (!req?.file) {
+        res.status(403).json({ status: false, error: "please upload a file" })
+        return;
+    }
+    let data = {}
+    if (!!req?.file) {
+        data = {
+            url: req.file.location,
+            type: req.file.mimetype
+        }
+    }
+    try {
+        res.send({
+            data: data,
+            status: true
+        })
+    } catch (error) {
+        res.status(403).json({ status: false, error: error })
+    }
+};
+
+
+
 
 // Create or add a product to shop's cartProduct array
 exports.addProduct = async (req, res) => {
@@ -10,14 +42,14 @@ exports.addProduct = async (req, res) => {
 
     if (productEntry) {
       // Add new product to existing shop
-      productEntry.cartProduct.push(productData);
+      productEntry.products.push(productData);
       await productEntry.save();
       return res.status(200).json({ message: "Product added to shop's inventory", data: productEntry,success:true });
     } else {
       // Create new shop with first product
       const newProduct = new Product({
         shopId,
-        cartProduct: [productData],
+        products: [productData],
       });
       await newProduct.save();
       return res.status(201).json({ message: 'New shop inventory created', data: newProduct,success:true });
