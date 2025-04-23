@@ -2,7 +2,6 @@ const express = require('express');
 const router = express.Router();
 const productController = require('../controllers/productController');
 
-const upload = require('../middleware/s3Upload');
 // Import all controllers
 const fuelController = require('../controllers/fuelController');
 const modelController = require('../controllers/modelController');
@@ -10,6 +9,9 @@ const yearController = require('../controllers/yearController');
 // const brandController = require('../controllers/brandController');
 const categoryController = require('../controllers/categoryController');
 
+const uploadMiddleWare = require('../middleware/s3Upload');
+
+router.post('/upload',uploadMiddleWare.single('file'),productController.fileUpload);
 // Create a new product (restricted to Shop Admin)
 router.post('product/:shopId', productController.addProduct);
 
@@ -21,6 +23,7 @@ router.get('product/:productId/:shopId', productController.getProductById);
 
 // Update product (restricted to Shop Admin)
 router.put('product//:productId/:shopId', productController.updateProduct);
+
 
 // Delete product (restricted to Shop Admin)
 router.delete('product//:productId/:shopId', productController.deleteProduct);

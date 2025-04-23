@@ -58,7 +58,7 @@
 //   }
 // };
 
-// // Delete brand by ID
+// Delete brand by ID
 // exports.deleteBrand = async (req, res) => {
 //   try {
 //     const deletedBrand = await Brand.findByIdAndDelete(req.params.id);
