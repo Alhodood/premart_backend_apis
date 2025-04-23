@@ -1,7 +1,6 @@
 const mongoose = require('mongoose');
 const modelSchema = new mongoose.Schema({
     modelName: String,
-    modelImage: String,
     brandId:String
     
     , 

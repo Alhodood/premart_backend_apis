@@ -11,6 +11,9 @@ router.post('/send-otp', authController.sendOtP);
 // router.post('/verify-otp', authController.verifyOtp);
 router.post('/user/register', authController.register);
 router.post('/user/login', authController.login);
+
+
+//  ADMIN ROUTES
 router.post('/admin/register', adminAuthController.register);
 router.post('/admin/login', adminAuthController.login);
 
