@@ -10,7 +10,34 @@ const yearController = require('../controllers/yearController');
 const categoryController = require('../controllers/categoryController');
 
 const uploadMiddleWare = require('../middleware/s3Upload');
+const multer=require('multer');
 
+const s3= require("../config/aws");
+const upload = multer({ storage: multer.memoryStorage() });
+
+router.post('/uploaded', upload.single('image'), async (req, res) => {
+  if (!req.file) return res.status(400).send('No file uploaded.');
+
+  const key = `uploads/${Date.now()}_${req.file.originalname}`;
+
+  try {
+    const result = await s3.upload({
+      Bucket: process.env.AWS_BUCKET_NAME,
+      Key: key,
+      Body: req.file.buffer,
+      ContentType: req.file.mimetype,
+      ACL: 'public-read',               // remove or adjust if your bucket disallows ACLs
+    }).promise();
+
+    // result.Location is the URL of the uploaded object
+    res.json({ imageUrl: result.Location });
+  } catch (err) {
+    console.error('S3 upload error:', err);
+    res.status(500).json({ error: 'Upload failed', details: err.message });
+  }
+});
+
+/// ====
 router.post('/upload',uploadMiddleWare.single('file'),productController.fileUpload);
 // Create a new product (restricted to Shop Admin)
 router.post('product/:shopId', productController.addProduct);

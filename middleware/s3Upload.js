@@ -27,6 +27,8 @@ const storage = multerS3({
 })
   
 
+
+
   function checkFileType(file, cb) {
     const filetypes = /jpeg|jpg|png|gif|mp4|mov|png/;
 
