@@ -32,7 +32,7 @@ router.post('/uploaded', upload.single('image'), async (req, res) => {
     // result.Location is the URL of the uploaded object
     res.json({ imageUrl: result.Location });
   } catch (err) {
-    console.error('S3 upload error:', err);
+    console.log('S3 upload error:', err);
     res.status(500).json({ error: 'Upload failed', details: err.message });
   }
 });
