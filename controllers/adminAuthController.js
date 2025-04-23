@@ -1,5 +1,5 @@
 const jwt = require('jsonwebtoken');
-const Admin = require('../models/Admin');
+const Admin = require('../models/AdminAuth');
 const twilio = require('twilio');
 const JWT_SECRET = process.env.JWT_SECRET || 'your_jwt_secret'; // Replace for production
 const JWT_EXPIRE = process.env.JWT_EXPIRE || '1d';
@@ -44,14 +44,6 @@ exports.register = async (req, res) => {
     res.status(500).json({ message: 'Registration failed', data: error.message,success:false });
   }
 };
-
-
-
-
-
-
-
-
 
 // Login a user via email and password
 exports.login = async (req, res) => {

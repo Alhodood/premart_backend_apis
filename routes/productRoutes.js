@@ -6,64 +6,37 @@ const productController = require('../controllers/productController');
 const fuelController = require('../controllers/fuelController');
 const modelController = require('../controllers/modelController');
 const yearController = require('../controllers/yearController');
-// const brandController = require('../controllers/brandController');
+const brandController = require('../controllers/brandController');
 const categoryController = require('../controllers/categoryController');
 
 const uploadMiddleWare = require('../middleware/s3Upload');
-const multer=require('multer');
 
-const s3= require("../config/aws");
-const upload = multer({ storage: multer.memoryStorage() });
-
-router.post('/uploaded', upload.single('image'), async (req, res) => {
-  if (!req.file) return res.status(400).send('No file uploaded.');
-
-  const key = `uploads/${Date.now()}_${req.file.originalname}`;
-
-  try {
-    const result = await s3.upload({
-      Bucket: process.env.AWS_BUCKET_NAME,
-      Key: key,
-      Body: req.file.buffer,
-      ContentType: req.file.mimetype,
-      ACL: 'public-read',               // remove or adjust if your bucket disallows ACLs
-    }).promise();
-
-    // result.Location is the URL of the uploaded object
-    res.json({ imageUrl: result.Location });
-  } catch (err) {
-    console.log('S3 upload error:', err);
-    res.status(500).json({ error: 'Upload failed', details: err.message });
-  }
-});
 
 /// ====
 router.post('/upload',uploadMiddleWare.single('file'),productController.fileUpload);
 // Create a new product (restricted to Shop Admin)
-router.post('product/:shopId', productController.addProduct);
+router.post('/product/:shopId', productController.addProduct);
 
 // Get all products for a shop
-router.get('product/:shopId', productController.getProductsByShop);
+router.get('/product/:shopId', productController.getProductsByShop);
 
 // Retrieve a specific product by ID (public)
-router.get('product/:productId/:shopId', productController.getProductById);
+router.get('/product/:productId/:shopId', productController.getProductById);
 
 // Update product (restricted to Shop Admin)
-router.put('product//:productId/:shopId', productController.updateProduct);
+router.put('/product//:productId/:shopId', productController.updateProduct);
 
 
 // Delete product (restricted to Shop Admin)
-router.delete('product//:productId/:shopId', productController.deleteProduct);
+router.delete('/product//:productId/:shopId', productController.deleteProduct);
 
 
-// // brand Routes
-// router.post('/brand', brandController.createBrand);
-
-// router.post('/brand', upload.single('brandImage'), brandController.createBrand);
-// router.get('/brand', brandController.getAllBrands);
-// router.get('/brand/:id', brandController.getBrandById);
-// router.put('/brand/:id', brandController.updateBrand);
-// router.delete('/brand/:id', brandController.deleteBrand);
+ // Brand Routes
+router.post('/brand', brandController.createBrand);
+router.get('/brand', brandController.getAllBrands);
+router.get('/brand/:id', brandController.getBrandById);
+router.put('/brand/:id', brandController.updateBrand);
+router.delete('/brand/:id', brandController.deleteBrand);
 
 
 // CATEGORY ROUTES
@@ -96,6 +69,7 @@ router.get('/year', yearController.getAllYears);
 router.get('/year/:id', yearController.getYearById);
 router.put('/year/:id', yearController.updateYear);
 router.delete('/year/:id', yearController.deleteYear);
+
 
 
 module.exports = router;

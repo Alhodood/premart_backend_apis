@@ -1,10 +1,8 @@
 const { Product, ProductDetails } = require('../models/Product');
-// upload files  
-exports.demo= async(req, res)=>{
-  console.log("file upload funtion is calling");
-  res.status(403).json({ status: false, error: "please upload a file" });
 
-}
+
+// upload files  common function
+
  exports.fileUpload = async (req, res) => {
 
   console.log("file upload funtion is calling");
