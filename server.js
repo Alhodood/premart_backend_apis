@@ -35,14 +35,14 @@ const io = socketIo(server, {
 // Middleware
 app.use(express.json());
 
-// app.use(cors({
-//   origin: [
-//     'http://property-erp.com',       // dev
-//     'https://property-erp.com',      // production
-//     'http://www.property-erp.com'   // if you support www
-//   ],
-//   credentials: true
-// }));
+app.use(cors({
+  origin: [
+    'http://property-erp.com',       // dev
+    'https://property-erp.com',      // production
+    'http://www.property-erp.com'   // if you support www
+  ],
+  credentials: true
+}));
 // Database connection (replace <connection_string> with your MongoDB URI)
 
 // mongoose.connect(process.env.MONGO_URI || '<connection_string>', { useNewUrlParser: true, useUnifiedTopology: true })
