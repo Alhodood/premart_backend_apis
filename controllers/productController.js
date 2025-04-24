@@ -1,5 +1,9 @@
 const { Product, ProductDetails } = require('../models/Product');
 
+const Brand=  require('../models/Brand');
+
+const Year=  require('../models/Year');
+const Category=  require('../models/Categories');
 
 // upload files  common function
 
@@ -28,6 +32,20 @@ const { Product, ProductDetails } = require('../models/Product');
 };
 
 
+// Get all product part in single API - (Brand, category, year, )
+
+exports.getProductElement= async(req, res)=>{
+  try{
+    console.log("print");
+const year=await Year.find({});
+const categories=await Category.find({});
+const brand=await Brand.find({});
+return res.status(200).json({ message: 'data featched', data:{year:year, category:categories,brand:brand},success:true });
+
+  } catch (error) {
+    return res.status(500).json({ message: 'Failed to add product', data: error.message, success:false});
+  }
+};
 
 
 // Create or add a product to shop's cartProduct array

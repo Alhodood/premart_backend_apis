@@ -14,6 +14,9 @@ const uploadMiddleWare = require('../middleware/s3Upload');
 
 /// ====
 router.post('/upload',uploadMiddleWare.single('file'),productController.fileUpload);
+
+// extra api for mobile get the common product related element
+router.get('/product/element',productController.getProductElement );
 // Create a new product (restricted to Shop Admin)
 router.post('/product/:shopId', productController.addProduct);
 
