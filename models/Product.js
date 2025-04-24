@@ -33,7 +33,7 @@ const productDetailesSchema = new mongoose.Schema({
 
 const productSchema= new mongoose.Schema({
   shopId: {type:String, required: true },
-  cartProduct: [productDetailesSchema]
+  products: [productDetailesSchema]
 },{timestamps: true });
 const Product=mongoose.model('Product',productSchema);
 const ProductDetails = mongoose.model('ProductDetails', productDetailesSchema);
