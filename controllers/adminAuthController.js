@@ -1,5 +1,8 @@
 const jwt = require('jsonwebtoken');
-const Admin = require('../models/AdminAuth');
+const{
+  ShopAdmin,
+  SuperAdmin
+} = require('../models/AdminAuth');
 const twilio = require('twilio');
 const JWT_SECRET = process.env.JWT_SECRET || 'your_jwt_secret'; // Replace for production
 const JWT_EXPIRE = process.env.JWT_EXPIRE || '1d';
@@ -10,20 +13,20 @@ const client = twilio(process.env.TWILIO_ACCOUNT_SID, process.env.TWILIO_AUTHTOK
 
 
 
-// Register a new user
+// Register a new shop
 exports.register = async (req, res) => {
 
   try {
     // console.log(req.body);
 
-    const { name, email, password, phone, role,dob,accountVerify,countryCode } = req.body;
+    const { name, email, password, phone, role,dob,accountVerify,countryCode,location,emiratesIdImage, companyLicenseImage } = req.body;
     // Ensure that at least one identifier (email or phone) is provided
     if (!email && !phone) {
       return res.status(200).json({ message: 'Email or phone number is required',success:false,data:[] });
     }
 
     // Check if the user already exists based on email or phone
-    const existingUser = await Admin.findOne({
+    const existingUser = await SuperAdmin.findOne({
       $or: [{ email }, { phone }]
     });
     if (existingUser) {
@@ -31,7 +34,7 @@ exports.register = async (req, res) => {
     }
     
     // Create new user
-    const user = new Admin(req.body);
+    const user = new SuperAdmin(req.body);
     console.log(user);
     console.log("----------");
 
@@ -45,13 +48,15 @@ exports.register = async (req, res) => {
   }
 };
 
-// Login a user via email and password
-exports.login = async (req, res) => {
+
+//  login as  SHOP or AGENCY
+
+exports.shopAdminLogin = async (req, res) => {
   try {
     const { email, password } = req.body;
     // console.log(email);
     // Find user by email
-    const user = await Admin.findOne({ email });
+    const user = await ShopAdmin.findOne({ email });
     console.log(user);
 
     if (!user) {
@@ -72,4 +77,35 @@ exports.login = async (req, res) => {
   
   }
 };
+
+
+// Login a SuperAdmin  via email and password
+exports.superAdminLogin = async (req, res) => {
+  try {
+    const { email, password } = req.body;
+    console.log(email);
+    // Find user by email
+    const user = await SuperAdmin.findOne({ email });
+    console.log(user);
+
+    if (!user) {
+      return res.status(200).json({ message: 'Invalid credentials',success:false,data:[] });
+    }
+    
+    const isMatch = await user.comparePassword(password);
+    if (!isMatch) {
+      return res.status(200).json({ message: 'Invalid password',success:false,data:[]  });
+    }
+    
+    // Generate JWT token
+    const token = jwt.sign({ id: user._id, role: user.role }, JWT_SECRET, { expiresIn: JWT_EXPIRE });
+    res.status(200).json({ success:true, message:"logined successfuly",data: { id: user._id, name: user.name, email: user.email, phone: user.phone, role: user.role,accountVerify:user.accountVerify,countryCode:user.countryCode, tokenId:token } });
+  
+  } catch (error) {
+    res.status(500).json({ message: 'Login failed', error: error.message });
+  
+  }
+};
+
+
 
