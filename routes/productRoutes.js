@@ -8,7 +8,6 @@ const modelController = require('../controllers/modelController');
 const yearController = require('../controllers/yearController');
 const brandController = require('../controllers/brandController');
 const categoryController = require('../controllers/categoryController');
-
 const uploadMiddleWare = require('../middleware/s3Upload');
 
 
