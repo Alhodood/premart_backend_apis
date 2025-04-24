@@ -16,7 +16,6 @@ const notification = require('./routes/notificationRoutes.js')
 const cart = require('./routes/cartRouter.js')
 const wishlist = require('./routes/wishlistRoutes.js')
 
-
 const connectDB =require("./config/db.js")
 // Use the product routes
 
@@ -34,7 +33,6 @@ const io = socketIo(server, {
 });
 
 // Middleware
-
 app.use(express.json());
 
 app.use(cors({

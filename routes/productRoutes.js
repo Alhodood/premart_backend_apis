@@ -2,38 +2,44 @@ const express = require('express');
 const router = express.Router();
 const productController = require('../controllers/productController');
 
-const upload = require('../middleware/s3Upload');
 // Import all controllers
 const fuelController = require('../controllers/fuelController');
 const modelController = require('../controllers/modelController');
 const yearController = require('../controllers/yearController');
-// const brandController = require('../controllers/brandController');
+const brandController = require('../controllers/brandController');
 const categoryController = require('../controllers/categoryController');
 
+const uploadMiddleWare = require('../middleware/s3Upload');
+
+
+/// ====
+router.post('/upload',uploadMiddleWare.single('file'),productController.fileUpload);
+
+// extra api for mobile get the common product related element
+router.get('/product/element',productController.getProductElement );
 // Create a new product (restricted to Shop Admin)
-router.post('product/:shopId', productController.addProduct);
+router.post('/product/:shopId', productController.addProduct);
 
 // Get all products for a shop
-router.get('product/:shopId', productController.getProductsByShop);
+router.get('/product/:shopId', productController.getProductsByShop);
 
 // Retrieve a specific product by ID (public)
-router.get('product/:productId/:shopId', productController.getProductById);
+router.get('/product/:productId/:shopId', productController.getProductById);
 
 // Update product (restricted to Shop Admin)
-router.put('product//:productId/:shopId', productController.updateProduct);
+router.put('/product//:productId/:shopId', productController.updateProduct);
+
 
 // Delete product (restricted to Shop Admin)
-router.delete('product//:productId/:shopId', productController.deleteProduct);
+router.delete('/product//:productId/:shopId', productController.deleteProduct);
 
 
-// // brand Routes
-// router.post('/brand', brandController.createBrand);
-
-// router.post('/brand', upload.single('brandImage'), brandController.createBrand);
-// router.get('/brand', brandController.getAllBrands);
-// router.get('/brand/:id', brandController.getBrandById);
-// router.put('/brand/:id', brandController.updateBrand);
-// router.delete('/brand/:id', brandController.deleteBrand);
+ // Brand Routes
+router.post('/brand', brandController.createBrand);
+router.get('/brand', brandController.getAllBrands);
+router.get('/brand/:id', brandController.getBrandById);
+router.put('/brand/:id', brandController.updateBrand);
+router.delete('/brand/:id', brandController.deleteBrand);
 
 
 // CATEGORY ROUTES
@@ -66,6 +72,7 @@ router.get('/year', yearController.getAllYears);
 router.get('/year/:id', yearController.getYearById);
 router.put('/year/:id', yearController.updateYear);
 router.delete('/year/:id', yearController.deleteYear);
+
 
 
 module.exports = router;

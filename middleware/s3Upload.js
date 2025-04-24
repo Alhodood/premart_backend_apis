@@ -1,54 +1,58 @@
-// // middleware/upload.js
-// const multer = require('multer');
-// const path = require('path');
-
-// const storage = multer.diskStorage({
-//   destination: function (req, file, cb) {
-//     cb(null, 'uploads/'); // storage folder
-//   },
-//   filename: function (req, file, cb) {
-//     cb(null, Date.now() + '-' + file.originalname); // unique file name
-//   }
-// });
-
-// const fileFilter = (req, file, cb) => {
-//   const allowedTypes = /jpeg|jpg|png|gif/;
-//   const ext = allowedTypes.test(path.extname(file.originalname).toLowerCase());
-//   const mime = allowedTypes.test(file.mimetype);
-//   if (ext && mime) {
-//     cb(null, true);
-//   } else {
-//     cb('Only images are allowed');
-//   }
-// };
-
-// const upload = multer({
-//   storage: storage,
-//   fileFilter: fileFilter
-// });
-
-// module.exports = upload;
-
-
-
-// middleware/s3Upload.js
 const multer = require('multer');
-const multerS3 = require('multer-s3');
-const s3 = require('../config/aws');
+const path = require('path');
+// const util = require('util')
+const { S3Client } = require('@aws-sdk/client-s3')
 
-const upload = multer({
-  storage: multerS3({
-    s3: s3,
-    bucket: process.env.AWS_BUCKET_NAME,           // your bucket name
-    acl: 'public-read',
-    metadata: function (req, file, cb) {
-      cb(null, { fieldName: file.fieldname });
-    },
-    key: function (req, file, cb) {
-      const filename = Date.now().toString() + '-' + file.originalname;
-      cb(null, filename);
+const multerS3 = require('multer-s3')
+
+const s3 = new S3Client({
+  credentials: {
+    secretAccessKey: process.env.AWS_SECRET_ACCESS_KEY,
+    accessKeyId: process.env.AWS_ACCESS_KEY_ID
+  },
+  region: process.env.AWS_REGION
+})
+
+
+const storage = multerS3({
+  s3: s3,
+  bucket: process.env.AWS_BUCKET_NAME,
+  contentType: multerS3.AUTO_CONTENT_TYPE,
+  metadata: function (req, file, cb) {
+    cb(null, {fieldName: file.fieldname});
+  },
+  key: function (req, file, cb) {
+    cb(null, Date.now().toString())
+  }
+})
+  
+
+
+
+  function checkFileType(file, cb) {
+    const filetypes = /jpeg|jpg|png|gif|mp4|mov|png/;
+
+    const extname = filetypes.test(path.extname(file.originalname).toLowerCase());
+
+    const mimetype = filetypes.test(file.mimetype);
+    
+
+    if (extname && mimetype) {
+      return cb(null, true);
+    } else {
+      cb('Error: Images only (jpeg, jpg, png, gif, mp4, mov, png)!');
     }
-  })
-});
+  }
 
-module.exports = upload;
+  const upload = multer({
+    storage: storage,
+    fileFilter: function (req, file, cb) {
+      checkFileType(file, cb);
+    }
+  }); 
+  
+  const uploadMiddleWare = upload
+
+  module.exports = uploadMiddleWare
+ 
+  
