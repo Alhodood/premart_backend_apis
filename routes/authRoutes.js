@@ -13,8 +13,12 @@ router.post('/user/register', authController.register);
 router.post('/user/login', authController.login);
 
 
-//  ADMIN ROUTES
+// SHOP or AGENCY ROUTES
 router.post('/admin/register', adminAuthController.register);
-router.post('/admin/login', adminAuthController.login);
+router.post('/admin/login', adminAuthController.shopAdminLogin);
+
+//   SUPER ADMIN ROUTES
+router.post('/superAdmin/register', adminAuthController.register);
+router.post('/superAdmin/login', adminAuthController.superAdminLogin);
 
 module.exports = router;
