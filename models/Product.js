@@ -1,6 +1,5 @@
 const mongoose = require('mongoose');
 
-// const Brands = require('../models/Brand');
 // const Category = require('../models/Categories');
 // const Model= require('../models/Model');
 // const Year = require('../models/Year');
