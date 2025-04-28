@@ -37,10 +37,13 @@ app.use(express.json());
 
 app.use(cors({
   origin: [
+    "http://localhost:5000",
     'http://property-erp.com',       // dev
     'https://property-erp.com',      // production
     'http://www.property-erp.com'   // if you support www
   ],
+  methods: ['GET','POST','PUT','DELETE','OPTIONS'],
+    allowedHeaders: ['Content-Type','Authorization'],
   credentials: true
 }));
 // Database connection (replace <connection_string> with your MongoDB URI)
