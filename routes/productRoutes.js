@@ -11,8 +11,12 @@ const categoryController = require('../controllers/categoryController');
 const uploadMiddleWare = require('../middleware/s3Upload');
 
 
-/// ====
+/// ==== this is for upload image in s3 bucket
 router.post('/upload',uploadMiddleWare.single('file'),productController.fileUpload);
+
+
+//===
+
 
 // extra api for mobile get the common product related element
 router.get('/product/element',productController.getProductElement );
@@ -30,7 +34,7 @@ router.put('/product/:productId/:shopId', productController.updateProduct);
 
 
 // Delete product (restricted to Shop Admin)
-router.delete('/product//:productId/:shopId', productController.deleteProduct);
+router.delete('/product/:productId/:shopId', productController.deleteProduct);
 
 
  // Brand Routes
