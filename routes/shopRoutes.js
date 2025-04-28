@@ -10,7 +10,7 @@ router.get('/', shopController.getAllShops);
 
 router.get('/:shopId', shopController.getShopById);
 
-router.put('/:shopId', shopController.updateShop);
+router.put('/:id', shopController.updateShop);
 
 router.delete('/:shopId', shopController.deleteShop);
 

@@ -3,13 +3,32 @@ const { Shop } = require('../models/Shop');
 // Create a new shop
 exports.createShop = async (req, res) => {
   try {
-    const shopId= req.params.shopId;
+    // const shopId= req.params.shopId;
     const  shopeDetails  = req.body;
+console.log(shopeDetails);
+    // const newShop = new Shop({
+    //   // shopId,
+    //   shopeDetails
+    // });
 
     const newShop = new Shop({
-      shopId,
-      shopeDetails
+      shopeDetails: {
+        shopName: req.body.shopeDetails.shopName,
+        shopAddress: req.body.shopeDetails.shopAddress,
+        shopMail: req.body.shopeDetails.shopMail,
+        shopContact: req.body.shopeDetails.shopContact,
+        shopLicenseNumber: req.body.shopeDetails.shopLicenseNumber,
+        shopLicenseExpiry: req.body.shopeDetails.shopLicenseExpiry,
+        shopLicenseImage: req.body.shopeDetails.shopLicenseImage,
+        EmiratesId: req.body.shopeDetails.EmiratesId,
+        shopLocation: req.body.shopeDetails.shopLocation,
+        termsAndCondition: req.body.shopeDetails.termsAndCondition,
+        supportMail: req.body.shopeDetails.supportMail,
+        supportNumber: req.body.shopeDetails.supportNumber,
+        shopBankDetails: req.body.shopeDetails.shopBankDetails
+      }
     });
+    console.log(newShop);
 
     const savedShop = await newShop.save();
     res.status(201).json({ success: true, data: savedShop,message:"New shop created successfuly" });
@@ -44,11 +63,12 @@ exports.getShopById = async (req, res) => {
 
 // Update shop by ID
 exports.updateShop = async (req, res) => {
+  console.log(req.body);
   try {
     const updatedShop = await Shop.findByIdAndUpdate(
       req.params.id,
       req.body,
-      { new: true, runValidators: true }
+      {runValidators: true }
     );
     if (!updatedShop) {
       return res.status(404).json({ success: false, message: 'Shop not found',data:[] });
