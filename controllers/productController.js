@@ -49,11 +49,12 @@ return res.status(200).json({ message: 'data featched', data:{year:year, categor
 
 
 // Create or add a product to shop's cartProduct array
-exports.addProduct = async (req, res) => {
-  try {
-    const { shopId } = req.params.shopId;
-    const productData = req.body;
+exports.addProduct = async (req,res) => {
 
+  try {
+    const { shopId } = req.params.id;
+    const productData = ProductDetails(req.body);
+console.log(productData);
     let productEntry = await Product.findOne({ shopId });
 
     if (productEntry) {
