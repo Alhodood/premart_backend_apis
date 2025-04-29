@@ -184,4 +184,53 @@ exports.sendOtP = async (req, res) => {
 
 
 
-//// Admin Pannel User Creation
+
+
+
+
+
+exports.getAllCustomers = async (req, res) => {
+  try {
+    const {
+      search,
+      page = 1,
+      limit = 10,
+      sort = 'desc',
+      sortBy = 'createdAt'
+    } = req.query;
+
+    let filter = { role: 'customer' };
+
+    if (search) {
+      filter.$or = [
+        { name: { $regex: search, $options: 'i' } },
+        { email: { $regex: search, $options: 'i' } },
+        { phone: { $regex: search, $options: 'i' } }
+      ];
+    }
+
+    const customers = await User.find(filter)
+      .sort({ [sortBy]: sort === 'asc' ? 1 : -1 })
+      .skip((page - 1) * limit)
+      .limit(parseInt(limit));
+
+    const total = await User.countDocuments(filter);
+
+    return res.status(200).json({
+      message: 'Customers fetched successfully',
+      success: true,
+      total,
+      page: parseInt(page),
+      limit: parseInt(limit),
+      data: customers
+    });
+
+  } catch (error) {
+    console.error('Get Customers Error:', error);
+    return res.status(500).json({
+      message: 'Failed to fetch customers',
+      success: false,
+      data: error.message
+    });
+  }
+};

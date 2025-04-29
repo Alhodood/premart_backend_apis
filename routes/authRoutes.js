@@ -21,4 +21,8 @@ router.post('/admin/login', adminAuthController.shopAdminLogin);
 router.post('/superAdmin/register', adminAuthController.register);
 router.post('/superAdmin/login', adminAuthController.superAdminLogin);
 
+
+// View, filter, search all customers
+router.get('/allCustomer', authController.getAllCustomers);
+
 module.exports = router;
