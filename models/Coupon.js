@@ -1,24 +1,15 @@
-const mongoose= require('mongoose');
+const mongoose = require('mongoose');
 
-const couponDetails= new mongoose.Schema({
-    title: {type:String, required: true },
-    subTitle: String,
-    Image: String,
-    couponCode:{type:String, required: true },
-    startDate:{type:Date, required: true },
-    endDate:{type:Date, required: true },
-    discountPersantage: String
+const couponSchema = new mongoose.Schema({
+  shopId: { type: mongoose.Schema.Types.ObjectId, ref: 'Shop', required: false }, // Null for SuperAdmin-wide
+  code: { type: String, unique: true, required: true },
+  discountType: { type: String, enum: ['flat', 'percent'], required: true },
+  discountValue: { type: Number, required: true },
+  minOrderAmount: Number,
+  usageLimit: Number,
+  usedCount: { type: Number, default: 0 },
+  expiryDate: Date,
+  isActive: { type: Boolean, default: true }
+}, { timestamps: true });
 
-
-
-
-    
-},{timestamps: true });
-
-
-const couponSchema= new mongoose.Schema({
-    shopeId: {type:String, required: true },
-    cartProduct: [couponDetails]
-},{timestamps: true });
-module.exports.mongoose.model('Coupon',couponSchema);
-
+module.exports = mongoose.model('Coupon', couponSchema);

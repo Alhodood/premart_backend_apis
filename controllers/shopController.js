@@ -1,4 +1,5 @@
 const { Shop } = require('../models/Shop');
+const Order = require('../models/Order');
 
 // Create a new shop
 exports.createShop = async (req, res) => {
@@ -153,6 +154,55 @@ exports.searchShopsForSuperAdmin = async (req, res) => {
       message: 'Failed to fetch shops',
       success: false,
       data: error.message
+    });
+  }
+};
+
+
+
+exports.shopConfirmReady = async (req, res) => {
+  try {
+    const { orderId } = req.params;
+    const { shopId } = req.body;
+
+    if (!shopId) {
+      return res.status(400).json({
+        message: 'shopId is required',
+        success: false
+      });
+    }
+
+    const order = await Order.findOne({ _id: orderId, shopId });
+
+    if (!order) {
+      return res.status(404).json({
+        message: 'Order not found or does not belong to this shop',
+        success: false
+      });
+    }
+
+    if (order.orderStatus !== 'Accepted by Delivery Boy') {
+      return res.status(400).json({
+        message: `Cannot mark order as ready from current status: ${order.orderStatus}`,
+        success: false
+      });
+    }
+
+    order.orderStatus = 'Ready for Pickup';
+    await order.save();
+
+    return res.status(200).json({
+      message: 'Order marked as Ready for Pickup',
+      success: true,
+      data: order
+    });
+
+  } catch (error) {
+    console.error('Vendor Confirm Ready Error:', error);
+    return res.status(500).json({
+      message: 'Internal Server Error',
+      success: false,
+      error: error.message
     });
   }
 };

@@ -1,10 +1,12 @@
 const express = require('express');
 const router = express.Router();
 const orderController = require('../controllers/orderController');
+const { protect } = require('../middleware/authMiddleware');
 
-router.post('/create/:userId', orderController.createOrder);
 
-router.get('/my-orders/:userId', orderController.viewMyOrders);
+router.post('/create/:userId', protect,orderController.createOrder);
+
+router.get('/my-orders/:userId',protect ,orderController.viewMyOrders);
 
 router.get('/all-orders', orderController.getAllOrders);
 
@@ -20,9 +22,9 @@ router.put('/delivery-boy/accept-reject/:orderId', orderController.deliveryBoyAc
 
 router.put('/customer/refund-request/:orderId', orderController.customerRaiseRefundRequest);
 
-router.put('/assign-delivery-boy/:orderId', orderController.assignDeliveryBoy);
+router.put('/assign-delivery-boy/:orderId', orderController.assignOrderManually);
 
-router.put('/auto-assign-within-5km/:orderId', orderController.autoAssignDeliveryBoyWithin5km);
+router.patch('/auto-assign/:orderId', orderController.autoAssignDeliveryBoyWithin5km);
 
 
 
