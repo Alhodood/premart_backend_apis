@@ -23,6 +23,10 @@ const refund = require('./routes/refundRoutes.js')
 const invoice = require('./routes/invoiceRoutes.js')
 const payout = require('./routes/payoutRoutes.js')
 const agency = require('./routes/agencyRoutes.js')
+const stock = require('./routes/stockRoutes.js')
+const superNotification = require('./routes/superNotificationRoute.js')
+const offerCoupon = require('./routes/offerCouponRoutes.js')
+const dashboard = require('./routes/dashboardRoutes.js')
 
 const connectDB =require("./config/db.js")
 
@@ -82,6 +86,10 @@ app.use('/api/refund',refund);
 app.use('/api/invoice',invoice);
 app.use('/api/payout',payout);
 app.use('/api/agency',agency);
+app.use('/api/stock',stock);
+app.use('/api/superNotification',superNotification);
+app.use('/api/offer-Coupon',offerCoupon);
+app.use('/api/dashboard',dashboard);
 
 
 // Basic route

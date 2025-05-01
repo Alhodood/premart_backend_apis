@@ -1,128 +1,230 @@
 const Order = require('../models/Order');
 const Cart = require('../models/Cart');
 const { Product } = require('../models/Product');
-const CustomerAddress = require('../models/CustomerAddress');
+
 const DeliveryBoy = require('../models/DeliveryBoy');
 const mongoose = require('mongoose');
+const Stock = require('../models/Stock');
+const axios = require('axios');
+const CustomerAddress = require('../models/CustomerAddress');
+const geolib = require('geolib');
+const { Shop } = require('../models/Shop');
+
+
+// Create Order and auto-reduce stock
+const Coupon = require('../models/Coupon');
+const Offer = require('../models/Offers');
+const GOOGLE_API_KEY = process.env.GOOGLE_MAPS_API_KEY;
+const PER_KM_RATE = parseFloat(process.env.PER_KM_RATE) || 2; // AED per km
+
+const getLatLngFromAddress = async (addressString) => {
+  try {
+    const url = `https://maps.googleapis.com/maps/api/geocode/json?address=${encodeURIComponent(addressString)}&key=${GOOGLE_API_KEY}`;
+    const response = await axios.get(url);
+
+    if (
+      response.data &&
+      response.data.results &&
+      response.data.results.length > 0
+    ) {
+      const location = response.data.results[0].geometry.location;
+      return {
+        latitude: location.lat,
+        longitude: location.lng
+      };
+    }
+
+    return null;
+  } catch (err) {
+    console.error('Geocode API Error:', err.message);
+    return null;
+  }
+};
+
+
+
 
 exports.createOrder = async (req, res) => {
   try {
-    const userId = req.params.userId;
-    const { deliveryAddressId, availableCoupon, offers, discount, deliverycharge, addressType } = req.body;
+    const { couponCode } = req.body;
+    const userId = req.user._id;
 
-    if (!userId || !deliveryAddressId) {
-      return res.status(400).json({
-        message: 'UserId and DeliveryAddressId are required',
-        success: false,
-        data: []
-      });
-    }
+    // Step 1: Fetch user address
+    const addressDoc = await CustomerAddress.findOne({ userId });
+    if (!addressDoc || addressDoc.customerAddress.length === 0)
+      return res.status(400).json({ message: 'No delivery address found', success: false });
 
-    // 1️⃣ Fetch Cart
+    let deliveryAddress = addressDoc.customerAddress.find(a => a.default) || addressDoc.customerAddress[0];
+    deliveryAddress = deliveryAddress.toObject();
+
+    // Step 2: Fetch cart and products
     const cart = await Cart.findOne({ userId });
-    if (!cart || cart.cartProduct.length === 0) {
-      return res.status(400).json({
-        message: 'Cart is empty',
-        success: false,
-        data: []
-      });
-    }
+    if (!cart || cart.cartProduct.length === 0)
+      return res.status(400).json({ message: 'Cart is empty', success: false });
 
-    // 2️⃣ Fetch Address
-    const customerAddress = await CustomerAddress.findOne(
-      { "customerAddress._id": deliveryAddressId },
-      { "customerAddress.$": 1 }
+    const productIds = cart.cartProduct;
+    const productDocs = await Product.find({ 'products._id': { $in: productIds } });
+
+    const allProducts = productDocs.flatMap(shop =>
+      shop.products.filter(p => productIds.includes(p._id.toString()))
     );
+    const shopId = productDocs[0]?.shopId || null;
+    if (!shopId) return res.status(400).json({ message: 'No valid shopId found', success: false });
 
-    if (!customerAddress || customerAddress.customerAddress.length === 0) {
-      return res.status(404).json({
-        message: 'Delivery Address not found',
-        success: false,
-        data: []
+    // Step 3: Calculate offers
+    let originalTotal = 0, totalOfferDiscount = 0, appliedOffers = [];
+    for (const product of allProducts) {
+      const price = product.price;
+      originalTotal += price;
+
+      const offer = await Offer.findOne({
+        productIds: { $in: [product._id] },
+        isActive: true,
+        startDate: { $lte: new Date() },
+        endDate: { $gte: new Date() }
       });
-    }
 
-    const address = customerAddress.customerAddress[0];
+      if (offer) {
+        const offerDiscount = offer.discountType === 'percent'
+          ? (price * offer.discountValue) / 100
+          : offer.discountValue;
 
-    // 3️⃣ Fetch ShopId from Product
-    const firstProductId = cart.cartProduct[0];
-    const productData = await Product.findOne({ "products._id": firstProductId });
-
-    if (!productData) {
-      return res.status(404).json({
-        message: 'Product not found to fetch ShopId',
-        success: false,
-        data: []
-      });
-    }
-
-    const shopId = productData.shopId;
-
-    // 4️⃣ Calculate Total Amount from Products
-
-    let totalAmount = 0;
-
-    for (const productId of cart.cartProduct) {
-      const productDocument = await Product.findOne({ "products._id": productId });
-
-      if (productDocument) {
-        const productFound = productDocument.products.find(p => p._id.toString() === productId);
-        if (productFound && productFound.price) {
-          totalAmount += Number(productFound.price);
-        }
+        totalOfferDiscount += offerDiscount;
+        appliedOffers.push({
+          productId: product._id,
+          name: product.name,
+          discount: offerDiscount,
+          offerId: offer._id,
+          title: offer.title,
+          type: offer.discountType,
+          value: offer.discountValue
+        });
       }
     }
 
-    // 5️⃣ Apply Discount if any
-    let finalAmount = totalAmount;
-    if (discount && !isNaN(discount)) {
-      finalAmount = finalAmount - Number(discount);
+    // Step 4: Apply coupon
+    const priceAfterOffers = originalTotal - totalOfferDiscount;
+    let couponDiscount = 0, appliedCoupon = null;
+    if (couponCode) {
+      const coupon = await Coupon.findOne({ code: couponCode, isActive: true });
+      if (!coupon) return res.status(400).json({ message: 'Invalid coupon', success: false });
+      if (new Date() > coupon.expiryDate) return res.status(400).json({ message: 'Coupon expired', success: false });
+      if (coupon.usageLimit && coupon.usedCount >= coupon.usageLimit)
+        return res.status(400).json({ message: 'Coupon usage limit reached', success: false });
+
+      if (coupon.minOrderAmount && priceAfterOffers < coupon.minOrderAmount)
+        return res.status(400).json({ message: `Min order ₹${coupon.minOrderAmount} needed`, success: false });
+
+      couponDiscount = coupon.discountType === 'percent'
+        ? (priceAfterOffers * coupon.discountValue) / 100
+        : coupon.discountValue;
+
+      appliedCoupon = {
+        code: coupon.code,
+        discountType: coupon.discountType,
+        discountValue: coupon.discountValue
+      };
+
+      coupon.usedCount += 1;
+      await coupon.save();
     }
 
-    // 6️⃣ Create New Order
+    const totalDiscount = totalOfferDiscount + couponDiscount;
+    const totalAmount = originalTotal - totalDiscount;
+    const deliverycharge = originalTotal < 500;
+    const savings = totalDiscount;
+
+    // Step 5: Get user lat/lng if missing
+    if (!deliveryAddress.latitude || !deliveryAddress.longitude) {
+      const fullAddress = `${deliveryAddress.flatNumber}, ${deliveryAddress.area}, ${deliveryAddress.place}`;
+      const coords = await getLatLngFromAddress(fullAddress);
+      if (coords) {
+        deliveryAddress.latitude = coords.latitude;
+        deliveryAddress.longitude = coords.longitude;
+      }
+    }
+
+    // Step 6: Calculate distance & earning
+    const shop = await Shop.findOne({ _id: shopId });
+    const shopLatLng = shop?.shopeDetails?.shopLocation?.split(',').map(Number);
+    let deliveryDistance = 0;
+    let deliveryEarning = 0;
+    if (shopLatLng?.length === 2 && deliveryAddress.latitude && deliveryAddress.longitude) {
+      deliveryDistance = geolib.getDistance(
+        { latitude: shopLatLng[0], longitude: shopLatLng[1] },
+        { latitude: deliveryAddress.latitude, longitude: deliveryAddress.longitude }
+      ) / 1000;
+      deliveryEarning = +(PER_KM_RATE * deliveryDistance).toFixed(2);
+    }
+
+     // Step 7.0: Reduce Stock
+     for (const pid of productIds) {
+      await Stock.findOneAndUpdate(
+        { shopId, productId: pid },
+        { $inc: { quantity: -1 } }, // assuming quantity 1 for simplicity
+        { new: true }
+      );
+    }
+
+    // Step 7: Save order
     const newOrder = new Order({
       userId,
       shopId,
-      productId: cart.cartProduct,
-      deliveryAddress: {
-        name: address.name,
-        email: address.email,
-        flatNumber: address.flatNumber,
-        contact: address.contact,
-        area: address.area,
-        place: address.place,
-        default: address.default,
-        addressType: address.addressType
-      },
-      availableCoupon,
-      offers,
-      totalAmount: finalAmount.toString(),
-      discount,
+      productId: productIds,
+      deliveryAddress,
+      totalAmount,
+      discount: totalDiscount,
       deliverycharge,
-      addressType
+      couponCode,
+      appliedCoupon,
+      appliedOffers,
+      orderStatus: 'Pending',
+      refundRequest: { requested: false, status: 'Pending' },
+      deliveryDistance,
+      deliveryEarning
     });
 
     await newOrder.save();
 
-    // 7️⃣ Clear the Cart after Order Success
+    // Step 8: Clear cart
     cart.cartProduct = [];
     await cart.save();
 
+    // Step 9: Respond
     return res.status(201).json({
       message: 'Order placed successfully',
       success: true,
-      data: newOrder
+      data: {
+        orderId: newOrder._id,
+        originalTotal,
+        discount: totalDiscount,
+        totalAmount,
+        finalPayable: totalAmount,
+        deliverycharge,
+        savings,
+        deliveryDistance,
+        deliveryEarning,
+        appliedCoupon,
+        appliedOffers,
+        deliveryAddress,
+        products: allProducts.map(p => ({
+          id: p._id,
+          name: p.name,
+          price: p.price
+        }))
+      }
     });
 
-  } catch (error) {
-    console.error('Create Order Error:', error);
+  } catch (err) {
+    console.error('Create Order Error:', err);
     res.status(500).json({
-      message: 'Failed to create order',
+      message: 'Failed to place order',
       success: false,
-      data: error.message
+      data: err.message
     });
   }
 };
+
 
 exports.viewMyOrders = async (req, res) => {
     try {
@@ -563,48 +665,36 @@ exports.viewOrdersByShopAdmin = async (req, res) => {
   };
 
 
-  exports.assignDeliveryBoy = async (req, res) => {
+  exports.assignOrderManually = async (req, res) => {
     try {
-      const orderId = req.params.orderId;
-      const { deliveryBoyId } = req.body;
+      const { orderId, deliveryBoyId } = req.body;
   
-      if (!orderId || !deliveryBoyId) {
-        return res.status(400).json({
-          message: 'OrderId and DeliveryBoyId are required',
-          success: false,
-          data: []
-        });
+      const order = await Order.findById(orderId);
+      if (!order) return res.status(404).json({ success: false, message: 'Order not found' });
+  
+      const deliveryBoy = await DeliveryBoy.findById(deliveryBoyId);
+      if (!deliveryBoy || !deliveryBoy.availability) {
+        return res.status(400).json({ success: false, message: 'Invalid or unavailable delivery boy' });
       }
   
-      const updatedOrder = await Order.findByIdAndUpdate(
-        orderId,
-        {
-          assignedDeliveryBoy: deliveryBoyId,
-          orderStatus: 'Delivery Boy Assigned'
-        },
-        { new: true }
-      );
-  
-      if (!updatedOrder) {
-        return res.status(404).json({
-          message: 'Order not found',
-          success: false,
-          data: []
-        });
-      }
+      order.assignedDeliveryBoy = deliveryBoyId;
+      order.orderStatus = 'Delivery Boy Assigned';
+      await order.save();
   
       return res.status(200).json({
-        message: 'Delivery Boy assigned successfully',
+        message: 'Order manually assigned to delivery boy',
         success: true,
-        data: updatedOrder
+        data: {
+          orderId: order._id,
+          deliveryBoy: deliveryBoy.name
+        }
       });
   
-    } catch (error) {
-      console.error('Assign Delivery Boy Error:', error);
+    } catch (err) {
       res.status(500).json({
-        message: 'Failed to assign delivery boy',
+        message: 'Manual order assignment failed',
         success: false,
-        data: error.message
+        data: err.message
       });
     }
   };
@@ -632,30 +722,30 @@ function calculateDistance(lat1, lon1, lat2, lon2) {
 
 
 
-// Haversine formula function...
-
 exports.autoAssignDeliveryBoyWithin5km = async (req, res) => {
   try {
     const orderId = req.params.orderId;
-    const { shopLatitude, shopLongitude } = req.body;
 
-    if (!orderId || shopLatitude === undefined || shopLongitude === undefined) {
-      return res.status(400).json({
-        message: 'OrderId, ShopLatitude, and ShopLongitude are required',
-        success: false,
-        data: []
-      });
+    // 1️⃣ Find order
+    const order = await Order.findById(orderId);
+    if (!order) {
+      return res.status(404).json({ message: 'Order not found', success: false, data: [] });
     }
 
+    // 2️⃣ Fetch shop using order.shopId
+    const shop = await Shop.findById(order.shopId);
+    if (!shop || !shop.shopeDetails || !shop.shopeDetails.shopLocation) {
+      return res.status(404).json({ message: 'Shop location not found', success: false, data: [] });
+    }
+
+    const [shopLatitude, shopLongitude] = shop.shopeDetails.shopLocation.split(',').map(Number);
+
+    if (!shopLatitude || !shopLongitude) {
+      return res.status(400).json({ message: 'Invalid shop location coordinates', success: false });
+    }
+
+    // 3️⃣ Fetch available delivery boys
     const deliveryBoys = await DeliveryBoy.find({ availability: true });
-
-    if (deliveryBoys.length === 0) {
-      return res.status(404).json({
-        message: 'No delivery boys available',
-        success: false,
-        data: []
-      });
-    }
 
     const nearbyDeliveryBoys = deliveryBoys
       .map(boy => {
@@ -666,26 +756,12 @@ exports.autoAssignDeliveryBoyWithin5km = async (req, res) => {
       .sort((a, b) => a.distance - b.distance);
 
     if (nearbyDeliveryBoys.length === 0) {
-      return res.status(404).json({
-        message: 'No delivery boy found within 5 km',
-        success: false,
-        data: []
-      });
+      return res.status(404).json({ message: 'No delivery boy found within 5 km', success: false });
     }
 
     const nearestDeliveryBoy = nearbyDeliveryBoys[0];
 
-    // 1️⃣ Check if order exists first
-    const order = await Order.findById(orderId);
-    if (!order) {
-      return res.status(404).json({
-        message: 'Order not found',
-        success: false,
-        data: []
-      });
-    }
-
-    // 2️⃣ Now Properly Update Order
+    // 4️⃣ Update order
     order.assignedDeliveryBoy = new mongoose.Types.ObjectId(nearestDeliveryBoy._id);
     order.orderStatus = 'Delivery Boy Assigned';
     await order.save();
@@ -701,12 +777,11 @@ exports.autoAssignDeliveryBoyWithin5km = async (req, res) => {
 
   } catch (error) {
     console.error('Auto Assign Delivery Boy Error:', error);
-    res.status(500).json({
+    return res.status(500).json({
       message: 'Failed to auto assign delivery boy',
       success: false,
       data: error.message
     });
   }
 };
-
 

@@ -2,10 +2,17 @@ const express = require('express');
 const router = express.Router();
 const notificationController = require('../controllers/superNotificationController');
 
-// Create Notification (send now or schedule)
-router.post('/create', notificationController.createNotification);
+const { protect } = require('../middleware/authMiddleware');
+const { allowRoles } = require('../middleware/roleMiddleware');
 
-// View All / Search / Filter Notifications
-router.get('/all', notificationController.getAllNotifications);
+// 💬 Authenticated + Role-protected routes
+router.post('/create', protect, allowRoles('superAdmin', 'shopAdmin'), notificationController.createNotification);
+router.get('/all', protect, allowRoles('superAdmin', 'shopAdmin'), notificationController.getAllNotifications);
+router.put('/update/:id', protect, allowRoles('superAdmin', 'shopAdmin'), notificationController.updateNotification);
+router.delete('/:id', protect, allowRoles('superAdmin', 'shopAdmin'), notificationController.deleteNotification);
+
+// 👤 Accessible to any authenticated user
+router.get('/my', protect, notificationController.getMyNotifications);
+router.patch('/mark-read/:notificationId', protect, notificationController.markAsRead);
 
 module.exports = router;
