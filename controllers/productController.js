@@ -5,6 +5,12 @@ const Brand=  require('../models/Brand');
 const Year=  require('../models/Year');
 const Category=  require('../models/Categories');
 
+
+const Fuel = require('../models/Fuel');
+const Model = require('../models/Model');
+
+
+
 // upload files  common function
 
  exports.fileUpload = async (req, res) => {
@@ -34,16 +40,44 @@ const Category=  require('../models/Categories');
 
 // Get all product part in single API - (Brand, category, year, )
 
-exports.getProductElement= async(req, res)=>{
-  try{
-    console.log("print");
-const year=await Year.find({});
-const categories=await Category.find({});
-const brand=await Brand.find({});
-return res.status(200).json({ message: 'data featched', data:{year:year, category:categories,brand:brand},success:true });
 
+
+exports.getProductElement = async (req, res) => {
+  try {
+    const brands = await Brand.find({ visibility: true }).lean();
+    const fuels = await Fuel.find({ visibility: true }).lean();
+    const models = await Model.find({ visibility: true }).lean();
+    const years = await Year.find({ visibility: true }).lean();
+    const categories = await Category.find({ visibility: true }).lean();
+
+    // 🔄 Flatten products and attach shopId to each product
+    const productDocs = await Product.find().lean();
+    const productDetails = productDocs.flatMap(doc => {
+      return (doc.products || []).map(product => ({
+        ...product,
+        shopId: doc.shopId
+      }));
+    });
+
+    return res.status(200).json({
+      message: 'Master data fetched successfully',
+      success: true,
+      data: {
+        brands,
+        fuels,
+        models,
+        years,
+        categories,
+        productDetails
+      }
+    });
   } catch (error) {
-    return res.status(500).json({ message: 'Failed to add product', data: error.message, success:false});
+    console.error('Master Data Fetch Error:', error);
+    res.status(500).json({
+      message: 'Failed to fetch master data',
+      success: false,
+      error: error.message
+    });
   }
 };
 

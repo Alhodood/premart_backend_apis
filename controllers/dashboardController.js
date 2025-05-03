@@ -3,7 +3,7 @@ const { Product } = require('../models/Product');
 const Stock = require('../models/Stock');
 const User = require('../models/User');
 const DeliveryBoy = require('../models/DeliveryBoy'); // If separate model
-const Agency = require('../models/deliveryAgency'); // Optional
+const Agency = require('../models/DeliveryAgency'); // Optional
 
 exports.getShopDashboardByShopId = async (req, res) => {
   try {
