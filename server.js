@@ -99,6 +99,30 @@ app.get('/', (req, res) => {
   res.send('PreMart API is Running');
 });
 
+// Generate pre-signed S3 URL
+app.get('/generatePresignedUrl', async (req, res) => {
+  try {
+    const filename = req.query.filename;
+
+    if (!filename) {
+      return res.status(400).send('Filename is required');
+    }
+
+    const params = {
+      Bucket: 'premart', // your bucket name
+      Key: filename,     // file name you want to upload
+      ContentType: 'image/jpeg', // or set dynamic based on file type
+    };
+
+    const command = new PutObjectCommand(params);
+    const signedUrl = await getSignedUrl(s3, command, { expiresIn: 300 }); // 5 minutes expiry
+
+    res.json({ url: signedUrl });
+  } catch (error) {
+    console.error('Error generating signed URL:', error);
+    res.status(500).send('Error generating signed URL');
+  }
+});
 // Socket.io connection handling (for later real-time features)
 // ✅ Socket.io connection setup
 io.on('connection', (socket) => {
