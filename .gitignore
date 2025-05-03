@@ -46,7 +46,7 @@ coverage/
 .vuepress/dist/
 
 # Sapper build output
-__sapper__/
+_sapper_/
 
 # Storybook build outputs
 .out/
