@@ -14,4 +14,9 @@ router.put('/:id', shopController.updateShop);
 
 router.delete('/:shopId', shopController.deleteShop);
 
+// Super Admin Filter/Search Shops
+router.get('/search', shopController.searchShopsForSuperAdmin);
+
+router.patch('/shop-mark-order-ready/:orderId', shopController.shopConfirmReady);
+
 module.exports = router;

@@ -17,10 +17,6 @@ const customerAddressSchema = new mongoose.Schema({
 }, { timestamps: true });
 
 const CustomerAddress = mongoose.model('CustomerAddress', customerAddressSchema);
-const CustomerAddressDetailed = mongoose.model('CustomerAddressDetailed', customerAddressDetailsSchema);
 
-module.exports = {
-  CustomerAddress,
-  CustomerAddressDetailed
-};
+module.exports = CustomerAddress;
 

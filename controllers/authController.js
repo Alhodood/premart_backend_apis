@@ -1,187 +1,131 @@
 const jwt = require('jsonwebtoken');
 const User = require('../models/User');
 const twilio = require('twilio');
-const JWT_SECRET = process.env.JWT_SECRET || 'your_jwt_secret'; // Replace for production
-const JWT_EXPIRE = process.env.JWT_EXPIRE || '1d';
 
 const client = twilio(process.env.TWILIO_ACCOUNT_SID, process.env.TWILIO_AUTHTOKEN);
+const JWT_SECRET = process.env.JWT_SECRET || 'secret';
+const JWT_EXPIRE = '7d';
 
-
-// Helper to generate a random 6-digit OTP
-const generateOTP = () => {
-  return Math.floor(100000 + Math.random() * 900000).toString();
-};
-// Helper to generate a random string for temporary passwords
-const generateRandomPassword = () => {
-  return Math.random().toString(36).slice(-8);
+const generateToken = (user) => {
+  return jwt.sign({ id: user._id, role: user.role }, JWT_SECRET, { expiresIn: JWT_EXPIRE });
 };
 
-
-
-// Register a new user
 exports.register = async (req, res) => {
-
   try {
-    // console.log(req.body);
+    const { name, email, phone, password, countryCode, dob, role } = req.body;
+    const existing = await User.findOne({ $or: [{ email }, { phone }] });
+    if (existing) return res.status(400).json({ message: 'User already exists' });
 
-    const { name, email, password, phone, role,dob,accountVerify,countryCode } = req.body;
-    // Ensure that at least one identifier (email or phone) is provided
-    if (!email && !phone) {
-      return res.status(200).json({ message: 'Email or phone number is required',success:false,data:[] });
-    }
-
-    // Check if the user already exists based on email or phone
-    const existingUser = await User.findOne({
-      $or: [{ email }, { phone }]
-    });
-    if (existingUser) {
-      return res.status(200).json({ message: 'User with provided email or phone already exists',success:false,data:[] });
-    }
-    
-    // Create new user
-    const user = new User(req.body);
-    console.log(user);
-    console.log("----------");
-
+    const user = new User({ name, email, phone, password, countryCode, dob, role });
     await user.save();
-    
-    // Generate token upon successful registration
-    const token = jwt.sign({ id: user._id, role: user.role }, JWT_SECRET, { expiresIn: JWT_EXPIRE });
-    res.status(201).json({ message:"New user has created", data: { id: user._id, name, email, phone, role ,dob,token,accountVerify,countryCode} ,success:true,});
+
+    const token = generateToken(user);
+    res.status(201).json({ message: 'Registered successfully', token, data: user });
   } catch (error) {
-    res.status(500).json({ message: 'Registration failed', data: error.message,success:false });
+    res.status(500).json({ message: 'Registration error', error: error.message });
   }
 };
 
-
-
-
-
-
-
-
-
-// Login a user via email and password
 exports.login = async (req, res) => {
   try {
     const { email, password } = req.body;
-    // console.log(email);
-    // Find user by email
     const user = await User.findOne({ email });
-    console.log(user);
+    if (!user || !(await user.comparePassword(password))) {
+      return res.status(401).json({ message: 'Invalid email or password' });
+    }
 
-    if (!user) {
-      return res.status(200).json({ message: 'Invalid credentials',success:false,data:[] });
-    }
-    
-    const isMatch = await user.comparePassword(password);
-    if (!isMatch) {
-      return res.status(200).json({ message: 'Invalid password',success:false,data:[]  });
-    }
-    
-    // Generate JWT token
-    const token = jwt.sign({ id: user._id, role: user.role }, JWT_SECRET, { expiresIn: JWT_EXPIRE });
-    res.status(200).json({ success:true, message:"logined successfuly",data: { id: user._id, name: user.name, email: user.email, phone: user.phone, role: user.role,accountVerify:user.accountVerify,countryCode:user.countryCode, tokenId:token } });
-  
+    const token = generateToken(user);
+    res.status(200).json({ message: 'Login successful', token, data: user });
   } catch (error) {
-    res.status(500).json({ message: 'Login failed', error: error.message });
-  
+    res.status(500).json({ message: 'Login error', error: error.message });
   }
 };
 
-// Send OTP for login using phone number
-// Send OTP for login using phone number.
-// If the user does not exist, create a new user first.
-// exports.sendOtp = async (req, res) => {
-//   try {
-//     const { phone } = req.body;
-//     if (!phone) {
-//       return res.status(400).json({ message: 'Phone number is required' });
-//     }
 
-//     // Look for the user by phone; if not found, create a new user with default values.
-//     let user = await User.findOne({ phone });
-//     if (!user) {
-//       // Create a new user with a default name and role, plus a random password
-//       const defaultData = {
-//         name: 'New User',
-//         phone,
-//         password: generateRandomPassword(),
-//         role: 'customer' // Default role can be adjusted
-//       };
-//       user = new User(defaultData);
-//       await user.save();
-//     }
-    
-//     // Generate OTP and set its expiration (e.g., 5 minutes)
-//     const otp = generateOTP();
-//     user.otp = otp;
-//     user.otpExpires = new Date(Date.now() + 5 * 60 * 1000); // 5 minutes from now
-//     await user.save();
-
-//     // In production, send this OTP via SMS. Here we return the OTP for testing.
-//     res.status(200).json({ message: 'OTP sent successfully', otp });
-//   } catch (error) {
-//     res.status(500).json({ message: 'Failed to send OTP', error: error.message });
-//   }
-// };
+//// OTP
 
 
 
-exports.sendOtP = async (req, res) => {
-  const { phone } = req.body;
-  if (!phone) {
-    return res.status(400).json({ error: 'Missing phone in request body' });
-  }
+//OTP LOGIN AND REGISTER through twilio
+exports.sendOtp = async (req, res) => {
+  const { phone, role } = req.body;
+
+  if (!phone || !role) return res.status(400).json({ message: 'Phone and role are required' });
 
   try {
-    const verification = await client.verify.v2
-      .services("VAb658e8e74273be5ea1b1a9b14b12c3b7")
+    let user = await User.findOne({ phone });
+    if (!user) {
+      // Auto-register new user
+      user = new User({
+        name: 'New User',
+        phone,
+        password: 'Temp@1234',
+        countryCode: '+971',
+        role
+      });
+      await user.save();
+    }
+
+    await client.verify.v2.services(process.env.TWILIO_SERVICE_SID)
       .verifications
       .create({ to: phone, channel: 'sms' });
 
-    console.log('OTP sent, status:', verification.status);
-    return res.status(200).json({ status: verification.status });
+    res.status(200).json({ message: 'OTP sent', success: true });
   } catch (err) {
-    console.error('Error sending OTP:', err.code, err.message);
-    return res.status(500).json({ error: err.code ,});
+    res.status(500).json({ message: 'OTP send failed', success: false, error: err.message });
   }
 };
 
-// Verify OTP for phone login and generate a JWT token if the OTP is valid.
-// exports.sendOtp = async (req, res) => {
-//   try {
-//     const { phone, otp } = req.body;
-//     if (!phone || !otp) {
-//       return res.status(400).json({ message: 'Phone number and OTP are required' });
-//     }
+// ✅ Verify OTP
+exports.verifyOtp = async (req, res) => {
+  const { phone, code } = req.body;
 
-//     // Find user by phone
-//     const user = await User.findOne({ phone });
-//     if (!user) {
-//       return res.status(404).json({ message: 'User not found' });
-//     }
+  if (!phone || !code) return res.status(400).json({ message: 'Phone and OTP are required' });
 
-//     // Validate the OTP and check if it's expired
-//     if (user.otp !== otp || new Date() > user.otpExpires) {
-//       return res.status(401).json({ message: 'Invalid or expired OTP' });
-//     }
-    
-//     // Clear OTP fields after successful verification
-//     user.otp = null;
-//     user.otpExpires = null;
-//     await user.save();
+  try {
+    const verification = await client.verify.v2.services(process.env.TWILIO_SERVICE_SID)
+      .verificationChecks
+      .create({ to: phone, code });
 
-//     // Generate JWT token for the user
-//     const token = jwt.sign({ id: user._id, role: user.role }, JWT_SECRET, { expiresIn: JWT_EXPIRE });
-//     res.status(200).json({ token, user: { id: user._id, name: user.name, email: user.email, phone: user.phone, role: user.role } });
-//   } catch (error) {
-//     res.status(500).json({ message: 'OTP verification failed', error: error.message });
-//   }
-// };
+    if (verification.status === 'approved') {
+      const user = await User.findOne({ phone });
+      if (!user) return res.status(404).json({ message: 'User not found' });
+
+      const token = generateToken(user);
+      res.status(200).json({
+        message: 'OTP verified. Login successful',
+        success: true,
+        token,
+        user
+      });
+    } else {
+      res.status(401).json({ message: 'Invalid OTP', success: false });
+    }
+  } catch (err) {
+    res.status(500).json({ message: 'OTP verification failed', success: false, error: err.message });
+  }
+};
 
 
+exports.resendOtp = async (req, res) => {
+  const { phone } = req.body;
 
+  if (!phone) {
+    return res.status(400).json({ message: 'Phone number is required' });
+  }
 
+  try {
+    const user = await User.findOne({ phone });
+    if (!user) {
+      return res.status(404).json({ message: 'User not found. Please register.' });
+    }
 
-//// Admin Pannel User Creation
+    await client.verify.v2.services(process.env.TWILIO_SERVICE_SID)
+      .verifications
+      .create({ to: phone, channel: 'sms' });
+
+    res.status(200).json({ message: 'OTP resent successfully', success: true });
+  } catch (err) {
+    res.status(500).json({ message: 'Failed to resend OTP', success: false, error: err.message });
+  }
+};

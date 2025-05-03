@@ -15,13 +15,28 @@ const notification = require('./routes/notificationRoutes.js')
 
 const cart = require('./routes/cartRouter.js')
 const wishlist = require('./routes/wishlistRoutes.js')
+const order = require('./routes/orderRoutes.js')
+const deliveryBoy = require('./routes/deliveryBoyRoutes.js')
+const sales = require('./routes/salesRoutes.js')
+const payment = require('./routes/paymentRoutes.js')
+const refund = require('./routes/refundRoutes.js')
+const invoice = require('./routes/invoiceRoutes.js')
+const payout = require('./routes/payoutRoutes.js')
+const agency = require('./routes/agencyRoutes.js')
+const stock = require('./routes/stockRoutes.js')
+const superNotification = require('./routes/superNotificationRoute.js')
+const offerCoupon = require('./routes/offerCouponRoutes.js')
+const dashboard = require('./routes/dashboardRoutes.js')
 
 const connectDB =require("./config/db.js")
+
 // Use the product routes
 
 
 
 const app = express();
+// Middleware
+app.use(express.json());
 const server = http.createServer(app);
 
 connectDB();
@@ -32,8 +47,7 @@ const io = socketIo(server, {
   }
 });
 
-// Middleware
-app.use(express.json());
+
 
 app.use(cors({
   origin: [
@@ -64,10 +78,18 @@ app.use('/api/banner',banner);
 app.use('/api/notification',notification);
 app.use('/api/cart',cart);
 app.use('/api/whislist',wishlist);
-// app.use('/api/shopeAdmin',shopProfile );
-
-// 
-
+app.use('/api/order',order);
+app.use('/api/deliveryBoy',deliveryBoy);
+app.use('/api/sales',sales);
+app.use('/api/payment',payment);
+app.use('/api/refund',refund);
+app.use('/api/invoice',invoice);
+app.use('/api/payout',payout);
+app.use('/api/agency',agency);
+app.use('/api/stock',stock);
+app.use('/api/superNotification',superNotification);
+app.use('/api/offer-Coupon',offerCoupon);
+app.use('/api/dashboard',dashboard);
 
 
 // Basic route
@@ -76,8 +98,18 @@ app.get('/', (req, res) => {
 });
 
 // Socket.io connection handling (for later real-time features)
+// ✅ Socket.io connection setup
 io.on('connection', (socket) => {
-  console.log('New client connected:', socket.id);
+  console.log('New client connected: ', socket.id);
+
+  // Listen for location updates from delivery boys
+  socket.on('updateLocation', (data) => {
+    console.log('Received location update:', data);
+
+    // Broadcast to all customers/admins listening for this deliveryBoyId
+    io.emit(`locationUpdate-${data.deliveryBoyId}`, data);
+  });
+
   socket.on('disconnect', () => {
     console.log('Client disconnected:', socket.id);
   });

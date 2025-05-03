@@ -1,24 +1,26 @@
 const express = require('express');
+const { register, login, sendOtp, verifyOtp,resendOtp } = require('../controllers/authController');
+const { protect } = require('../middleware/authMiddleware');
+const { allowRoles } = require('../middleware/roleMiddleware');
+
 const router = express.Router();
-const authController = require('../controllers/authController');
-const adminAuthController = require('../controllers/adminAuthController');
+
+router.post('/register', register);
+router.post('/login', login);
+
+// Example protected route
+router.get('/admin-only', protect, allowRoles('superAdmin'), (req, res) => {
+  res.json({ message: 'Welcome, Super Admin!' });
+});
 
 
-// Email/Password Registration and Login
-
-// Phone-based OTP endpoints
-router.post('/send-otp', authController.sendOtP);
-// router.post('/verify-otp', authController.verifyOtp);
-router.post('/user/register', authController.register);
-router.post('/user/login', authController.login);
+//OTP LOGIN AND REGISTER through twilio
 
 
-// SHOP or AGENCY ROUTES
-router.post('/admin/register', adminAuthController.register);
-router.post('/admin/login', adminAuthController.shopAdminLogin);
 
-//   SUPER ADMIN ROUTES
-router.post('/superAdmin/register', adminAuthController.register);
-router.post('/superAdmin/login', adminAuthController.superAdminLogin);
+router.post('/send-otp', sendOtp);
+router.post('/verify-otp', verifyOtp);
+router.post('/resend-otp', resendOtp);
+
 
 module.exports = router;

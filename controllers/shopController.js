@@ -1,4 +1,5 @@
 const { Shop } = require('../models/Shop');
+const Order = require('../models/Order');
 
 // Create a new shop
 exports.createShop = async (req, res) => {
@@ -89,5 +90,119 @@ exports.deleteShop = async (req, res) => {
     res.status(200).json({ success: true, message: 'Shop deleted successfully' ,data:deletedShop});
   } catch (error) {
     res.status(500).json({ success: false, message: 'Server Error',data:[] });
+  }
+};
+
+
+
+exports.searchShopsForSuperAdmin = async (req, res) => {
+  try {
+    const {
+      search,
+      emiratesId,
+      fromExpiry,
+      toExpiry,
+      page = 1,
+      limit = 10,
+      sortBy = 'createdAt',
+      sort = 'desc'
+    } = req.query;
+
+    let filter = {};
+
+    // Text search
+    if (search) {
+      filter.$or = [
+        { 'shopeDetails.shopName': { $regex: search, $options: 'i' } },
+        { 'shopeDetails.shopMail': { $regex: search, $options: 'i' } },
+        { 'shopeDetails.shopContact': { $regex: search, $options: 'i' } }
+      ];
+    }
+
+    // Emirates ID filter
+    if (emiratesId) {
+      filter['shopeDetails.EmiratesId'] = emiratesId;
+    }
+
+    // License Expiry filter
+    if (fromExpiry && toExpiry) {
+      filter['shopeDetails.shopLicenseExpiry'] = {
+        $gte: fromExpiry,
+        $lte: toExpiry
+      };
+    }
+
+    const shops = await Shop.find(filter)
+      .sort({ [sortBy]: sort === 'asc' ? 1 : -1 })
+      .skip((page - 1) * limit)
+      .limit(parseInt(limit));
+
+    const total = await Shop.countDocuments(filter);
+
+    return res.status(200).json({
+      message: 'Filtered shops fetched successfully',
+      success: true,
+      total,
+      page: parseInt(page),
+      limit: parseInt(limit),
+      data: shops
+    });
+
+  } catch (error) {
+    console.error('Shop Filter Error:', error);
+    res.status(500).json({
+      message: 'Failed to fetch shops',
+      success: false,
+      data: error.message
+    });
+  }
+};
+
+
+
+exports.shopConfirmReady = async (req, res) => {
+  try {
+    const { orderId } = req.params;
+    const { shopId } = req.body;
+
+    if (!shopId) {
+      return res.status(400).json({
+        message: 'shopId is required',
+        success: false
+      });
+    }
+
+    const order = await Order.findOne({ _id: orderId, shopId });
+
+    if (!order) {
+      return res.status(404).json({
+        message: 'Order not found or does not belong to this shop',
+        success: false
+      });
+    }
+
+    if (order.orderStatus !== 'Accepted by Delivery Boy') {
+      return res.status(400).json({
+        message: `Cannot mark order as ready from current status: ${order.orderStatus}`,
+        success: false
+      });
+    }
+
+    order.orderStatus = 'Ready for Pickup';
+    await order.save();
+
+    return res.status(200).json({
+      message: 'Order marked as Ready for Pickup',
+      success: true,
+      data: order
+    });
+
+  } catch (error) {
+    console.error('Vendor Confirm Ready Error:', error);
+    return res.status(500).json({
+      message: 'Internal Server Error',
+      success: false,
+      error: error.message
+    });
   }
 };
