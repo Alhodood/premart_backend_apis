@@ -11,7 +11,7 @@ const UserSchema = new mongoose.Schema({
   accountVerify: Boolean,
   role: {
     type: String,
-    enum: ['customer', 'superAdmin', 'shopAdmin', 'deliveryBoy'],
+    enum: ['customer', 'superAdmin', 'shopAdmin'],
     default: 'customer'
   }
 }, { timestamps: true });

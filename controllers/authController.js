@@ -10,37 +10,112 @@ const generateToken = (user) => {
   return jwt.sign({ id: user._id, role: user.role }, JWT_SECRET, { expiresIn: JWT_EXPIRE });
 };
 
-exports.register = async (req, res) => {
+exports.registerUser = async (req, res) => {
   try {
     const { name, email, phone, password, countryCode, dob, role } = req.body;
-    const existing = await User.findOne({ $or: [{ email }, { phone }] });
-    if (existing) return res.status(400).json({ message: 'User already exists' });
 
-    const user = new User({ name, email, phone, password, countryCode, dob, role });
-    await user.save();
-
-    const token = generateToken(user);
-    res.status(201).json({ message: 'Registered successfully', token, data: user });
-  } catch (error) {
-    res.status(500).json({ message: 'Registration error', error: error.message });
-  }
-};
-
-exports.login = async (req, res) => {
-  try {
-    const { email, password } = req.body;
-    const user = await User.findOne({ email });
-    if (!user || !(await user.comparePassword(password))) {
-      return res.status(401).json({ message: 'Invalid email or password' });
+    // Basic validation
+    if (!name || !email || !phone || !password || !countryCode) {
+      return res.status(400).json({
+        message: 'All required fields must be provided',
+        success: false
+      });
     }
 
-    const token = generateToken(user);
-    res.status(200).json({ message: 'Login successful', token, data: user });
+    // Check if user exists
+    const existing = await User.findOne({ $or: [{ email }, { phone }] });
+    if (existing) {
+      return res.status(409).json({
+        message: 'Email or phone already registered',
+        success: false
+      });
+    }
+
+    const newUser = new User({
+      name,
+      email,
+      phone,
+      password,
+      countryCode,
+      dob,
+      role // defaults to customer if not passed
+    });
+
+    await newUser.save();
+
+    return res.status(201).json({
+      message: 'User registered successfully',
+      success: true,
+      data: {
+        id: newUser._id,
+        name: newUser.name,
+        email: newUser.email,
+        phone: newUser.phone,
+        role: newUser.role
+      }
+    });
+
   } catch (error) {
-    res.status(500).json({ message: 'Login error', error: error.message });
+    console.error('Registration Error:', error);
+    return res.status(500).json({
+      message: 'Registration failed',
+      success: false,
+      data: error.message
+    });
   }
 };
 
+exports.loginUser = async (req, res) => {
+  try {
+    const { email, password } = req.body;
+
+    if (!email || !password) {
+      return res.status(400).json({
+        message: 'Email and password are required',
+        success: false
+      });
+    }
+
+    // 🔍 Find user by email
+    const user = await User.findOne({ email });
+
+    if (!user) {
+      return res.status(404).json({
+        message: 'User not found',
+        success: false
+      });
+    }
+
+    // 🔐 Compare password
+    const isMatch = await user.comparePassword(password);
+    if (!isMatch) {
+      return res.status(401).json({
+        message: 'Invalid password',
+        success: false
+      });
+    }
+
+    return res.status(200).json({
+      message: 'Login successful',
+      success: true,
+      data: {
+        id: user._id,
+        name: user.name,
+        email: user.email,
+        phone: user.phone,
+        role: user.role
+      }
+    });
+
+  } catch (error) {
+    console.error('Login Error:', error);
+    return res.status(500).json({
+      message: 'Login failed',
+      success: false,
+      data: error.message
+    });
+  }
+};
 
 //// OTP
 
