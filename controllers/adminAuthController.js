@@ -1,4 +1,5 @@
 const jwt = require('jsonwebtoken');
+const bcrypt = require('bcrypt');
 const{
   ShopAdmin,
   SuperAdmin
@@ -13,99 +14,130 @@ const client = twilio(process.env.TWILIO_ACCOUNT_SID, process.env.TWILIO_AUTHTOK
 
 
 
-// Register a new shop
-exports.register = async (req, res) => {
-
+// 🔹 Super Admin Register
+exports.registerSuperAdmin = async (req, res) => {
   try {
-    // console.log(req.body);
+    const { name, email, phone, password, countryCode, dob } = req.body;
 
-    const { name, email, password, phone, role,dob,accountVerify,countryCode,location,emiratesIdImage, companyLicenseImage } = req.body;
-    // Ensure that at least one identifier (email or phone) is provided
-    if (!email && !phone) {
-      return res.status(200).json({ message: 'Email or phone number is required',success:false,data:[] });
+    const existing = await SuperAdmin.findOne({ email });
+    if (existing) {
+      return res.status(400).json({ message: 'Email already registered', success: false });
     }
 
-    // Check if the user already exists based on email or phone
-    const existingUser = await SuperAdmin.findOne({
-      $or: [{ email }, { phone }]
+    const newUser = new SuperAdmin({
+      name,
+      email,
+      phone,
+      password,
+      countryCode,
+      dob,
+      role: 'superAdmin' 
     });
-    if (existingUser) {
-      return res.status(200).json({ message: 'User with provided email or phone already exists',success:false,data:[] });
-    }
-    
-    // Create new user
-    const user = new SuperAdmin(req.body);
-    console.log(user);
-    console.log("----------");
 
-    await user.save();
-    
-    // Generate token upon successful registration
-    const token = jwt.sign({ id: user._id, role: user.role }, JWT_SECRET, { expiresIn: JWT_EXPIRE });
-    res.status(201).json({ message:"New user has created", data: { id: user._id, name, email, phone, role ,dob,token,accountVerify,countryCode} ,success:true,});
-  } catch (error) {
-    res.status(500).json({ message: 'Registration failed', data: error.message,success:false });
+    await newUser.save();
+
+    res.status(201).json({
+      message: 'Super Admin registered successfully',
+      success: true,
+      data: {
+        id: newUser._id,
+        name: newUser.name,
+        email: newUser.email,
+        phone: newUser.phone,
+        role: newUser.role
+      }
+    });
+  } catch (err) {
+    res.status(500).json({ message: 'Registration failed', success: false, error: err.message });
   }
 };
 
-
-//  login as  SHOP or AGENCY
-
-exports.shopAdminLogin = async (req, res) => {
+// 🔹 Super Admin Login
+exports.loginSuperAdmin = async (req, res) => {
   try {
     const { email, password } = req.body;
-    // console.log(email);
-    // Find user by email
-    const user = await ShopAdmin.findOne({ email });
-    console.log(user);
 
-    if (!user) {
-      return res.status(200).json({ message: 'Invalid credentials',success:false,data:[] });
-    }
-    
-    const isMatch = await user.comparePassword(password);
-    if (!isMatch) {
-      return res.status(200).json({ message: 'Invalid password',success:false,data:[]  });
-    }
-    
-    // Generate JWT token
-    const token = jwt.sign({ id: user._id, role: user.role }, JWT_SECRET, { expiresIn: JWT_EXPIRE });
-    res.status(200).json({ success:true, message:"logined successfuly",data: { id: user._id, name: user.name, email: user.email, phone: user.phone, role: user.role,accountVerify:user.accountVerify,countryCode:user.countryCode, tokenId:token } });
-  
-  } catch (error) {
-    res.status(500).json({ message: 'Login failed', error: error.message });
-  
-  }
-};
-
-
-// Login a SuperAdmin  via email and password
-exports.superAdminLogin = async (req, res) => {
-  try {
-    const { email, password } = req.body;
-    console.log(email);
-    // Find user by email
     const user = await SuperAdmin.findOne({ email });
-    console.log(user);
-
     if (!user) {
-      return res.status(200).json({ message: 'Invalid credentials',success:false,data:[] });
+      return res.status(404).json({ message: 'Super Admin not found', success: false });
     }
-    
+
     const isMatch = await user.comparePassword(password);
     if (!isMatch) {
-      return res.status(200).json({ message: 'Invalid password',success:false,data:[]  });
+      return res.status(401).json({ message: 'Incorrect password', success: false });
     }
-    
-    // Generate JWT token
-    const token = jwt.sign({ id: user._id, role: user.role }, JWT_SECRET, { expiresIn: JWT_EXPIRE });
-    res.status(200).json({ success:true, message:"logined successfuly",data: { id: user._id, name: user.name, email: user.email, phone: user.phone, role: user.role,accountVerify:user.accountVerify,countryCode:user.countryCode, tokenId:token } });
-  
-  } catch (error) {
-    res.status(500).json({ message: 'Login failed', error: error.message });
-  
+
+    res.status(200).json({
+      message: 'Login successful',
+      success: true,
+      data: {
+        id: user._id,
+        name: user.name,
+        email: user.email,
+        phone: user.phone,
+        role: user.role
+      }
+    });
+  } catch (err) {
+    res.status(500).json({ message: 'Login failed', success: false, error: err.message });
   }
 };
 
+// 🔹 Shop Admin Register
+exports.registerShopAdmin = async (req, res) => {
+  try {
+    const {
+      name, email, phone, password, countryCode, dob, address, role,
+      location, emiratesIdImage, companyLicenseImage
+    } = req.body;
+
+    const existing = await ShopAdmin.findOne({ email });
+    if (existing) {
+      return res.status(400).json({ message: 'Email already registered', success: false });
+    }
+
+    const newShopAdmin = new ShopAdmin({
+      name, email, phone, password, countryCode, dob,
+      address, role, location, emiratesIdImage, companyLicenseImage
+    });
+
+    await newShopAdmin.save();
+
+    res.status(201).json({ message: 'Shop Admin registered successfully', success: true, data: newShopAdmin });
+  } catch (err) {
+    res.status(500).json({ message: 'Registration failed', success: false, error: err.message });
+  }
+};
+
+// 🔹 Shop Admin Login
+exports.loginShopAdmin = async (req, res) => {
+  try {
+    const { email, password } = req.body;
+
+    const user = await ShopAdmin.findOne({ email });
+    if (!user) {
+      return res.status(404).json({ message: 'Shop Admin not found', success: false });
+    }
+
+    const isMatch = await user.comparePassword(password);
+    if (!isMatch) {
+      return res.status(401).json({ message: 'Incorrect password', success: false });
+    }
+
+    res.status(200).json({
+      message: 'Login successful',
+      success: true,
+      data: {
+        id: user._id,
+        name: user.name,
+        email: user.email,
+        phone: user.phone,
+        role: user.role
+      }
+    });
+  } catch (err) {
+    res.status(500).json({ message: 'Login failed', success: false, error: err.message });
+  }
+};
 
 

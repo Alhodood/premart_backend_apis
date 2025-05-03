@@ -2,7 +2,7 @@ const Payment = require('../models/Payment');
 const Shop = require('../models/Shop');
 const Order = require('../models/Order');
 const DeliveryBoy = require('../models/DeliveryBoy');
-const DeliveryAgency = require('../models/deliveryAgency');
+const DeliveryAgency = require('../models/DeliveryAgency');
 const AgencyPayout = require('../models/AgencyPayout');
 
 
