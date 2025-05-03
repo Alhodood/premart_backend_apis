@@ -1,4 +1,4 @@
-const { DeliveryAgency } = require('../models/deliveryAgency');
+const { DeliveryAgency } = require('../models/DeliveryAgency');
 
 exports.registerAgency = async (req, res) => {
   try {

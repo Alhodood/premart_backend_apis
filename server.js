@@ -27,6 +27,7 @@ const stock = require('./routes/stockRoutes.js')
 const superNotification = require('./routes/superNotificationRoute.js')
 const offerCoupon = require('./routes/offerCouponRoutes.js')
 const dashboard = require('./routes/dashboardRoutes.js')
+const reports = require('./routes/reportRoutes.js')
 
 const connectDB =require("./config/db.js")
 
@@ -90,6 +91,7 @@ app.use('/api/stock',stock);
 app.use('/api/superNotification',superNotification);
 app.use('/api/offer-Coupon',offerCoupon);
 app.use('/api/dashboard',dashboard);
+app.use('/api/report',reports);
 
 
 // Basic route
