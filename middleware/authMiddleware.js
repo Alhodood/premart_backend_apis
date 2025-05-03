@@ -1,31 +1,31 @@
+// middleware/authMiddleware.js
 const jwt = require('jsonwebtoken');
 const User = require('../models/User');
 
-// Middleware to check if user is authenticated
 const protect = async (req, res, next) => {
-  const authHeader = req.headers.authorization;
-
-  if (!authHeader || !authHeader.startsWith('Bearer ')) {
-    return res.status(401).json({ message: 'Not authorized, token missing' });
-  }
-
-  const token = authHeader.split(' ')[1];
-
   try {
+    const authHeader = req.headers.authorization;
+
+    if (!authHeader || !authHeader.startsWith('Bearer ')) {
+      return res.status(401).json({ message: 'Authorization header missing or invalid' });
+    }
+
+    const token = authHeader.split(' ')[1];
     const decoded = jwt.verify(token, process.env.JWT_SECRET);
-    req.user = decoded; // user info is now available in req.user
+
+    const user = await User.findById(decoded.id || decoded._id);
+
+    if (!user) {
+      return res.status(401).json({ message: 'User not found in DB' });
+    }
+
+    req.user = user; // 🔥 Sets the logged-in user
+
     next();
   } catch (err) {
-    return res.status(401).json({ message: 'Invalid or expired token' });
+    console.error('Auth error:', err.message);
+    return res.status(401).json({ message: 'Invalid token', error: err.message });
   }
 };
 
-// Middleware to restrict access to admin roles only
-const adminOnly = async (req, res, next) => {
-  if (!req.user || (req.user.role !== 'super-admin' && req.user.role !== 'shop-admin')) {
-    return res.status(403).json({ message: 'Access denied. Admins only.' });
-  }
-  next();
-};
-
-module.exports = { protect, adminOnly };
+module.exports = { protect };
