@@ -16,7 +16,7 @@ exports.registerUser = async (req, res) => {
 
     // Basic validation
     if (!name || !email || !phone || !password || !countryCode) {
-      return res.status(400).json({
+      return res.status(200).json({
         message: 'All required fields must be provided',
         success: false
       });
@@ -25,7 +25,7 @@ exports.registerUser = async (req, res) => {
     // Check if user exists
     const existing = await User.findOne({ $or: [{ email }, { phone }] });
     if (existing) {
-      return res.status(409).json({
+      return res.status(200).json({
         message: 'Email or phone already registered',
         success: false
       });
@@ -89,7 +89,7 @@ exports.loginUser = async (req, res) => {
     // 🔐 Compare password
     const isMatch = await user.comparePassword(password);
     if (!isMatch) {
-      return res.status(401).json({
+      return res.status(200).json({
         message: 'Invalid password',
         success: false
       });
@@ -103,7 +103,9 @@ exports.loginUser = async (req, res) => {
         name: user.name,
         email: user.email,
         phone: user.phone,
-        role: user.role
+        role: user.role,
+        accountStatus: user.accountVerify, 
+      
       }
     });
 
@@ -125,27 +127,29 @@ exports.loginUser = async (req, res) => {
 exports.sendOtp = async (req, res) => {
   const { phone, role } = req.body;
 
-  if (!phone || !role) return res.status(400).json({ message: 'Phone and role are required' });
-
+  // try {
+  //   const result = await client.verify.v2
+  //     .services(process.env.TWILIO_SERVICE_SID)
+  //     .verifications.create({ to: '+971567760353', channel: 'sms' });
+  //   console.log("Verification sent", result.sid);
+  // } catch (error) {
+  //   console.error("Twilio error:", error.code, error.message);
+  // }
   try {
+    if (!phone) return res.status(200).json({ message: 'Phone and role are required', success:false, data:[] });
+
     let user = await User.findOne({ phone });
     if (!user) {
       // Auto-register new user
-      user = new User({
-        name: 'New User',
-        phone,
-        password: 'Temp@1234',
-        countryCode: '+971',
-        role
-      });
-      await user.save();
+      return res.status(200).json({ message: 'user not founded. please enter valid phone number', success:false, data:[] });
+
     }
 
-    await client.verify.v2.services(process.env.TWILIO_SERVICE_SID)
+   const otpResponse= await client.verify.v2.services(process.env.TWILIO_SERVICE_SID)
       .verifications
       .create({ to: phone, channel: 'sms' });
 
-    res.status(200).json({ message: 'OTP sent', success: true });
+    res.status(200).json({ message: 'OTP sent to '+phone, success: true ,data:otpResponse});
   } catch (err) {
     res.status(500).json({ message: 'OTP send failed', success: false, error: err.message });
   }
@@ -192,7 +196,7 @@ exports.resendOtp = async (req, res) => {
   try {
     const user = await User.findOne({ phone });
     if (!user) {
-      return res.status(404).json({ message: 'User not found. Please register.' });
+      return res.status(200).json({ message: 'User not found. Please register.' , });
     }
 
     await client.verify.v2.services(process.env.TWILIO_SERVICE_SID)
@@ -202,5 +206,136 @@ exports.resendOtp = async (req, res) => {
     res.status(200).json({ message: 'OTP resent successfully', success: true });
   } catch (err) {
     res.status(500).json({ message: 'Failed to resend OTP', success: false, error: err.message });
+  }
+};
+
+exports.updateProfile = async (req, res) => {
+  try {
+    const userId = req.params.id;
+    const { address, name, email, phone, dob, countryCode } = req.body;
+
+    const user = await User.findOne(userId);
+
+    if (!user) {
+      return res.status(200).json({ message: 'User not found', success: false });
+    }
+
+    // Optional: Only update if value is provided
+    if (name) user.name = name;
+    if (email) user.email = email;
+    if (phone) user.phone = phone;
+    if (dob) user.dob = dob;
+    // if (countryCode) user.countryCode = countryCode;
+
+    // console.log(user.address);
+    // if (address) user.address = address;
+
+    await user.save();
+
+    res.status(200).json({
+      message: 'Profile updated successfully',
+      success: true,
+      data: user
+    });
+  } catch (err) {
+    res.status(500).json({
+      message: 'Failed to update profile',
+      success: false,
+      error: err.message
+    });
+  }
+};
+
+
+exports.updateUserAddress = async (req, res) => {
+  try {
+    const userId = req.params.id;
+    const addressId = req.params.addressId;
+    const updateData = req.body;
+
+    const user = await User.findById(userId);
+    if (!user) {
+      return res.status(404).json({ message: 'User not found', success: false });
+    }
+
+    let addressFound = false;
+
+    for (let i = 0; i < user.address.length; i++) {
+      if (user.address[i]._id.toString() === addressId) {
+        user.address[i] = {
+          ...user.address[i]._doc,
+          ...updateData
+        };
+        addressFound = true;
+        break;
+      }
+    }
+
+    if (!addressFound) {
+      return res.status(404).json({ message: 'Address not found', success: false });
+    }
+
+    const updatedUser = await user.save();
+
+    res.status(200).json({
+      message: 'Address updated successfully',
+      success: true,
+      data: updatedUser
+    });
+  } catch (error) {
+    res.status(500).json({
+      message: 'Failed to update address',
+      success: false,
+      error: error.message
+    });
+  }
+};
+
+exports.getAllAddresses = async (req, res) => {
+  try {
+    const userId = req.params.id;
+
+    const user = await User.findById(userId).select('address');
+
+    if (!user) {
+      return res.status(404).json({ message: "User not found", success: false });
+    }
+
+    res.status(200).json({
+      success: true,
+      message: "Addresses fetched successfully",
+      data: user.address
+    });
+  } catch (error) {
+    res.status(500).json({ message: "Failed to fetch addresses", success: false, error: error.message });
+  }
+};
+
+exports.deleteAddress = async (req, res) => {
+  try {
+    const { id: userId, addressId } = req.params;
+
+    const user = await User.findById(userId);
+
+    if (!user) {
+      return res.status(404).json({ message: "User not found", success: false });
+    }
+
+    const originalLength = user.address.length;
+    user.address = user.address.filter(addr => addr._id.toString() !== addressId);
+
+    if (user.address.length === originalLength) {
+      return res.status(404).json({ message: "Address not found", success: false });
+    }
+
+    await user.save();
+
+    res.status(200).json({
+      success: true,
+      message: "Address deleted successfully",
+      data: user.address
+    });
+  } catch (error) {
+    res.status(500).json({ message: "Failed to delete address", success: false, error: error.message });
   }
 };
