@@ -70,17 +70,18 @@ exports.loginUser = async (req, res) => {
     const { email, password } = req.body;
 
     if (!email || !password) {
-      return res.status(400).json({
+      return res.status(200).json({
         message: 'Email and password are required',
         success: false
       });
     }
+    console.log(email);
 
     // 🔍 Find user by email
     const user = await User.findOne({ email });
-
+console.log(user);
     if (!user) {
-      return res.status(404).json({
+      return res.status(200).json({
         message: 'User not found',
         success: false
       });
@@ -209,6 +210,34 @@ exports.resendOtp = async (req, res) => {
   }
 };
 
+
+exports.getProfile = async (req, res) => {
+  try {
+    const userId = req.params.id;
+
+    const user = await User.findOne(userId).select('-password');
+
+    if (!user) {
+      return res.status(200).json({ message: 'User not found', success: false });
+    }
+
+    
+
+    res.status(200).json({
+      message: 'Profile details successfully',
+      success: true,
+      data: user
+    });
+  } catch (err) {
+    res.status(500).json({
+      message: 'Failed to update profile',
+      success: false,
+      error: err.message
+    });
+  }
+};
+
+
 exports.updateProfile = async (req, res) => {
   try {
     const userId = req.params.id;
@@ -280,7 +309,7 @@ exports.updateUserAddress = async (req, res) => {
     res.status(200).json({
       message: 'Address updated successfully',
       success: true,
-      data: updatedUser
+      data: updatedUser.address
     });
   } catch (error) {
     res.status(500).json({
@@ -290,6 +319,67 @@ exports.updateUserAddress = async (req, res) => {
     });
   }
 };
+
+exports.addNewAddress = async (req, res) => {
+  try {
+    const userId = req.params.id;
+    const newAddress = req.body; // should match address schema
+console.log(newAddress);
+    const user = await User.findById(userId);
+    if (!user) {
+      return res.status(200).json({ message: "User not found", success: false });
+    }
+
+    user.address.push(newAddress);
+    await user.save();
+
+    res.status(200).json({
+      success: true,
+      message: "Address added successfully",
+      data: user.address
+    });
+  } catch (error) {
+    res.status(500).json({ message: "Failed to add address", success: false, error: error.message });
+  }
+};
+
+exports.deleteAddressById = async (req, res) => {
+  try {
+    const userId = req.params.id;
+    const addressId = req.params.addressId;
+
+    const user = await User.findById(userId);
+    if (!user) {
+      return res.status(200).json({ message: "User not found", success: false });
+    }
+
+    const originalLength = user.address.length;
+    console.log(addressId);
+
+    user.address = user.address.filter(
+      (addr) => addr._id.toString() !== addressId
+    );
+    console.log(user.address);
+
+    if (user.address.length === originalLength) {
+      return res.status(200).json({ message: "Address not found", success: false });
+    }
+    if (!user.address) {
+      return res.status(200).json({ message: "Address not found", success: false });
+    }
+
+    await user.save();
+
+    res.status(200).json({
+      success: true,
+      message: "Address deleted successfully",
+      data: user.address
+    });
+  } catch (error) {
+    res.status(500).json({ message: "Failed to delete address", success: false, error: error.message });
+  }
+};
+
 
 exports.getAllAddresses = async (req, res) => {
   try {
@@ -311,31 +401,31 @@ exports.getAllAddresses = async (req, res) => {
   }
 };
 
-exports.deleteAddress = async (req, res) => {
-  try {
-    const { id: userId, addressId } = req.params;
+// exports.deleteAddress = async (req, res) => {
+//   try {
+//     const { id: userId, addressId } = req.params;
 
-    const user = await User.findById(userId);
+//     const user = await User.findById(userId);
 
-    if (!user) {
-      return res.status(404).json({ message: "User not found", success: false });
-    }
+//     if (!user) {
+//       return res.status(404).json({ message: "User not found", success: false });
+//     }
 
-    const originalLength = user.address.length;
-    user.address = user.address.filter(addr => addr._id.toString() !== addressId);
+//     const originalLength = user.address.length;
+//     user.address = user.address.filter(addr => addr._id.toString() !== addressId);
 
-    if (user.address.length === originalLength) {
-      return res.status(404).json({ message: "Address not found", success: false });
-    }
+//     if (user.address.length === originalLength) {
+//       return res.status(404).json({ message: "Address not found", success: false });
+//     }
 
-    await user.save();
+//     await user.save();
 
-    res.status(200).json({
-      success: true,
-      message: "Address deleted successfully",
-      data: user.address
-    });
-  } catch (error) {
-    res.status(500).json({ message: "Failed to delete address", success: false, error: error.message });
-  }
-};
+//     res.status(200).json({
+//       success: true,
+//       message: "Address deleted successfully",
+//       data: user.address
+//     });
+//   } catch (error) {
+//     res.status(500).json({ message: "Failed to delete address", success: false, error: error.message });
+//   }
+// };
