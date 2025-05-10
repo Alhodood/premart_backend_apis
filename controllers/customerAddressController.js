@@ -42,7 +42,7 @@ console.log(newEntry);
 
 
 // Retrieve a single person addres by ID
-exports.getAddressById = async (req, res) => {
+exports.getAllAddress = async (req, res) => {
 
   try {
 
@@ -53,8 +53,9 @@ exports.getAddressById = async (req, res) => {
     console.log();
 
 
-    const address = await CustomerAddress.findOne({ userId: uerId });
-
+    const address = await CustomerAddress.findOne({uerId});
+    console.log(address);
+    console.log("sd");
     if (!address) {
       return res.status(404).json({ message: 'Address not found', data: [], success: false });
     }
