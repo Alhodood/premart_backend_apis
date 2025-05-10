@@ -1,16 +1,16 @@
-const {CustomerAddress,CustomerAddressDetailed} = require('../models/CustomerAddress');
+const { CustomerAddress, CustomerAddressDetails } = require('../models/CustomerAddress');
 // Create a new Banner
 exports.addCustomerAddress = async (req, res) => {
   try {
     console.log(req.body);
-    const newAddress = CustomerAddressDetailed(req.body);
+    const newAddress = CustomerAddressDetails(req.body);
 
     const userId = req.params.id;
     // Try finding the existing user address doc
-    
+
 
     let customer = await CustomerAddress.findOne({ userId });
-    
+
     if (customer) {
       console.log(" user is here");
 
@@ -24,13 +24,13 @@ exports.addCustomerAddress = async (req, res) => {
       await customer.save();
       return res.status(200).json({ message: 'Address added successfully', data: customer });
     } else {
-console.log("no user here");
+      console.log("no user here");
       // Create new user with first address
       const newEntry = CustomerAddress({
-        userId:userId,
+        userId: userId,
         customerAddress: [newAddress]
       });
-console.log(newEntry);
+      console.log(newEntry);
       // customer.customerAddress.add(addressToAdd);
       await newEntry.save();
       return res.status(201).json({ message: 'New user address created', data: newAddress });
@@ -42,24 +42,21 @@ console.log(newEntry);
 
 
 // Retrieve a single person addres by ID
-exports.getAllAddress = async (req, res) => {
+exports.getAddressById = async (req, res) => {
 
   try {
 
-    console.log(CustomerAddress);
-
-    const uerId =
-      await (req.params.id);
-    console.log();
+    const userId =
+      await req.params.id;
 
 
-    const address = await CustomerAddress.findOne({uerId});
+    const address = await CustomerAddress.findOne({ userId });
     console.log(address);
-    console.log("sd");
+
     if (!address) {
-      return res.status(404).json({ message: 'Address not found', data: [], success: false });
+      return res.status(200).json({ message: 'Address not found', data: [], success: false });
     }
-    res.status(200).json({ data: address, message: "Address featched successfuly", status: true });
+    return res.status(200).json({ data: address, message: "Address featched successfuly", status: true });
   } catch (error) {
 
 

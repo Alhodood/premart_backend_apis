@@ -48,14 +48,14 @@ const io = socketIo(server, {
   }
 });
 
-
+// 'https://property-erp.com',
 
 app.use(cors({
   origin: [
     "http://localhost:5000",
-    'http://property-erp.com',       // dev
-    'https://property-erp.com',      // production
-    'http://www.property-erp.com'   // if you support www
+    'http://autopartsnow.uk',       // dev
+    'https://autopartsnow.uk',      // production
+    'http://www.autopartsnow.uk'   // if you support www
   ],
   methods: ['GET','POST','PUT','DELETE','OPTIONS'],
     allowedHeaders: ['Content-Type','Authorization'],

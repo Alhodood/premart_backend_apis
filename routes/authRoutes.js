@@ -1,5 +1,5 @@
 const express = require('express');
-const { registerUser, loginUser, sendOtp, verifyOtp,resendOtp } = require('../controllers/authController');
+const { registerUser, loginUser, sendOtp, verifyOtp,resendOtp,updateProfile,updateUserAddress,getAllAddresses,deleteAddress } = require('../controllers/authController');
 const { protect } = require('../middleware/authMiddleware');
 const { allowRoles } = require('../middleware/roleMiddleware');
 const adminAuthController = require('../controllers/adminAuthController');
@@ -8,6 +8,12 @@ const router = express.Router();
 
 router.post('/register', registerUser);
 router.post('/login', loginUser);
+router.put('/update-profile/:userId',updateProfile);
+router.put("/update-address/:id/:addressId",updateUserAddress);
+router.get("/get-address/:id",getAllAddresses);
+router.delete("/delet-address/:id/:addressId",deleteAddress);
+
+
 
 // Super Admin
 router.post('/super-admin/register', adminAuthController.registerSuperAdmin);

@@ -3,7 +3,8 @@ const Offer = require('../models/Offers');
 
 exports.createCoupon = async (req, res) => {
   try {
-    const coupon = new Coupon({ ...req.body, shopId: req.user.role === 'shopAdmin' ? req.user._id : null });
+    const { shopId, superAdminId, ...rest } = req.body;
+    const coupon = new Coupon({ ...rest, shopId: shopId || null });
     await coupon.save();
     res.status(201).json({ message: 'Coupon created', success: true, data: coupon });
   } catch (err) {
@@ -13,7 +14,8 @@ exports.createCoupon = async (req, res) => {
 
 exports.getAllCoupons = async (req, res) => {
   try {
-    const filter = req.user.role === 'shopAdmin' ? { shopId: req.user._id } : {};
+    const { shopId, superAdminId } = req.query;
+    const filter = shopId ? { shopId } : {};
     const coupons = await Coupon.find(filter).sort({ createdAt: -1 });
     res.status(200).json({ message: 'Coupons fetched', success: true, data: coupons });
   } catch (err) {
@@ -33,7 +35,8 @@ exports.deleteCoupon = async (req, res) => {
 // Offers
 exports.createOffer = async (req, res) => {
   try {
-    const offer = new Offer({ ...req.body, shopId: req.user.role === 'shopAdmin' ? req.user._id : null });
+    const { shopId, superAdminId, ...rest } = req.body;
+    const offer = new Offer({ ...rest, shopId: shopId || null });
     await offer.save();
     res.status(201).json({ message: 'Offer created', success: true, data: offer });
   } catch (err) {
@@ -43,7 +46,8 @@ exports.createOffer = async (req, res) => {
 
 exports.getAllOffers = async (req, res) => {
   try {
-    const filter = req.user.role === 'shopAdmin' ? { shopId: req.user._id } : {};
+    const { shopId, superAdminId } = req.query;
+    const filter = shopId ? { shopId } : {};
     const offers = await Offer.find(filter).sort({ createdAt: -1 });
     res.status(200).json({ message: 'Offers fetched', success: true, data: offers });
   } catch (err) {
