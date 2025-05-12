@@ -83,40 +83,81 @@ exports.getProductElement = async (req, res) => {
 
 
 // Create or add a product to shop's cartProduct array
-exports.addProduct = async (req,res) => {
- 
-
+exports.addProduct = async (req, res) => {
   try {
-    const  shopId  = req.params.id;
-    const productData = ProductDetails(req.body);
- 
-    let productEntry = await Product.findOne({ shopId });
+    const shopId = req.query.shopId;
+    const productData = req.body;
 
-    if (productEntry) {
-      // Add new product to existing shop
-      productEntry.products.push(productData);
-      await productEntry.save();
-      return res.status(200).json({ message: "Product added to shop's inventory", data: productEntry,success:true });
-    } else {
-      // Create new shop with first product
-      const newProduct = new Product({
-        shopId,
-        products: [productData],
-      });
-      await newProduct.save();
-      return res.status(201).json({ message: 'New shop inventory created', data: newProduct,success:true });
+    if (!shopId || !productData) {
+      return res.status(400).json({ success: false, message: 'Missing shopId or productData' });
     }
-  } catch (error) {
-    return res.status(500).json({ message: 'Failed to add product', data: error.message, success:false});
+
+    // Extract variants separately from the rest of the product data
+    const { variants, ...baseData } = productData;
+
+    // Add variants to baseData
+    baseData.variants = variants || [];
+
+    const productDetail = new ProductDetails(baseData);
+    await productDetail.save();
+
+    await Product.findOneAndUpdate(
+      { shopId },
+      { $push: { products: productDetail } },
+      { upsert: true, new: true }
+    );
+
+    const productIdObject = productDetail._id;
+    await Promise.all([
+      Brand.updateOne(
+        { brandName: baseData.brand },
+        { $addToSet: { productIds: productIdObject } },
+        { upsert: true }
+      ),
+      Category.updateOne(
+        { categoryName: baseData.category },
+        { $addToSet: { productIds: productIdObject } },
+        { upsert: true }
+      ),
+      Model.updateOne(
+        { modelName: baseData.model },
+        { $addToSet: { productIds: productIdObject } },
+        { upsert: true }
+      ),
+      Year.updateOne(
+        { year: baseData.year },
+        { $addToSet: { productIds: productIdObject } },
+        { upsert: true }
+      ),
+      Fuel.updateOne(
+        { type: baseData.fuelType },
+        { $addToSet: { productIds: productIdObject } },
+        { upsert: true }
+      ),
+    ]);
+
+    return res.status(201).json({
+      message: 'Product with variants created and linked successfully',
+      success: true,
+      data: productDetail
+    });
+
+  } catch (err) {
+    console.error('Create Product Error:', err);
+    res.status(500).json({
+      message: 'Failed to create product',
+      success: false,
+      data: err.message
+    });
   }
 };
 
 // Get all products for a shop
 exports.getProductsByShop = async (req, res) => {
   try {
-    const  shopId  = req.params.shopId;
-    console.log(shopId);
-    const productEntry = await Product.findOne({ shopId });
+    const shopId = req.params.shopId || req.query.shopId;
+    console.log('Looking for shopId:', shopId);
+    const productEntry = await Product.find({ shopId });
 
 
     if (!productEntry) {
@@ -129,26 +170,24 @@ exports.getProductsByShop = async (req, res) => {
   }
 };
 
-// Get a single product by ID
+// Get a single product by shopId and productId within the products array
 exports.getProductById = async (req, res) => {
   try {
-    const shopId  = req.params.shopId;
-
-    const  productId  = req.params.productId;
+    const { shopId, productId } = req.params;
 
     const productEntry = await Product.findOne({ shopId });
     if (!productEntry) {
-      return res.status(404).json({ message: 'Shop not found', data: [],success:false });
+      return res.status(404).json({ success: false, message: 'Shop not found' });
     }
+
     const product = productEntry.products.find(p => p._id.toString() === productId);
-
     if (!product) {
-      return res.status(404).json({ message: 'Product not found',data: [],success:false  });
+      return res.status(404).json({ success: false, message: 'Product not found' });
     }
 
-    return res.status(200).json({ message: 'Product retrieved', data: product ,success:true });
+    return res.status(200).json({ success: true, data: product });
   } catch (error) {
-    return res.status(500).json({ message: 'Failed to retrieve product', error: error.message ,success:false });
+    return res.status(500).json({ success: false, message: error.message });
   }
 };
 
@@ -213,4 +252,3 @@ exports.deleteProduct = async (req, res) => {
     return res.status(500).json({ message: 'Failed to delete product', error: error.message, success: false });
   }
 };
-

@@ -19,15 +19,15 @@ router.post('/upload',uploadMiddleWare.single('file'),productController.fileUplo
 
 
 // extra api for mobile get the common product related element
-router.get('/product/element',productController.getProductElement );
+router.get('/product/element',productController.getProductElement);
 // Create a new product (restricted to Shop Admin)
-router.post('/product/:id', productController.addProduct);
+router.post('/product', productController.addProduct);
 
 // Get all products for a shop
 router.get('/product/:shopId', productController.getProductsByShop);
 
 // Retrieve a specific product by ID (public)
-router.get('/product/:productId/:shopId', productController.getProductById);
+router.get('/product/:shopId/:productId', productController.getProductById);
 
 // Update product (restricted to Shop Admin)
 router.put('/product/:productId/:shopId', productController.updateProduct);

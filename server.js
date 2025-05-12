@@ -28,25 +28,22 @@ const superNotification = require('./routes/superNotificationRoute.js')
 const offerCoupon = require('./routes/offerCouponRoutes.js')
 const dashboard = require('./routes/dashboardRoutes.js')
 const reports = require('./routes/reportRoutes.js')
+const { S3Client, PutObjectCommand } = require("@aws-sdk/client-s3");
+const { getSignedUrl } = require("@aws-sdk/s3-request-presigner");
 
 const connectDB =require("./config/db.js")
-
-// Use the product routes
-
-
-
 const app = express();
+
+app.use(express.json({ limit: '10mb' }));
+app.use(express.urlencoded({ extended: true, limit: '10mb' }));
 // Middleware
-app.use(express.json());
+
 const server = http.createServer(app);
+const socket = require('./sockets/socket');
+const io = socket.init(server);
 
 connectDB();
-const io = socketIo(server, {
-  cors: {
-    origin: '*',
-    methods: ['GET', 'POST']
-  }
-});
+
 
 
 
@@ -94,29 +91,32 @@ app.use('/api/dashboard',dashboard);
 app.use('/api/report',reports);
 
 
+
 // Basic route
 app.get('/', (req, res) => {
   res.send('PreMart API is Running');
 });
 
-// Socket.io connection handling (for later real-time features)
-// ✅ Socket.io connection setup
-io.on('connection', (socket) => {
-  console.log('New client connected: ', socket.id);
 
-  // Listen for location updates from delivery boys
-  socket.on('updateLocation', (data) => {
-    console.log('Received location update:', data);
+const s3 = new S3Client({ region: process.env.AWS_REGION });
 
-    // Broadcast to all customers/admins listening for this deliveryBoyId
-    io.emit(`locationUpdate-${data.deliveryBoyId}`, data);
-  });
+app.post('/api/upload-url', async (req, res) => {
+  try {
+    const { fileName, fileType } = req.body;
 
-  socket.on('disconnect', () => {
-    console.log('Client disconnected:', socket.id);
-  });
+    const command = new PutObjectCommand({
+      Bucket: process.env.AWS_BUCKET_NAME,
+      Key: `uploads/${fileName}`,
+      ContentType: fileType,
+    });
+
+    const url = await getSignedUrl(s3, command, { expiresIn: 800 }); // 1 minute expiry
+    return res.json({ url });
+  } catch (error) {
+    console.error('Presigned URL error:', error);
+    return res.status(500).json({ message: 'Failed to generate URL', error: error.message });
+  }
 });
-
 
 const PORT = process.env.PORT || 3000;
 const HOST = process.env.HOST || '0.0.0.0';
