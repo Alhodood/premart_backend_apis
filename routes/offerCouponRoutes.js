@@ -2,20 +2,17 @@ const express = require('express');
 const router = express.Router();
 const {
   createCoupon, getAllCoupons, deleteCoupon,
-  createOffer, getAllOffers, deleteOffer
+  createOffer, getAllOffers, deleteOffer,updateCoupon,updateOffer
 } = require('../controllers/offerCouponController');
 
-const { protect } = require('../middleware/authMiddleware');
-const { allowRoles } = require('../middleware/roleMiddleware');
+router.post('/coupon/:creatorId', createCoupon);
+router.get('/coupon/:creatorId', getAllCoupons);
+router.delete('/coupon/:creatorId/:id', deleteCoupon);
+router.put('/coupon/:id', updateCoupon);
 
-// 🧾 Coupons
-router.post('/coupon', protect, allowRoles('superAdmin', 'shopAdmin'), createCoupon);
-router.get('/coupon', protect, allowRoles('superAdmin', 'shopAdmin'), getAllCoupons);
-router.delete('/coupon/:id', protect, allowRoles('superAdmin', 'shopAdmin'), deleteCoupon);
-
-// 🎁 Offers
-router.post('/offer', protect, allowRoles('superAdmin', 'shopAdmin'), createOffer);
-router.get('/offer', protect, allowRoles('superAdmin', 'shopAdmin'), getAllOffers);
-router.delete('/offer/:id', protect, allowRoles('superAdmin', 'shopAdmin'), deleteOffer);
+router.post('/offer/:creatorId', createOffer);
+router.get('/offer/:creatorId', getAllOffers);
+router.delete('/offer/:creatorId/:id', deleteOffer);
+router.put('/offer/:id', updateOffer);
 
 module.exports = router;

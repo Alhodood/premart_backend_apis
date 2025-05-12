@@ -9,6 +9,8 @@ const GOOGLE_MAPS_API_KEY = process.env.GOOGLE_MAPS_API_KEY;
 const geolib = require('geolib');
 const Payment = require('../models/Payment');
 const moment = require('moment');
+const { getIO } = require('../sockets/socket');
+
 
 // Calculate distance between 2 geo points (Haversine)
 
@@ -512,7 +514,7 @@ const paymentInfo = {
   exports.deliveryBoyUpdateOrderStatus = async (req, res) => {
     try {
       const orderId = req.params.orderId;
-      const { newStatus } = req.body; // "Picked Up", "Out for Delivery", "Delivered"
+      const { newStatus } = req.body;
   
       if (!orderId || !newStatus) {
         return res.status(400).json({
@@ -534,6 +536,20 @@ const paymentInfo = {
           success: false,
           data: []
         });
+      }
+  
+      // ✅ Get Socket.IO only when needed
+      try {
+        const io = getIO();
+        io.emit('order_status_changed', {
+          orderId: updatedOrder._id,
+          status: updatedOrder.orderStatus,
+          shopId: updatedOrder.shopId,
+          deliveryBoyId: updatedOrder.assignedDeliveryBoy,
+          updatedAt: updatedOrder.updatedAt,
+        });
+      } catch (socketErr) {
+        console.warn("Socket.IO not initialized yet:", socketErr.message);
       }
   
       return res.status(200).json({
@@ -717,10 +733,13 @@ exports.getNearbyOnlineDeliveryBoys = async (req, res) => {
       return R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
     };
 
-    const nearby = deliveryBoys.filter(boy => {
+    const nearby = deliveryBoys.map(boy => {
       const dist = calcDistance(boy.latitude, boy.longitude);
-      return dist <= range;
-    });
+      return {
+        ...boy.toObject(),
+        distanceFromShopKm: parseFloat(dist.toFixed(2))
+      };
+    }).filter(boy => boy.distanceFromShopKm <= range);
 
     return res.status(200).json({
       message: 'Nearby online delivery boys',
