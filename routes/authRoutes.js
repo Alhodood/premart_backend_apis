@@ -1,5 +1,5 @@
 const express = require('express');
-const { registerUser, loginUser, sendOtp, verifyOtp,resendOtp } = require('../controllers/authController');
+const { registerUser, loginUser, sendOtp, verifyOtp,resendOtp, sendOtpOnly } = require('../controllers/authController');
 const { protect } = require('../middleware/authMiddleware');
 const { allowRoles } = require('../middleware/roleMiddleware');
 const adminAuthController = require('../controllers/adminAuthController');
@@ -30,6 +30,7 @@ router.post('/shop-admin/login', adminAuthController.loginShopAdmin);
 router.post('/send-otp', sendOtp);
 router.post('/verify-otp', verifyOtp);
 router.post('/resend-otp', resendOtp);
+//router.post('/sendOtpOnly', sendOtpOnly);
 
 
 module.exports = router;
