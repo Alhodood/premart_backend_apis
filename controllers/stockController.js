@@ -9,10 +9,17 @@ exports.getStockByShop = async (req, res) => {
     const stocks = await Stock.find({ shopId: req.params.shopId });
 
     const enrichedStocks = await Promise.all(stocks.map(async (stock) => {
+      console.log('🔍 Matching ProductId:', stock.productId);
       const productDoc = await Product.aggregate([
-        { $match: { shopId: stock.shopId } },
+        { $match: { shopId: stock.shopId.toString() } },
         { $unwind: '$products' },
-        { $match: { 'products._id': mongoose.Types.ObjectId(stock.productId) } },
+        {
+          $match: {
+            $expr: {
+              $eq: ['$products._id', new mongoose.Types.ObjectId(stock.productId)]
+            }
+          }
+        },
         { $project: { productDetails: '$products' } },
         { $limit: 1 }
       ]);
@@ -231,12 +238,18 @@ exports.getLowStockItems = async (req, res) => {
         const productDoc = await Product.aggregate([
           { $match: { shopId: stock.shopId } },
           { $unwind: '$products' },
-          { $match: { 'products._id': mongoose.Types.ObjectId(stock.productId) } },
+          {
+            $match: {
+              $expr: {
+                $eq: ['$products._id', new mongoose.Types.ObjectId(stock.productId)]
+              }
+            }
+          },
           { $project: { productDetails: '$products' } },
           { $limit: 1 }
         ]);
         const productDetails = productDoc.length > 0 ? productDoc[0].productDetails : null;
-  
+
         return {
           ...stock.toObject(),
           productDetails
@@ -298,7 +311,13 @@ exports.searchAndFilterStock = async (req, res) => {
           const productDoc = await Product.aggregate([
             { $match: { shopId: stock.shopId } },
             { $unwind: '$products' },
-            { $match: { 'products._id': mongoose.Types.ObjectId(stock.productId) } },
+            {
+              $match: {
+                $expr: {
+                  $eq: ['$products._id', new mongoose.Types.ObjectId(stock.productId)]
+                }
+              }
+            },
             { $project: { productDetails: '$products' } },
             { $limit: 1 }
           ]);

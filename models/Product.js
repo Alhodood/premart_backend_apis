@@ -28,7 +28,8 @@ const productDetailesSchema = new mongoose.Schema({
       manufacturer: String,
       sku: String,
       warranty: String,
-      thresholdQuantity: Number
+      thresholdQuantity: Number,
+      
     }
   ],
 

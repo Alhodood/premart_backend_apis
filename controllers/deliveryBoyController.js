@@ -15,112 +15,128 @@ const { getIO } = require('../sockets/socket');
 // Calculate distance between 2 geo points (Haversine)
 
 
-exports.registerDeliveryBoy = async (req, res) => {
+const twilio = require('twilio');
+const client = twilio(process.env.TWILIO_ACCOUNT_SID, process.env.TWILIO_AUTH_TOKEN);
+
+exports.sendOtpToDeliveryBoy = async (req, res) => {
+  const { phone } = req.body;
+
+  if (!phone) {
+    return res.status(400).json({
+      message: 'Phone is required',
+      success: false
+    });
+  }
+
   try {
-    const { name, email, phone, password, countryCode, dob, latitude, longitude,agencyId } = req.body;
+    await client.verify.v2.services(process.env.TWILIO_SERVICE_SID)
+      .verifications
+      .create({ to: phone, channel: 'sms' });
 
-    if (!name || !email || !phone || !password || !countryCode) {
-      return res.status(400).json({
-        message: 'Required fields missing',
-        success: false,
-        data: []
-      });
-    }
-
-    const existingUser = await DeliveryBoy.findOne({ $or: [{ email }, { phone }] });
-    if (existingUser) {
-      return res.status(400).json({
-        message: 'Email or Phone already registered',
-        success: false,
-        data: []
-      });
-    }
-
-    const hashedPassword = await bcrypt.hash(password, 10);
-
-    const newDeliveryBoy = new DeliveryBoy({
-      name,
-      email,
-      phone,
-      password: hashedPassword,
-      countryCode,
-      dob,
-      latitude,
-      longitude,
-      agencyId
+    return res.status(200).json({
+      message: 'OTP sent successfully',
+      success: true
     });
-
-    await newDeliveryBoy.save();
-
-    return res.status(201).json({
-      message: 'Delivery Boy registered successfully',
-      success: true,
-      data: newDeliveryBoy
-    });
-
-  } catch (error) {
-    console.error('Register Delivery Boy Error:', error);
+  } catch (err) {
+    console.error('Send OTP Error:', err);
     res.status(500).json({
-      message: 'Failed to register delivery boy',
+      message: 'Failed to send OTP',
       success: false,
-      data: error.message
+      error: err.message
     });
   }
 };
 
+// Resend OTP to delivery boy
+exports.resendOtpToDeliveryBoy = async (req, res) => {
+  const { phone } = req.body;
 
-exports.loginDeliveryBoy = async (req, res) => {
-    try {
-      const { email, password } = req.body;
-  
-      if (!email || !password) {
-        return res.status(400).json({
-          message: 'Email and Password are required',
-          success: false,
-          data: []
-        });
-      }
-  
-      const deliveryBoy = await DeliveryBoy.findOne({ email });
+  if (!phone) {
+    return res.status(400).json({
+      message: 'Phone is required',
+      success: false
+    });
+  }
+
+  try {
+    // Re-trigger OTP sending using Twilio
+    await client.verify.v2.services(process.env.TWILIO_SERVICE_SID)
+      .verifications
+      .create({ to: phone, channel: 'sms' });
+
+    return res.status(200).json({
+      message: 'OTP resent successfully',
+      success: true
+    });
+  } catch (err) {
+    console.error('Resend OTP Error:', err);
+    res.status(500).json({
+      message: 'Failed to resend OTP',
+      success: false,
+      error: err.message
+    });
+  }
+};
+
+exports.verifyOtpForDeliveryBoy = async (req, res) => {
+  const { phone, code } = req.body;
+
+  if (!phone || !code) {
+    return res.status(400).json({
+      message: 'Phone and OTP code are required',
+      success: false
+    });
+  }
+
+  try {
+    const verification = await client.verify.v2.services(process.env.TWILIO_SERVICE_SID)
+      .verificationChecks
+      .create({ to: phone, code });
+
+    if (verification.status === 'approved') {
+      let deliveryBoy = await DeliveryBoy.findOne({ phone });
+
+      // If not found, register new delivery boy with required details from req.body
       if (!deliveryBoy) {
-        return res.status(404).json({
-          message: 'Delivery Boy not found',
-          success: false,
-          data: []
+        const { countryCode, latitude, longitude } = req.body;
+        if (!countryCode || latitude === undefined || longitude === undefined) {
+          return res.status(400).json({
+            message: 'Missing details for registration (countryCode, latitude, longitude)',
+            success: false
+          });
+        }
+
+        deliveryBoy = new DeliveryBoy({
+          phone,
+          countryCode,
+          latitude,
+          longitude,
+          isOnline: false,
+          role: 'deliveryBoy'
         });
+        await deliveryBoy.save();
       }
-  
-      const isPasswordValid = await bcrypt.compare(password, deliveryBoy.password);
-      if (!isPasswordValid) {
-        return res.status(401).json({
-          message: 'Invalid credentials',
-          success: false,
-          data: []
-        });
-      }
-  
-      const token = jwt.sign(
-        { id: deliveryBoy._id, role: deliveryBoy.role },
-        process.env.JWT_SECRET || 'your-secret-key', 
-        { expiresIn: '7d' }
-      );
-  
+
       return res.status(200).json({
-        message: 'Login successful',
+        message: 'OTP verified successfully',
         success: true,
-        token,
         data: deliveryBoy
       });
-  
-    } catch (error) {
-      console.error('Login Delivery Boy Error:', error);
-      res.status(500).json({
-        message: 'Failed to login',
-        success: false,
-        data: error.message
+    } else {
+      return res.status(401).json({
+        message: 'Invalid OTP',
+        success: false
       });
     }
-  };
+  } catch (err) {
+    console.error('Verify OTP Error:', err);
+    res.status(500).json({
+      message: 'OTP verification failed',
+      success: false,
+      error: err.message
+    });
+  }
+};
 
 
   exports.updateDeliveryBoy = async (req, res) => {
