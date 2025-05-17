@@ -105,7 +105,7 @@ console.log(user);
         email: user.email,
         phone: user.phone,
         role: user.role,
-        accountStatus: user.accountVerify, 
+        accountStatus: user.accountVerify,dob:user.dob ,
       
       }
     });
@@ -120,6 +120,23 @@ console.log(user);
   }
 };
 
+// delete Account
+exports.deletAddcount = async (req, res) => {
+  const  _id= req.params.userId;
+  try {
+    const user = await User.findOne({_id});
+    if (!user) {
+      // Auto-register new user
+      return res.status(200).json({ message: 'user not founded. please enter valid phone number', success:false, data:[] });
+    }
+user.accountVisibility=false;
+await user.save();
+    res.status(200).json({ message: "Your account is deleted ", success: true ,data:user});
+  } catch (err) {
+    res.status(500).json({ message: 'Somthing went wrong', success: false, error: err.message });
+  }
+};
+
 //// OTP
 
 
@@ -128,14 +145,6 @@ console.log(user);
 exports.sendOtp = async (req, res) => {
   const { phone, role } = req.body;
 
-  // try {
-  //   const result = await client.verify.v2
-  //     .services(process.env.TWILIO_SERVICE_SID)
-  //     .verifications.create({ to: '+971567760353', channel: 'sms' });
-  //   console.log("Verification sent", result.sid);
-  // } catch (error) {
-  //   console.error("Twilio error:", error.code, error.message);
-  // }
   try {
     if (!phone) return res.status(200).json({ message: 'Phone and role are required', success:false, data:[] });
 
@@ -148,13 +157,14 @@ exports.sendOtp = async (req, res) => {
 
    const otpResponse= await client.verify.v2.services(process.env.TWILIO_SERVICE_SID)
       .verifications
-      .create({ to: phone, channel: 'sms' });
+      .create({ to:phone, channel: 'sms' });
 
     res.status(200).json({ message: 'OTP sent to '+phone, success: true ,data:otpResponse});
   } catch (err) {
     res.status(500).json({ message: 'OTP send failed', success: false, error: err.message });
   }
 };
+
 
 // ✅ Verify OTP
 exports.verifyOtp = async (req, res) => {
@@ -166,17 +176,24 @@ exports.verifyOtp = async (req, res) => {
     const verification = await client.verify.v2.services(process.env.TWILIO_SERVICE_SID)
       .verificationChecks
       .create({ to: phone, code });
-
+console.log(verification.status);
     if (verification.status === 'approved') {
       const user = await User.findOne({ phone });
       if (!user) return res.status(404).json({ message: 'User not found' });
-
-      const token = generateToken(user);
+user.accountVerify=true;
+await user.save();
       res.status(200).json({
         message: 'OTP verified. Login successful',
         success: true,
-        token,
-        user
+        data: {
+          id: user._id,
+          name: user.name,
+          email: user.email,
+          phone: user.phone,
+          role: user.role,
+          accountStatus: user.accountVerify,dob:user.dob ,
+        
+        }
       });
     } else {
       res.status(401).json({ message: 'Invalid OTP', success: false });
@@ -241,7 +258,7 @@ exports.getProfile = async (req, res) => {
 exports.updateProfile = async (req, res) => {
   try {
     const userId = req.params.id;
-    const { address, name, email, phone, dob, countryCode } = req.body;
+    const {  name, email, phone, dob } = req.body;
 
     const user = await User.findOne(userId);
 
@@ -252,9 +269,13 @@ exports.updateProfile = async (req, res) => {
     // Optional: Only update if value is provided
     if (name) user.name = name;
     if (email) user.email = email;
-    if (phone) user.phone = phone;
     if (dob) user.dob = dob;
-    // if (countryCode) user.countryCode = countryCode;
+    if (phone !== user.phone) {
+      console.log("number is changed");
+      user.accountVerify = false;
+    // await user.save();
+    }
+    if (phone) user.phone = phone;
 
     // console.log(user.address);
     // if (address) user.address = address;
@@ -264,7 +285,14 @@ exports.updateProfile = async (req, res) => {
     res.status(200).json({
       message: 'Profile updated successfully',
       success: true,
-      data: user
+      data: {      id: user._id,
+        name: user.name,
+        email: user.email,
+        phone: user.phone,
+        role: user.role,
+        accountStatus: user.accountVerify,dob:user.dob ,
+      
+      }
     });
   } catch (err) {
     res.status(500).json({
@@ -429,3 +457,133 @@ exports.getAllAddresses = async (req, res) => {
 //     res.status(500).json({ message: "Failed to delete address", success: false, error: error.message });
 //   }
 // };
+
+
+// card crud
+
+
+
+exports.updateUserCard = async (req, res) => {
+  try {
+    const userId = req.params.id;
+    const cardId = req.params.cardId;
+    const updateData = req.body;
+
+    const user = await User.findById(userId);
+    if (!user) {
+      return res.status(404).json({ message: 'User not found', success: false });
+    }
+
+    let addressFound = false;
+
+    for (let i = 0; i < user.card.length; i++) {
+      if (user.card[i]._id.toString() === cardId) {
+        user.card[i] = {
+          ...user.card[i]._doc,
+          ...updateData
+        };
+        addressFound = true;
+        break;
+      }
+    }
+
+    if (!addressFound) {
+      return res.status(404).json({ message: 'Card not found', success: false });
+    }
+
+    const updatedUser = await user.save();
+
+    res.status(200).json({
+      message: 'Address updated successfully',
+      success: true,
+      data: updatedUser.card
+    });
+  } catch (error) {
+    res.status(500).json({
+      message: 'Failed to update address',
+      success: false,
+      error: error.message
+    });
+  }
+};
+
+exports.addNewCard = async (req, res) => {
+  try {
+    const userId = req.params.id;
+    const newCard = req.body; // should match address schema
+console.log(newCard);
+    const user = await User.findById(userId);
+    if (!user) {
+      return res.status(200).json({ message: "User not found", success: false });
+    }
+
+    user.card.push(newCard);
+    await user.save();
+
+    res.status(200).json({
+      success: true,
+      message: "Card added successfully",
+      data: user.card
+    });
+  } catch (error) {
+    res.status(500).json({ message: "Failed to add card", success: false, error: error.message });
+  }
+};
+
+exports.deleteCardById = async (req, res) => {
+  try {
+    const userId = req.params.id;
+    const cardId = req.params.cardId;
+
+    const user = await User.findById(userId);
+    if (!user) {
+      return res.status(200).json({ message: "User not found", success: false });
+    }
+
+    const originalLength = user.card.length;
+    
+
+    user.card = user.card.filter(
+      (addr) => addr._id.toString() !== cardId
+    );
+    // console.log(user.card);
+
+    if (user.card.length === originalLength) {
+      return res.status(200).json({ message: "Card not found", success: false });
+    }
+    if (!user.card) {
+      return res.status(200).json({ message: "Card not found", success: false });
+    }
+
+    await user.save();
+
+    res.status(200).json({
+      success: true,
+      message: "Card deleted successfully",
+      data: user.card
+    });
+  } catch (error) {
+    res.status(500).json({ message: "Failed to delete card", success: false, error: error.message });
+  }
+};
+
+
+exports.getAllCard = async (req, res) => {
+  try {
+    const userId = req.params.id;
+
+    const user = await User.findById(userId).select('card');
+
+    if (!user) {
+      return res.status(404).json({ message: "User not found", success: false });
+    }
+
+    res.status(200).json({
+      success: true,
+      message: "Card fetched successfully",
+      data: user.card
+    });
+  } catch (error) {
+    res.status(500).json({ message: "Failed to fetch card", success: false, error: error.message });
+  }
+};

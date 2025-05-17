@@ -8,7 +8,7 @@ const authRoutes = require('./routes/authRoutes');
 const productRoutes = require('./routes/productRoutes.js');
 const shopRoutes = require('./routes/shopRoutes.js');
 const customerAddress= require("./routes/customerAddressRoutes.js")
-const customerCard= require("./routes/customerCardRoutes.js")
+// const customerCard= require("./routes/customerCardRoutes.js")
 const banner = require("./routes/bannerRoutes.js")
 
 const notification = require('./routes/notificationRoutes.js')
@@ -74,7 +74,7 @@ app.use('/api/shop', shopRoutes);
 app.use('/api',productRoutes);
 
 app.use('/api/customerAddress', customerAddress);
-app.use('/api/card', customerCard);
+// app.use('/api/card', customerCard); 
 app.use('/api/banner',banner);
 app.use('/api/notification',notification);
 app.use('/api/cart',cart);
