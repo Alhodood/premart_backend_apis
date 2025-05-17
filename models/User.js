@@ -1,6 +1,13 @@
 const mongoose = require('mongoose');
 const bcrypt = require('bcrypt');
 
+const cardDetailsSchema = new mongoose.Schema({
+  cardHolderName: { type: String, required: true },
+  // email: { type: String, required: true },
+  cardNumber: { type: String, required: true },
+  expiry: { type: String, required: true },
+  cvv: { type: String, required: true },
+}, { timestamps: true });
 const customerAddressDetailsSchema = new mongoose.Schema({
   name: { type: String, required: true },
   address: { type: String },
@@ -15,7 +22,7 @@ const UserSchema = new mongoose.Schema({
   email: { type: String, unique: true, sparse: true },
   phone: { type: String, unique: true, sparse: true },
   password: { type: String, required: true },
-  // countryCode: { type: String },
+  accountVisibility: { type: Boolean ,default:true},
   dob: String,
   accountVerify:{type: Boolean, default:false},
   role: {
@@ -23,6 +30,7 @@ const UserSchema = new mongoose.Schema({
     enum: ['customer', 'superAdmin', 'shopAdmin'],
     default: 'customer'
   }, address: [customerAddressDetailsSchema],
+  card:[cardDetailsSchema],
 }, { timestamps: true });
 
 UserSchema.pre('save', async function (next) {
