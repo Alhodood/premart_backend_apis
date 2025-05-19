@@ -43,12 +43,12 @@ const socket = require('./sockets/socket');
 const io = socket.init(server);
 
 connectDB();
-const io = socketIo(server, {
-  cors: {
-    origin: '*',
-    methods: ['GET', 'POST']
-  }
-});
+// const io = socketIo(server, {
+//   cors: {
+//     origin: '*',
+//     methods: ['GET', 'POST']
+//   }
+// });
 
 // 'https://property-erp.com',
 
@@ -127,6 +127,26 @@ app.get('/generatePresignedUrl', async (req, res) => {
   }
 });
 
+// const s3 = new S3Client({ region: process.env.AWS_REGION });
+
+// app.post('/api/upload-url', async (req, res) => {
+//   try {
+//     const { fileName, fileType } = req.body;
+
+//     const command = new PutObjectCommand({
+//       Bucket: process.env.AWS_BUCKET_NAME,
+//       Key: `uploads/${fileName}`,
+//       ContentType: fileType,
+//     });
+
+//     const url = await getSignedUrl(s3, command, { expiresIn: 800 }); // 1 minute expiry
+//     return res.json({ url });
+//   } catch (error) {
+//     console.error('Presigned URL error:', error);
+//     return res.status(500).json({ message: 'Failed to generate URL', error: error.message });
+//   }
+// });
+
 const s3 = new S3Client({ region: process.env.AWS_REGION });
 
 app.post('/api/upload-url', async (req, res) => {
@@ -146,7 +166,6 @@ app.post('/api/upload-url', async (req, res) => {
     return res.status(500).json({ message: 'Failed to generate URL', error: error.message });
   }
 });
-
 const PORT = process.env.PORT || 3002;
 const HOST = process.env.HOST || '0.0.0.0';
 
