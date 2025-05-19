@@ -1,6 +1,6 @@
 const express = require('express');
 const { registerUser, loginUser, sendOtp, verifyOtp,resendOtp,updateProfile,
-    updateUserAddress,getAllAddresses,deleteAddressById,addNewAddress,getProfile,deletAddcount,
+    updateUserAddress,getAllAddresses,deleteAddressById,addNewAddress,getDefultAddress,getProfile,deletAddcount,
     addNewCard, getAllCard,updateUserCard,deleteCardById } = require('../controllers/authController');
 const { protect } = require('../middleware/authMiddleware');
 const { allowRoles } = require('../middleware/roleMiddleware');
@@ -20,6 +20,8 @@ router.get("/address/:id",getAllAddresses);
 router.post("/address/:id",addNewAddress);
 router.put("/address/:id/:addressId",updateUserAddress);
 router.delete("/address/:id/:addressId",deleteAddressById);
+router.get("/defultAddress/:id",getDefultAddress);
+
 
 router.get("/card/:id",getAllCard);
 router.post("/card/:id",addNewCard);
