@@ -7,7 +7,7 @@ exports.createCategory = async (req, res) => {
     await newCategory.save();
     res.status(201).json({ message: 'Category created successfully', data: newCategory,success:true });
   } catch (error) {
-    res.status(500).json({ message: 'Error creating category', error: error.message,success:false });
+    res.status(500).json({ message: 'Error creating category', data: error.message,success:false });
   }
 };
 
@@ -17,7 +17,7 @@ exports.getAllCategories = async (req, res) => {
     const categories = await Category.find();
     res.status(200).json({ data: categories ,message:"list of categories",success:true});
   } catch (error) {
-    res.status(500).json({ message: 'Error fetching categories', error: error.message ,success:false});
+    res.status(500).json({ message: 'Error fetching categories', data: error.message ,success:false});
   }
 };
 
@@ -30,7 +30,7 @@ exports.getCategoryById = async (req, res) => {
     }
     res.status(200).json({ data: category ,success:true,message: "category by id"});
   } catch (error) {
-    res.status(500).json({ message: 'Error fetching category', error: error.message,success:false });
+    res.status(500).json({ message: 'Error fetching category', data: error.message,success:false });
   }
 };
 
@@ -47,7 +47,7 @@ exports.updateCategory = async (req, res) => {
     }
     res.status(200).json({ message: 'Category updated successfully', data: updatedCategory,success:true });
   } catch (error) {
-    res.status(500).json({ message: 'Error updating category', error: error.message,success:false });
+    res.status(500).json({ message: 'Error updating category', data: error.message,success:false });
   }
 };
 
@@ -62,6 +62,6 @@ exports.deleteCategory = async (req, res) => {
     }
     res.status(200).json({ message: 'Category deleted successfully', data:deletedCategory,success:true });
   } catch (error) {
-    res.status(500).json({ message: 'Error deleting category', error: error.message,success:false });
+    res.status(500).json({ message: 'Error deleting category', data: error.message,success:false });
   }
 };

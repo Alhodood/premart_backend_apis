@@ -7,7 +7,7 @@ exports.createYear = async (req, res) => {
     await newYear.save();
     res.status(201).json({ message: 'Year created successfully', data: newYear,success:true });
   } catch (error) {
-    res.status(500).json({ message: 'Error creating year', error: error.message,success:false  });
+    res.status(500).json({ message: 'Error creating year', data: error.message,success:false  });
   }
 };
 
@@ -17,7 +17,7 @@ exports.getAllYears = async (req, res) => {
     const years = await Year.find();
     res.status(200).json({ data: years,success:true , message:"years featched" });
   } catch (error) {
-    res.status(500).json({ message: 'Error fetching years', error: error.message,success:false  });
+    res.status(500).json({ message: 'Error fetching years', data: error.message,success:false  });
   }
 };
 
@@ -30,7 +30,7 @@ exports.getYearById = async (req, res) => {
     }
     res.status(200).json({ data: year,success:true ,message:"year founded" });
   } catch (error) {
-    res.status(500).json({ message: 'Error fetching year', error: error.message,success:true  });
+    res.status(500).json({ message: 'Error fetching year', data: error.message,success:true  });
   }
 };
 
@@ -46,7 +46,7 @@ exports.updateYear = async (req, res) => {
     }
     res.status(200).json({ message: 'Year updated successfully', data: updatedYear,success:true });
   } catch (error) {
-    res.status(500).json({ message: 'Error updating year', error: error.message ,success:false });
+    res.status(500).json({ message: 'Error updating year', data: error.message ,success:false });
   }
 };
 
@@ -57,8 +57,8 @@ exports.deleteYear = async (req, res) => {
     if (!deletedYear) {
       return res.status(404).json({ message: 'Year not found',success:false ,data:[] });
     }
-    res.status(200).json({ message: 'Year deleted successfully',success:true,data:[]  });
+    res.status(200).json({ message: 'Year deleted successfully',success:true,data:deletedYear  });
   } catch (error) {
-    res.status(500).json({ message: 'Error deleting year', error: error.message,success:false  });
+    res.status(500).json({ message: 'Error deleting year', data: error.message,success:false  });
   }
 };

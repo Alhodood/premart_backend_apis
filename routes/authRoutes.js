@@ -1,5 +1,7 @@
 const express = require('express');
-const { registerUser, loginUser, sendOtp, verifyOtp,resendOtp, sendOtpOnly } = require('../controllers/authController');
+const { registerUser, loginUser, sendOtp, verifyOtp,resendOtp,updateProfile,
+    updateUserAddress,getAllAddresses,deleteAddressById,addNewAddress,getDefultAddress,getProfile,deletAddcount,
+    addNewCard, getAllCard,updateUserCard,deleteCardById } = require('../controllers/authController');
 const { protect } = require('../middleware/authMiddleware');
 const { allowRoles } = require('../middleware/roleMiddleware');
 const adminAuthController = require('../controllers/adminAuthController');
@@ -8,6 +10,25 @@ const router = express.Router();
 
 router.post('/register', registerUser);
 router.post('/login', loginUser);
+router.put('/profile/:userId',updateProfile);
+router.get('/profile/:userId',getProfile);
+
+router.put('/profile-delete/:userId',deletAddcount);
+
+
+router.get("/address/:id",getAllAddresses);
+router.post("/address/:id",addNewAddress);
+router.put("/address/:id/:addressId",updateUserAddress);
+router.delete("/address/:id/:addressId",deleteAddressById);
+router.get("/defultAddress/:id",getDefultAddress);
+
+
+router.get("/card/:id",getAllCard);
+router.post("/card/:id",addNewCard);
+router.put("/card/:id/:cardId",updateUserCard);
+router.delete("/card/:id/:cardId",deleteCardById);
+
+
 
 // Super Admin
 router.post('/super-admin/register', adminAuthController.registerSuperAdmin);
