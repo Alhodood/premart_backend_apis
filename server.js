@@ -8,7 +8,7 @@ const authRoutes = require('./routes/authRoutes');
 const productRoutes = require('./routes/productRoutes.js');
 const shopRoutes = require('./routes/shopRoutes.js');
 const customerAddress= require("./routes/customerAddressRoutes.js")
-const customerCard= require("./routes/customerCardRoutes.js")
+// const customerCard= require("./routes/customerCardRoutes.js")
 const banner = require("./routes/bannerRoutes.js")
 
 const notification = require('./routes/notificationRoutes.js')
@@ -43,16 +43,21 @@ const socket = require('./sockets/socket');
 const io = socket.init(server);
 
 connectDB();
+const io = socketIo(server, {
+  cors: {
+    origin: '*',
+    methods: ['GET', 'POST']
+  }
+});
 
-
-
+// 'https://property-erp.com',
 
 app.use(cors({
   origin: [
     "http://localhost:5000",
-    'http://property-erp.com',       // dev
-    'https://property-erp.com',      // production
-    'http://www.property-erp.com'   // if you support www
+    'http://autopartsnow.uk',       // dev
+    'https://autopartsnow.uk',      // production
+    'http://www.autopartsnow.uk'   // if you support www
   ],
   methods: ['GET','POST','PUT','DELETE','OPTIONS'],
     allowedHeaders: ['Content-Type','Authorization'],
@@ -71,7 +76,7 @@ app.use('/api/shop', shopRoutes);
 app.use('/api',productRoutes);
 
 app.use('/api/customerAddress', customerAddress);
-app.use('/api/card', customerCard);
+// app.use('/api/card', customerCard); 
 app.use('/api/banner',banner);
 app.use('/api/notification',notification);
 app.use('/api/cart',cart);
@@ -97,6 +102,30 @@ app.get('/', (req, res) => {
   res.send('PreMart API is Running');
 });
 
+// Generate pre-signed S3 URL
+app.get('/generatePresignedUrl', async (req, res) => {
+  try {
+    const filename = req.query.filename;
+
+    if (!filename) {
+      return res.status(400).send('Filename is required');
+    }
+
+    const params = {
+      Bucket: 'premart', // your bucket name
+      Key: filename,     // file name you want to upload
+      ContentType: 'image/jpeg', // or set dynamic based on file type
+    };
+
+    const command = new PutObjectCommand(params);
+    const signedUrl = await getSignedUrl(s3, command, { expiresIn: 300 }); // 5 minutes expiry
+
+    res.json({ url: signedUrl });
+  } catch (error) {
+    console.error('Error generating signed URL:', error);
+    res.status(500).send('Error generating signed URL');
+  }
+});
 
 const s3 = new S3Client({ region: process.env.AWS_REGION });
 
@@ -118,7 +147,7 @@ app.post('/api/upload-url', async (req, res) => {
   }
 });
 
-const PORT = process.env.PORT || 3000;
+const PORT = process.env.PORT || 3002;
 const HOST = process.env.HOST || '0.0.0.0';
 
 // Start server
