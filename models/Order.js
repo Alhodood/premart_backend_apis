@@ -55,6 +55,8 @@ const orderDetailsSchema = new mongoose.Schema({
   refundRequest: refundRequestSchema,
   refundDetails: refundDetailsSchema,
 
+  items: { type: Number, default: 0 }, // ✅ number of items in the order (can be auto-calculated from productId.length if needed)
+
   orderStatus: { type: String, default: "Pending" },
   statusTimestamps: statusTimestampsSchema // ✅ tracking delivery steps
 

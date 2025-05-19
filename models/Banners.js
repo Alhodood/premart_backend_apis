@@ -2,11 +2,17 @@ const mongoose= require('mongoose');
 
 const bannerSchema= new mongoose.Schema({
     title: String,
+    isActive: { type: Boolean, default: true },
+    redirectScreen:String,
     pic: String, 
-    visibility:{ type: Boolean, default: true }
-
+    
+shopId: {
+    type: mongoose.Schema.Types.ObjectId,
+    ref: 'Shop',
+    required: true,
+    index: true,
+  },
 
     
 },{timestamps: true });
 module.exports= mongoose.model('Banner',bannerSchema);
-

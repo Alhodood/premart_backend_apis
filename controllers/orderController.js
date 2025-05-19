@@ -17,6 +17,9 @@ const Offer = require('../models/Offers');
 const GOOGLE_API_KEY = process.env.GOOGLE_MAPS_API_KEY;
 const PER_KM_RATE = parseFloat(process.env.PER_KM_RATE) || 2; // AED per km
 
+const { io } = require('../server'); // Assuming you have a server.js file where you initialize socket.io
+
+
 const getLatLngFromAddress = async (addressString) => {
   try {
     const url = `https://maps.googleapis.com/maps/api/geocode/json?address=${encodeURIComponent(addressString)}&key=${GOOGLE_API_KEY}`;
@@ -166,6 +169,11 @@ exports.createOrder = async (req, res) => {
       );
     }
 
+    // io.emit('order_status_changed', {
+    //   orderId: updatedOrder._id,
+    //   status: updatedOrder.orderStatus,
+    // });
+
     // Step 7: Save order
     const newOrder = new Order({
       userId,
@@ -185,6 +193,13 @@ exports.createOrder = async (req, res) => {
     });
 
     await newOrder.save();
+    // 🔔 Emit socket event to all connected clients (shopId-based filtering on frontend)
+if (io) {
+  io.emit('newOrder', {
+    shopId: shopId.toString(),
+    order: newOrder
+  });
+}
 
     // Step 8: Clear cart
     cart.cartProduct = [];
@@ -207,6 +222,7 @@ exports.createOrder = async (req, res) => {
         appliedCoupon,
         appliedOffers,
         deliveryAddress,
+        items: productIds.length,
         products: allProducts.map(p => ({
           id: p._id,
           name: p.name,
@@ -355,7 +371,9 @@ exports.viewOrdersByShopAdmin = async (req, res) => {
       page = 1,
       limit = 10,
       sort = 'desc',
-      sortBy = 'createdAt'
+      sortBy = 'createdAt',
+      minAmount,
+      maxAmount
     } = req.query;
 
     if (!shopId) {
@@ -368,25 +386,56 @@ exports.viewOrdersByShopAdmin = async (req, res) => {
     let filter = { shopId };
 
     if (search) {
-      filter._id = { $regex: search, $options: 'i' };
+      if (mongoose.Types.ObjectId.isValid(search)) {
+        filter._id = search;
+      } else {
+        // Optional: extend to other fields if needed
+        filter['deliveryAddress.name'] = { $regex: search, $options: 'i' };
+      }
     }
     if (userId) {
       filter.userId = userId;
     }
     if (orderStatus) {
-      filter.orderStatus = orderStatus;
+      filter.orderStatus = new RegExp('^' + orderStatus + '$', 'i');
     }
     if (from && to) {
+      const fromDate = new Date(from);
+      const toDate = new Date(to);
+      toDate.setHours(23, 59, 59, 999); // Ensure end of day is included
       filter.createdAt = {
-        $gte: new Date(from),
-        $lte: new Date(to)
+        $gte: fromDate,
+        $lte: toDate
       };
     }
+    // Filter by minAmount and maxAmount
+    if (minAmount || maxAmount) {
+      filter.totalAmount = {};
+      if (minAmount) filter.totalAmount.$gte = parseFloat(minAmount);
+      if (maxAmount) filter.totalAmount.$lte = parseFloat(maxAmount);
+    }
 
+    // Fetch orders and include delivery boy details, and lean for easier manipulation
     const orders = await Order.find(filter)
+      .populate('assignedDeliveryBoy', 'name email phone agencyAddress city')
       .sort({ [sortBy]: sort === 'asc' ? 1 : -1 })
       .skip((page - 1) * limit)
-      .limit(parseInt(limit));
+      .limit(parseInt(limit))
+      .lean();
+
+    // For each order, attach full product details
+    for (let order of orders) {
+      // Find products in all Product documents that match any of the order.productId
+      // order.productId could be array of ObjectIds or strings
+      const productDetails = await Product.find({ 'products._id': { $in: order.productId } });
+
+      // Flatten and filter out the actual products that match
+      order.fullProductDetails = productDetails.flatMap(shop =>
+        shop.products.filter(p =>
+          order.productId.map(id => id.toString()).includes(p._id.toString())
+        )
+      );
+    }
 
     const total = await Order.countDocuments(filter);
 
@@ -410,48 +459,57 @@ exports.viewOrdersByShopAdmin = async (req, res) => {
 };
 
 
-  exports.updateOrderStatus = async (req, res) => {
-    try {
-      const orderId = req.params.orderId;
-      const { newStatus } = req.body;
-  
-      if (!orderId || !newStatus) {
-        return res.status(400).json({
-          message: 'OrderId and newStatus are required',
-          success: false,
-          data: []
-        });
-      }
-  
-      const updatedOrder = await Order.findByIdAndUpdate(
-        orderId,
-        { orderStatus: newStatus },
-        { new: true }
-      );
-  
-      if (!updatedOrder) {
-        return res.status(404).json({
-          message: 'Order not found',
-          success: false,
-          data: []
-        });
-      }
-  
-      return res.status(200).json({
-        message: 'Order status updated successfully',
-        success: true,
-        data: updatedOrder
-      });
-  
-    } catch (error) {
-      console.error('Update Order Status Error:', error);
-      res.status(500).json({
-        message: 'Failed to update order status',
+exports.updateOrderStatus = async (req, res) => {
+  try {
+    const orderId = req.params.orderId;
+    const { newStatus } = req.body;
+
+    if (!orderId || !newStatus) {
+      return res.status(400).json({
+        message: 'OrderId and newStatus are required',
         success: false,
-        data: error.message
+        data: []
       });
     }
-  };
+
+    const updatedOrder = await Order.findByIdAndUpdate(
+      orderId,
+      { orderStatus: newStatus },
+      { new: true }
+    );
+
+    if (!updatedOrder) {
+      return res.status(404).json({
+        message: 'Order not found',
+        success: false,
+        data: []
+      });
+    }
+
+    // 🔔 Emit real-time status update
+    if (io) {
+      io.emit('orderStatusUpdated', {
+        shopId: updatedOrder.shopId.toString(),
+        orderId: updatedOrder._id.toString(),
+        newStatus: updatedOrder.orderStatus
+      });
+    }
+
+    return res.status(200).json({
+      message: 'Order status updated successfully',
+      success: true,
+      data: updatedOrder
+    });
+
+  } catch (error) {
+    console.error('Update Order Status Error:', error);
+    res.status(500).json({
+      message: 'Failed to update order status',
+      success: false,
+      data: error.message
+    });
+  }
+};
 
 
   exports.cancelOrder = async (req, res) => {

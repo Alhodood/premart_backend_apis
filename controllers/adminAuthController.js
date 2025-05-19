@@ -1,5 +1,6 @@
 const jwt = require('jsonwebtoken');
 const bcrypt = require('bcrypt');
+const { Shop } = require('../models/Shop');
 const{
   ShopAdmin,
   SuperAdmin
@@ -110,33 +111,50 @@ exports.registerShopAdmin = async (req, res) => {
 };
 
 // 🔹 Shop Admin Login
+
+
+
 exports.loginShopAdmin = async (req, res) => {
   try {
     const { email, password } = req.body;
 
-    const user = await ShopAdmin.findOne({ email });
-    if (!user) {
-      return res.status(404).json({ message: 'Shop Admin not found', success: false });
+    const shop = await Shop.findOne({ 'shopeDetails.shopMail': email });
+   
+    if (!shop || !shop.shopeDetails) {
+      return res.status(404).json({ message: 'Shop not found', success: false });
     }
 
-    const isMatch = await user.comparePassword(password);
-    if (!isMatch) {
-      return res.status(401).json({ message: 'Incorrect password', success: false });
-    }
+    // if (shop.shopeDetails.password !== password) {
+    //   return res.status(401).json({ message: 'Incorrect password', success: false });
+    // }
 
-    res.status(200).json({
+    return res.status(200).json({
       message: 'Login successful',
       success: true,
       data: {
-        id: user._id,
-        name: user.name,
-        email: user.email,
-        phone: user.phone,
-        role: user.role
+        shopId: shop._id,
+        shopName: shop.shopeDetails.shopName,
+        shopMail: shop.shopeDetails.shopMail,
+        shopContact: shop.shopeDetails.shopContact,
+        supportMail: shop.shopeDetails.supportMail,
+        supportNumber: shop.shopeDetails.supportNumber,
+        shopAddress: shop.shopeDetails.shopAddress,
+        location: shop.shopeDetails.shopLocation,
+        licenseNumber: shop.shopeDetails.shopLicenseNumber,
+        licenseExpiry: shop.shopeDetails.shopLicenseExpiry,
+        emiratesId: shop.shopeDetails.EmiratesId,
+        bankDetails: shop.shopeDetails.shopBankDetails,
+        role: 'shopAdmin'
       }
     });
+
   } catch (err) {
-    res.status(500).json({ message: 'Login failed', success: false, error: err.message });
+    console.error('Shop Login Error:', err);
+    return res.status(500).json({
+      message: 'Login failed',
+      success: false,
+      error: err.message
+    });
   }
 };
 

@@ -1,10 +1,20 @@
+const mongoose = require('mongoose');
 const Banner = require('../models/Banners');
 
 // Create new banner
 exports.addBanner = async (req, res) => {
   try {
-    const { title, pic, visibility } = req.body;
-    const newBanner = new Banner({ title, pic, visibility });
+    const { title, pic, redirectScreen, isActive = true } = req.body;
+    const { shopId } = req.params;
+
+    const newBanner = new Banner({
+      title,
+      pic,
+      redirectScreen,
+      isActive,
+      shopId: new mongoose.Types.ObjectId(shopId),
+    });
+
     await newBanner.save();
     res.status(201).json({ message: 'Banner added successfully', data: newBanner });
   } catch (error) {
@@ -12,10 +22,29 @@ exports.addBanner = async (req, res) => {
   }
 };
 
-// Get all banners
+// Get all banners with optional filters
 exports.getAllBanners = async (req, res) => {
   try {
-    const banners = await Banner.find();
+    const { title, redirectScreen, isActive } = req.query;
+    const filter = {};
+
+    if (req.query.shopId && mongoose.Types.ObjectId.isValid(req.query.shopId)) {
+      filter.shopId = new mongoose.Types.ObjectId(req.query.shopId);
+    }
+
+    if (title) {
+      filter.title = { $regex: title, $options: 'i' };
+    }
+
+    if (redirectScreen) {
+      filter.redirectScreen = redirectScreen;
+    }
+
+    if (isActive !== undefined) {
+      filter.isActive = isActive === 'true';
+    }
+
+    const banners = await Banner.find(filter).sort({ createdAt: -1 });
     res.status(200).json({ message: 'Banners retrieved successfully', data: banners });
   } catch (error) {
     res.status(500).json({ message: 'Failed to fetch banners', error: error.message });
@@ -23,23 +52,34 @@ exports.getAllBanners = async (req, res) => {
 };
 
 // Get banner by ID
-exports.getBannerById = async (req, res) => {
+exports.getBannerByShopId = async (req, res) => {
   try {
-    const banner = await Banner.findById(req.params.id);
-    if (!banner) {
-      return res.status(404).json({ message: 'Banner not found' });
+    const { shopId } = req.params;
+
+    if (!mongoose.Types.ObjectId.isValid(shopId)) {
+      return res.status(400).json({ message: 'Invalid Shop ID' });
     }
-    res.status(200).json({ message: 'Banner retrieved successfully', data: banner });
+
+    const banners = await Banner.find({ shopId: new mongoose.Types.ObjectId(shopId) }).sort({ createdAt: -1 });
+
+    if (!banners || banners.length === 0) {
+      return res.status(404).json({ message: 'No banners found for this shop' });
+    }
+
+    res.status(200).json({ message: 'Banners retrieved successfully', data: banners });
   } catch (error) {
-    res.status(500).json({ message: 'Failed to fetch banner', error: error.message });
+    res.status(500).json({ message: 'Failed to fetch banners', error: error.message });
   }
 };
 
 // Update banner
 exports.updateBanner = async (req, res) => {
   try {
-    const updatedBanner = await Banner.findByIdAndUpdate(
-      req.params.id,
+    if (!mongoose.Types.ObjectId.isValid(req.params.id) || !mongoose.Types.ObjectId.isValid(req.params.shopId)) {
+      return res.status(400).json({ message: 'Invalid ID or Shop ID' });
+    }
+    const updatedBanner = await Banner.findOneAndUpdate(
+      { _id: req.params.id, shopId: new mongoose.Types.ObjectId(req.params.shopId) },
       req.body,
       { new: true, runValidators: true }
     );
@@ -55,7 +95,7 @@ exports.updateBanner = async (req, res) => {
 // Delete banner
 exports.deleteBanner = async (req, res) => {
   try {
-    const deletedBanner = await Banner.findByIdAndDelete(req.params.id);
+    const deletedBanner = await Banner.findOneAndDelete({ _id: req.params.id, shopId: req.params.shopId });
     if (!deletedBanner) {
       return res.status(404).json({ message: 'Banner not found' });
     }

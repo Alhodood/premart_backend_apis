@@ -2,22 +2,34 @@ const Brand = require('../models/Brand');
 
 // Create a new brand
 exports.createBrand = async (req, res) => {
-  console.log("hi")
   try {
+    const { brandName, brandImage, visibility } = req.body;
 
-    const { brandName } = req.body;
+    if (!brandName) {
+      return res.status(400).json({ message: 'Brand name is required' });
+    }
+
     const newBrand = new Brand({
       brandName,
-      brandImage,
-      visibility: true
+      visibility: visibility !== undefined ? visibility : true,
+      ...(brandImage && { brandImage }), // Only add brandImage if provided
     });
+
     await newBrand.save();
-    res.status(201).json({ message: 'Brand created successfully', data: newBrand });
+
+    res.status(201).json({
+      message: 'Brand created successfully',
+      success: true,
+      data: newBrand,
+    });
   } catch (error) {
-    res.status(500).json({ message: 'Error creating brand', error: error.message });
+    res.status(500).json({
+      message: 'Error creating brand',
+      success: false,
+      error: error.message,
+    });
   }
 };
-
 // Get all brands
 exports.getAllBrands = async (req, res) => {
   try {
