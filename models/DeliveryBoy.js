@@ -9,7 +9,7 @@ const deliveryBoySchema = new mongoose.Schema(
     countryCode: { type: String, required: true },
     dob: { type: String },
     accountVerify: { type: Boolean, default: false },
-    isOnline: { type: Boolean, default: true },
+    isOnline: { type: Boolean, default: false},
     assignedOrders: [{ type: mongoose.Schema.Types.ObjectId, ref: 'Order' }],
     role: { 
       type: String, 

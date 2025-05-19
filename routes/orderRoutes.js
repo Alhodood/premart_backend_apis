@@ -22,7 +22,7 @@ router.put('/delivery-boy/accept-reject/:orderId', orderController.deliveryBoyAc
 
 router.put('/customer/refund-request/:orderId', orderController.customerRaiseRefundRequest);
 
-router.put('/assign-delivery-boy/:orderId', orderController.assignOrderManually);
+router.put('/assign-delivery-boy', orderController.assignOrderManually);
 
 router.patch('/auto-assign/:orderId', orderController.autoAssignDeliveryBoyWithin5km);
 

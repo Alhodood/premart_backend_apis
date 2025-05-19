@@ -3,39 +3,93 @@ const { Product } = require('../models/Product');
 const mongoose = require('mongoose');
 
 // 1. View all stock for a shop
+
 exports.getStockByShop = async (req, res) => {
-    try {
-      const stocks = await Stock.find({ shopId: req.params.shopId });
-  
-      // Manual enrich product info
-      const enrichedStocks = await Promise.all(stocks.map(async (stock) => {
-        const productDoc = await Product.findOne({
-          shopId: stock.shopId,
-          'products._id': stock.productId
-        }, { 'products.$': 1 }); // Get only matched product
-  
-        const productDetails = productDoc?.products?.[0] || null;
-  
-        return {
-          ...stock.toObject(),
-          productDetails
-        };
-      }));
-  
-      res.json({
-        message: 'Stock fetched',
-        success: true,
-        data: enrichedStocks
-      });
-  
-    } catch (err) {
-      res.status(500).json({
-        message: 'Failed to fetch stock',
-        success: false,
-        data: err.message
-      });
+  try {
+    const stocks = await Stock.find({ shopId: req.params.shopId });
+
+    const enrichedStocks = await Promise.all(stocks.map(async (stock) => {
+      console.log('🔍 Matching ProductId:', stock.productId);
+      const productDoc = await Product.aggregate([
+        { $match: { shopId: stock.shopId.toString() } },
+        { $unwind: '$products' },
+        {
+          $match: {
+            $expr: {
+              $eq: ['$products._id', new mongoose.Types.ObjectId(stock.productId)]
+            }
+          }
+        },
+        { $project: { productDetails: '$products' } },
+        { $limit: 1 }
+      ]);
+      const productDetails = productDoc.length > 0 ? productDoc[0].productDetails : null;
+
+      return {
+        ...stock.toObject(),
+        productDetails
+      };
+    }));
+
+    let {
+      category,
+      status,
+      from,
+      to,
+      minThreshold,
+      maxThreshold
+    } = req.query;
+
+    if (status === 'Low Stock') status = 'low';
+    else if (status === 'Out of Stock') status = 'out';
+    else if (status === 'In Stock') status = 'in';
+
+    let filteredStocks = enrichedStocks;
+
+    if (category) {
+      filteredStocks = filteredStocks.filter(s => s.productDetails?.category === category);
     }
-  };
+
+    if (status === 'low') {
+      filteredStocks = filteredStocks.filter(s => s.quantity < s.threshold);
+    } else if (status === 'out') {
+      filteredStocks = filteredStocks.filter(s => s.quantity === 0);
+    } else if (status === 'in') {
+      filteredStocks = filteredStocks.filter(s => s.quantity > s.threshold);
+    }
+
+    if (from && to) {
+      const fromDate = new Date(from);
+      const toDate = new Date(to);
+      filteredStocks = filteredStocks.filter(s =>
+        new Date(s.updatedAt) >= fromDate && new Date(s.updatedAt) <= toDate
+      );
+    }
+
+    if (minThreshold) {
+      filteredStocks = filteredStocks.filter(s => s.threshold >= parseInt(minThreshold));
+    }
+
+    if (maxThreshold) {
+      filteredStocks = filteredStocks.filter(s => s.threshold <= parseInt(maxThreshold));
+    }
+
+    res.json({
+      message: 'Stock fetched with filters',
+      success: true,
+      data: filteredStocks
+    });
+
+  } catch (err) {
+    res.status(500).json({
+      message: 'Failed to fetch stock',
+      success: false,
+      data: err.message
+    });
+  }
+};
+
+  
 
 // 2. View stock for a specific product
 exports.getStockByProduct = async (req, res) => {
@@ -181,16 +235,21 @@ exports.getLowStockItems = async (req, res) => {
       });
   
       const enrichedStocks = await Promise.all(stocks.map(async (stock) => {
-        const productDoc = await Product.findOne(
+        const productDoc = await Product.aggregate([
+          { $match: { shopId: stock.shopId } },
+          { $unwind: '$products' },
           {
-            shopId: stock.shopId,
-            'products._id': stock.productId
+            $match: {
+              $expr: {
+                $eq: ['$products._id', new mongoose.Types.ObjectId(stock.productId)]
+              }
+            }
           },
-          { 'products.$': 1 } // projection to get only matched product
-        );
-  
-        const productDetails = productDoc?.products?.[0] || null;
-  
+          { $project: { productDetails: '$products' } },
+          { $limit: 1 }
+        ]);
+        const productDetails = productDoc.length > 0 ? productDoc[0].productDetails : null;
+
         return {
           ...stock.toObject(),
           productDetails
@@ -249,14 +308,20 @@ exports.searchAndFilterStock = async (req, res) => {
       // Filter and enrich
       const enriched = await Promise.all(
         allStocks.map(async (stock) => {
-          const productDoc = await Product.findOne(
+          const productDoc = await Product.aggregate([
+            { $match: { shopId: stock.shopId } },
+            { $unwind: '$products' },
             {
-              shopId,
-              'products._id': stock.productId
+              $match: {
+                $expr: {
+                  $eq: ['$products._id', new mongoose.Types.ObjectId(stock.productId)]
+                }
+              }
             },
-            { 'products.$': 1 }
-          );
-          const product = productDoc?.products?.[0];
+            { $project: { productDetails: '$products' } },
+            { $limit: 1 }
+          ]);
+          const product = productDoc.length > 0 ? productDoc[0].productDetails : null;
   
           return {
             ...stock.toObject(),

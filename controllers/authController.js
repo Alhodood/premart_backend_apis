@@ -166,11 +166,9 @@ exports.verifyOtp = async (req, res) => {
       const user = await User.findOne({ phone });
       if (!user) return res.status(404).json({ message: 'User not found' });
 
-      const token = generateToken(user);
       res.status(200).json({
         message: 'OTP verified. Login successful',
         success: true,
-        token,
         user
       });
     } else {
@@ -204,3 +202,5 @@ exports.resendOtp = async (req, res) => {
     res.status(500).json({ message: 'Failed to resend OTP', success: false, error: err.message });
   }
 };
+
+

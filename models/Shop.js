@@ -22,6 +22,7 @@ const shopDetailsSchema = new mongoose.Schema({
     termsAndCondition: { type: String },
     supportMail: { type: String },
     supportNumber: { type: String },
+    password: { type: String, required: true },
     shopBankDetails: bankDetailsSchema
 
 

@@ -195,6 +195,7 @@ exports.getAllPayments = async (req, res) => {
       const { 
         transactionId, userId, orderId, paymentMethod, 
         paymentStatus, from, to, 
+        minAmount, maxAmount, // <-- added
         page = 1, limit = 10, sort = 'desc' 
       } = req.query;
   
@@ -211,6 +212,14 @@ exports.getAllPayments = async (req, res) => {
           $gte: new Date(from),
           $lte: new Date(to)
         };
+      }
+  
+      if (minAmount && maxAmount) {
+        filter.amount = { $gte: parseFloat(minAmount), $lte: parseFloat(maxAmount) };
+      } else if (minAmount) {
+        filter.amount = { $gte: parseFloat(minAmount) };
+      } else if (maxAmount) {
+        filter.amount = { $lte: parseFloat(maxAmount) };
       }
   
       const payments = await Payment.find(filter)
@@ -247,6 +256,7 @@ exports.getAllPayments = async (req, res) => {
       const { 
         transactionId, userId, orderId, paymentMethod, 
         paymentStatus, from, to, 
+        minAmount, maxAmount,
         page = 1, limit = 10, sort = 'desc' 
       } = req.query;
   
@@ -271,6 +281,14 @@ exports.getAllPayments = async (req, res) => {
           $gte: new Date(from),
           $lte: new Date(to)
         };
+      }
+
+      if (minAmount && maxAmount) {
+        filter.amount = { $gte: parseFloat(minAmount), $lte: parseFloat(maxAmount) };
+      } else if (minAmount) {
+        filter.amount = { $gte: parseFloat(minAmount) };
+      } else if (maxAmount) {
+        filter.amount = { $lte: parseFloat(maxAmount) };
       }
   
       const payments = await Payment.find(filter)

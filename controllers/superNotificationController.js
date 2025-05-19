@@ -9,7 +9,8 @@ exports.createNotification = async (req, res) => {
       role = 'all',
       recipientIds = [],
       isScheduled = false,
-      scheduledAt
+      scheduledAt,
+      image
     } = req.body;
 
     const notification = new Notification({
@@ -20,7 +21,8 @@ exports.createNotification = async (req, res) => {
       isScheduled,
       scheduledAt: isScheduled ? scheduledAt : null,
       sentAt: isScheduled ? null : new Date(),
-      createdBy: req.user._id // optional: who triggered it
+      createdBy: req.params.creatorId,
+      image
     });
 
     await notification.save();
@@ -43,7 +45,17 @@ exports.createNotification = async (req, res) => {
 
 exports.getAllNotifications = async (req, res) => {
   try {
-    const { search, role, type, from, to, page = 1, limit = 10 } = req.query;
+    const {
+      search,
+      role,
+      type,
+      from,
+      to,
+      page = 1,
+      limit = 10,
+      status,
+      sendNowOnly
+    } = req.query;
 
     let filter = {};
 
@@ -54,7 +66,19 @@ exports.getAllNotifications = async (req, res) => {
       ];
     }
     if (role && role !== 'all') filter.role = role;
-    if (type) filter.type = type;
+
+    if (type === 'Scheduled') {
+      filter.isScheduled = true;
+      filter.scheduledAt = { $gt: new Date() };
+    } else if (type === 'Sent') {
+      filter.isScheduled = true;
+      filter.scheduledAt = { $lte: new Date() };
+    }
+
+    if (sendNowOnly === 'true') {
+      filter.isScheduled = false;
+    }
+
     if (from && to) {
       filter.createdAt = {
         $gte: new Date(from),
@@ -86,12 +110,10 @@ exports.getAllNotifications = async (req, res) => {
 
 exports.getMyNotifications = async (req, res) => {
   try {
-    const userId = req.user._id;
-    const userRole = req.user.role;
+    const userId = req.params.userId;
 
     const data = await Notification.find({
       $or: [
-        { role: userRole },
         { role: 'all' },
         { recipientIds: userId }
       ]
@@ -116,7 +138,7 @@ exports.markAsRead = async (req, res) => {
       return res.status(404).json({ message: 'Notification not found', success: false });
     }
 
-    const userId = req.user._id;
+    const userId = req.params.userId;
     if (!notification.readBy.includes(userId)) {
       notification.readBy.push(userId);
       await notification.save();
