@@ -45,6 +45,75 @@ exports.deleteCoupon = async (req, res) => {
   }
 };
 
+exports.applyCoupon = async (req, res) => {
+  const { userId, code, orderAmount } = req.body;
+
+  if (!userId || !code) {
+    return res.status(400).json({ message: 'userId and coupon code are required', success: false });
+  }
+
+  try {
+    const coupon = await Coupon.findOne({ code: code.toUpperCase(), isActive: true });
+
+    if (!coupon) {
+      return res.status(404).json({ message: 'Invalid or inactive coupon code', success: false });
+    }
+
+    // ✅ Check expiry
+    const now = new Date();
+    if (coupon.expiryDate && coupon.expiryDate < now) {
+      return res.status(400).json({ message: 'Coupon has expired', success: false });
+    }
+
+    // ✅ Check if already used
+    if (coupon.usedBy.includes(userId)) {
+      return res.status(400).json({ message: 'Coupon already used by this user', success: false });
+    }
+
+    // ✅ Check minimum order amount
+    if (coupon.minOrderAmount && orderAmount < coupon.minOrderAmount) {
+      return res.status(400).json({ message: `Minimum order amount is ${coupon.minOrderAmount}`, success: false });
+    }
+
+    // ✅ Check usage limit
+    if (coupon.usageLimit && coupon.usedCount >= coupon.usageLimit) {
+      return res.status(400).json({ message: 'Coupon usage limit reached', success: false });
+    }
+
+    // ✅ Apply the coupon
+    let discount = 0;
+    if (coupon.discountType === 'flat') {
+      discount = coupon.discountValue;
+    } else if (coupon.discountType === 'percent') {
+      discount = (orderAmount * coupon.discountValue) / 100;
+    }
+
+    // // ✅ Mark coupon as used
+    // coupon.usedCount += 1;
+    // coupon.usedBy.push(userId);
+    // await coupon.save();
+
+    return res.status(200).json({
+      message: 'Coupon applied successfully',
+      success: true,
+      data: {
+        discount,
+        finalAmount: orderAmount - discount,
+        couponId: coupon._id
+      }
+    });
+
+  } catch (err) {
+    console.error('Coupon Error:', err);
+    return res.status(500).json({ message: 'Error applying coupon', success: false, error: err.message });
+  }
+};
+
+
+
+
+//----------------------------
+
 // Offers
 exports.createOffer = async (req, res) => {
   try {
@@ -171,5 +240,61 @@ exports.deleteOffer = async (req, res) => {
     res.status(200).json({ message: 'Offer deleted', success: true });
   } catch (err) {
     res.status(500).json({ message: 'Failed to delete offer', success: false, data: err.message });
+  }
+};
+
+exports.checkOfferValidity = async (req, res) => {
+  const { productId, userId } = req.body;
+
+  if (!productId || !userId) {
+    return res.status(400).json({
+      message: 'productId and userId are required',
+      success: false
+    });
+  }
+
+  try {
+    const now = new Date();
+
+    // Find active offers that include the product
+    const offers = await Offer.find({
+      isActive: true,
+      productIds: productId,
+      startDate: { $lte: now },
+      endDate: { $gte: now }
+    });
+
+    if (offers.length === 0) {
+      return res.status(404).json({
+        message: 'No valid offers available for this product',
+        success: false
+      });
+    }
+
+    // Check if user already used any of the matched offers
+    const applicableOffer = offers.find(offer => {
+      return !offer.usedBy.some(user => user.toString() === userId);
+    });
+
+    if (!applicableOffer) {
+      return res.status(403).json({
+        message: 'User has already used available offers for this product',
+        success: false
+      });
+    }
+
+    return res.status(200).json({
+      message: 'Valid offer available',
+      success: true,
+      data: applicableOffer
+    });
+
+  } catch (err) {
+    console.error('Check Offer Error:', err);
+    return res.status(500).json({
+      message: 'Failed to check offer',
+      success: false,
+      error: err.message
+    });
   }
 };
