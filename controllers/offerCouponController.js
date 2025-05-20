@@ -45,11 +45,13 @@ exports.deleteCoupon = async (req, res) => {
   }
 };
 
+
+
 exports.applyCoupon = async (req, res) => {
   const { userId, code, orderAmount } = req.body;
 
-  if (!userId || !code) {
-    return res.status(400).json({ message: 'userId and coupon code are required', success: false });
+  if (!userId || !code || orderAmount === undefined) {
+    return res.status(400).json({ message: 'userId, code, and orderAmount are required', success: false });
   }
 
   try {
@@ -59,6 +61,14 @@ exports.applyCoupon = async (req, res) => {
       return res.status(404).json({ message: 'Invalid or inactive coupon code', success: false });
     }
 
+    // ✅ Check if coupon has valid discount fields
+    if (!coupon.discountType || coupon.discountValue === undefined) {
+      return res.status(400).json({
+        message: 'Coupon data is invalid. Missing discountType or discountValue',
+        success: false
+      });
+    }
+
     // ✅ Check expiry
     const now = new Date();
     if (coupon.expiryDate && coupon.expiryDate < now) {
@@ -66,13 +76,16 @@ exports.applyCoupon = async (req, res) => {
     }
 
     // ✅ Check if already used
-    if (coupon.usedBy.includes(userId)) {
+    if (coupon.usedBy && coupon.usedBy.includes(userId)) {
       return res.status(400).json({ message: 'Coupon already used by this user', success: false });
     }
 
     // ✅ Check minimum order amount
     if (coupon.minOrderAmount && orderAmount < coupon.minOrderAmount) {
-      return res.status(400).json({ message: `Minimum order amount is ${coupon.minOrderAmount}`, success: false });
+      return res.status(400).json({
+        message: `Minimum order amount is ${coupon.minOrderAmount}`,
+        success: false
+      });
     }
 
     // ✅ Check usage limit
@@ -80,7 +93,7 @@ exports.applyCoupon = async (req, res) => {
       return res.status(400).json({ message: 'Coupon usage limit reached', success: false });
     }
 
-    // ✅ Apply the coupon
+    // ✅ Calculate discount
     let discount = 0;
     if (coupon.discountType === 'flat') {
       discount = coupon.discountValue;
@@ -88,17 +101,16 @@ exports.applyCoupon = async (req, res) => {
       discount = (orderAmount * coupon.discountValue) / 100;
     }
 
-    // // ✅ Mark coupon as used
-    // coupon.usedCount += 1;
-    // coupon.usedBy.push(userId);
-    // await coupon.save();
+    const finalAmount = Math.max(orderAmount - discount, 0);
+
+    // 💡 Do not mark it used here — as per your instruction
 
     return res.status(200).json({
       message: 'Coupon applied successfully',
       success: true,
       data: {
         discount,
-        finalAmount: orderAmount - discount,
+        finalAmount,
         couponId: coupon._id
       }
     });
