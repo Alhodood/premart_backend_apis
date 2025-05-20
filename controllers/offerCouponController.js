@@ -48,39 +48,50 @@ exports.deleteCoupon = async (req, res) => {
 exports.applyCoupon = async (req, res) => {
   const { userId, code, orderAmount } = req.body;
 
-  if (!userId || !code) {
-    return res.status(400).json({ message: 'userId and coupon code are required', success: false });
+  if (!userId || !code || orderAmount === undefined) {
+    return res.status(200).json({ message: 'userId, code, and orderAmount are required', success: false ,data:[]});
   }
 
   try {
     const coupon = await Coupon.findOne({ code: code.toUpperCase(), isActive: true });
 
     if (!coupon) {
-      return res.status(404).json({ message: 'Invalid or inactive coupon code', success: false });
+      return res.status(200).json({ message: 'Invalid or inactive coupon code', success: false,data:[] });
+    }
+
+    // ✅ Check if coupon has valid discount fields
+    if (!coupon.discountType || coupon.discountValue === undefined) {
+      return res.status(200).json({
+        message: 'Coupon data is invalid. Missing discountType or discountValue',
+        success: false
+      });
     }
 
     // ✅ Check expiry
     const now = new Date();
     if (coupon.expiryDate && coupon.expiryDate < now) {
-      return res.status(400).json({ message: 'Coupon has expired', success: false });
+      return res.status(200).json({ message: 'Coupon has expired', success: false,data:[] });
     }
 
     // ✅ Check if already used
-    if (coupon.usedBy.includes(userId)) {
-      return res.status(400).json({ message: 'Coupon already used by this user', success: false });
+    if (coupon.usedBy && coupon.usedBy.includes(userId)) {
+      return res.status(200).json({ message: 'Coupon already used by this user', success: false,data:[] });
     }
 
     // ✅ Check minimum order amount
     if (coupon.minOrderAmount && orderAmount < coupon.minOrderAmount) {
-      return res.status(400).json({ message: `Minimum order amount is ${coupon.minOrderAmount}`, success: false });
+      return res.status(200).json({message: `Minimum order amount is ${coupon.minOrderAmount}`,
+
+        success: false,data:[]
+      });
     }
 
     // ✅ Check usage limit
     if (coupon.usageLimit && coupon.usedCount >= coupon.usageLimit) {
-      return res.status(400).json({ message: 'Coupon usage limit reached', success: false });
+      return res.status(200).json({ message: 'Coupon usage limit reached', success: false ,data:[]});
     }
 
-    // ✅ Apply the coupon
+    // ✅ Calculate discount
     let discount = 0;
     if (coupon.discountType === 'flat') {
       discount = coupon.discountValue;
@@ -88,24 +99,23 @@ exports.applyCoupon = async (req, res) => {
       discount = (orderAmount * coupon.discountValue) / 100;
     }
 
-    // // ✅ Mark coupon as used
-    // coupon.usedCount += 1;
-    // coupon.usedBy.push(userId);
-    // await coupon.save();
+    const finalAmount = Math.max(orderAmount - discount, 0);
+
+    // 💡 Do not mark it used here — as per your instruction
 
     return res.status(200).json({
       message: 'Coupon applied successfully',
       success: true,
       data: {
         discount,
-        finalAmount: orderAmount - discount,
+        finalAmount,
         couponId: coupon._id
       }
     });
 
   } catch (err) {
     console.error('Coupon Error:', err);
-    return res.status(500).json({ message: 'Error applying coupon', success: false, error: err.message });
+    return res.status(500).json({ message: 'Error applying coupon', success: false, error: err.message ,data:[]});
   }
 };
 
@@ -247,9 +257,9 @@ exports.checkOfferValidity = async (req, res) => {
   const { productId, userId } = req.body;
 
   if (!productId || !userId) {
-    return res.status(400).json({
+    return res.status(200).json({
       message: 'productId and userId are required',
-      success: false
+      success: false,data:[]
     });
   }
 
@@ -265,9 +275,9 @@ exports.checkOfferValidity = async (req, res) => {
     });
 
     if (offers.length === 0) {
-      return res.status(404).json({
+      return res.status(200).json({
         message: 'No valid offers available for this product',
-        success: false
+        success: false,data: []
       });
     }
 
@@ -277,9 +287,10 @@ exports.checkOfferValidity = async (req, res) => {
     });
 
     if (!applicableOffer) {
-      return res.status(403).json({
+      return res.status(200).json({
         message: 'User has already used available offers for this product',
-        success: false
+        success: false,
+        data:[]
       });
     }
 

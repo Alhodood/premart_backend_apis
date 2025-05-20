@@ -166,7 +166,7 @@ app.post('/api/upload-url', async (req, res) => {
     return res.status(500).json({ message: 'Failed to generate URL', error: error.message });
   }
 });
-const PORT = process.env.PORT || 3000;
+const PORT = process.env.PORT || 3002;
 const HOST = process.env.HOST || '0.0.0.0';
 
 // Start server
