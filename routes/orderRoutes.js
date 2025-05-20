@@ -18,9 +18,12 @@ router.put('/cancel/:orderId', orderController.cancelOrder);
 
 router.put('/refund/:orderId', orderController.refundOrder);
 
-router.put('/delivery-boy/accept-reject/:orderId', orderController.deliveryBoyAcceptRejectOrder);
 
 router.put('/customer/refund-request/:orderId', orderController.customerRaiseRefundRequest);
+
+//---------  
+
+router.put('/delivery-boy/accept-reject/:orderId', orderController.deliveryBoyAcceptRejectOrder);
 
 router.put('/assign-delivery-boy', orderController.assignOrderManually);
 

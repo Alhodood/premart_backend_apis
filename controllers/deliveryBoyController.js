@@ -16,7 +16,7 @@ const { getIO } = require('../sockets/socket');
 
 
 const twilio = require('twilio');
-const client = twilio(process.env.TWILIO_ACCOUNT_SID, process.env.TWILIO_AUTH_TOKEN);
+const client = twilio(process.env.TWILIO_ACCOUNT_SID, process.env.TWILIO_AUTHTOKEN);
 
 exports.sendOtpToDeliveryBoy = async (req, res) => {
   const { phone } = req.body;
@@ -772,7 +772,7 @@ exports.toggleAvailability = async (req, res) => {
   try {
     const { deliveryBoyId } = req.params;
 
-    const deliveryBoy = await User.findById(deliveryBoyId);
+    const deliveryBoy = await DeliveryBoy.findById(deliveryBoyId);
     if (!deliveryBoy || deliveryBoy.role !== 'deliveryBoy') {
       return res.status(404).json({
         success: false,

@@ -2,10 +2,10 @@ const mongoose = require('mongoose');
 
 const deliveryBoySchema = new mongoose.Schema(
   {
-    name: { type: String, required: true },
+    name: { type: String, default : "New User" },
     email: { type: String, unique: true, sparse: true },
     phone: { type: String, unique: true, sparse: true },
-    password: { type: String, required: true },
+    password: { type: String },
     countryCode: { type: String, required: true },
     dob: { type: String },
     accountVerify: { type: Boolean, default: false },

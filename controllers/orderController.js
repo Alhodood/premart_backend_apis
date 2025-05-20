@@ -817,18 +817,21 @@ exports.autoAssignDeliveryBoyWithin5km = async (req, res) => {
       return res.status(404).json({ message: 'No delivery boy found within 5 km', success: false });
     }
 
-    const nearestDeliveryBoy = nearbyDeliveryBoys[0];
-
-    // 4️⃣ Update order
-    order.assignedDeliveryBoy = new mongoose.Types.ObjectId(nearestDeliveryBoy._id);
-    order.orderStatus = 'Delivery Boy Assigned';
-    await order.save();
+    // 4️⃣ Notify all nearby delivery boys
+    if (io) {
+      nearbyDeliveryBoys.forEach(boy => {
+        io.to(boy._id.toString()).emit('new_order_assigned', {
+          message: 'You have a new order to accept or reject',
+          orderId: order._id,
+        });
+      });
+    }
 
     return res.status(200).json({
-      message: 'Nearest delivery boy assigned successfully',
+      message: 'Order assignment request sent to all nearby delivery boys',
       success: true,
       data: {
-        assignedDeliveryBoy: nearestDeliveryBoy,
+        nearbyDeliveryBoys,
         order
       }
     });
