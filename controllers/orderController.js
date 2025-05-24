@@ -17,7 +17,7 @@ const Offer = require('../models/Offers');
 const GOOGLE_API_KEY = process.env.GOOGLE_MAPS_API_KEY;
 const PER_KM_RATE = parseFloat(process.env.PER_KM_RATE) || 2; // AED per km
 
-const { io } = require('../server'); // Assuming you have a server.js file where you initialize socket.io
+
 
 
 const getLatLngFromAddress = async (addressString) => {
@@ -49,16 +49,25 @@ const getLatLngFromAddress = async (addressString) => {
 
 exports.createOrder = async (req, res) => {
   try {
-    const { couponCode } = req.body;
-    const userId = req.user._id;
+    const { couponCode, paymentType } = req.body;
+    const userId = req.user?._id || req.params.userId;
+    if (!userId) return res.status(400).json({ message: 'User ID is required', success: false });
+    console.log(userId);
 
-    // Step 1: Fetch user address
-    const addressDoc = await CustomerAddress.findOne({ userId });
-    if (!addressDoc || addressDoc.customerAddress.length === 0)
+    // Step 1: Fetch user address from User model
+    const user = await require('../models/User').findById(userId);
+    if (!user || !user.address || user.address.length === 0) {
       return res.status(400).json({ message: 'No delivery address found', success: false });
+    }
 
-    let deliveryAddress = addressDoc.customerAddress.find(a => a.default) || addressDoc.customerAddress[0];
-    deliveryAddress = deliveryAddress.toObject();
+    let deliveryAddress = user.address.find(a => a.default) || user.address[0];
+    deliveryAddress = deliveryAddress?.toObject?.() || deliveryAddress;
+    if (!deliveryAddress.address) {
+      const matchingAddress = user.address.find(a => a._id?.toString() === deliveryAddress._id?.toString());
+      if (matchingAddress && matchingAddress.address) {
+        deliveryAddress.address = matchingAddress.address;
+      }
+    }
 
     // Step 2: Fetch cart and products
     const cart = await Cart.findOne({ userId });
@@ -189,17 +198,23 @@ exports.createOrder = async (req, res) => {
       orderStatus: 'Pending',
       refundRequest: { requested: false, status: 'Pending' },
       deliveryDistance,
-      deliveryEarning
+      deliveryEarning,
+      paymentType,
+      additionalcharges: 0,
     });
 
     await newOrder.save();
     // 🔔 Emit socket event to all connected clients (shopId-based filtering on frontend)
-if (io) {
-  io.emit('newOrder', {
-    shopId: shopId.toString(),
-    order: newOrder
-  });
-}
+    let io;
+    try {
+      io = require('../sockets/socket').getIO();
+      io.emit('newOrder', {
+        shopId: shopId.toString(),
+        order: newOrder
+      });
+    } catch (err) {
+      console.error('Socket.IO emit failed:', err.message);
+    }
 
     // Step 8: Clear cart
     cart.cartProduct = [];
@@ -227,7 +242,9 @@ if (io) {
           id: p._id,
           name: p.name,
           price: p.price
-        }))
+        })),
+        additionalcharges: 0,
+        paymentType,
       }
     });
 
@@ -235,6 +252,205 @@ if (io) {
     console.error('Create Order Error:', err);
     res.status(500).json({
       message: 'Failed to place order',
+      success: false,
+      data: err.message
+    });
+  }
+};
+
+// Create Order From Direct Buy API Handler
+exports.createOrderFromDirectBuy = async (req, res) => {
+  try {
+    const { productIds, couponCode, paymentType, userId: bodyUserId } = req.body;
+    const userId = bodyUserId || req.params.userId || req.user?._id;
+    if (!userId || !Array.isArray(productIds) || productIds.length === 0) {
+      return res.status(400).json({ message: 'User ID and productIds are required', success: false });
+    }
+
+    // Fetch user and address
+    const user = await require('../models/User').findById(userId);
+    if (!user || !user.address || user.address.length === 0) {
+      return res.status(400).json({ message: 'No delivery address found', success: false });
+    }
+
+    let deliveryAddress = user.address.find(a => a.default) || user.address[0];
+    deliveryAddress = deliveryAddress?.toObject?.() || deliveryAddress;
+    if (!deliveryAddress.address) {
+      const matchingAddress = user.address.find(a => a._id?.toString() === deliveryAddress._id?.toString());
+      if (matchingAddress && matchingAddress.address) {
+        deliveryAddress.address = matchingAddress.address;
+      }
+    }
+
+    // Fetch products
+    const productDocs = await Product.find({ 'products._id': { $in: productIds } });
+    const allProducts = productDocs.flatMap(shop =>
+      shop.products.filter(p => productIds.includes(p._id.toString()))
+    );
+    const shopId = productDocs[0]?.shopId || null;
+    if (!shopId) return res.status(400).json({ message: 'No valid shopId found', success: false });
+
+    // Calculate offers
+    let originalTotal = 0, totalOfferDiscount = 0, appliedOffers = [];
+    for (const product of allProducts) {
+      const price = product.price;
+      originalTotal += price;
+
+      const offer = await Offer.findOne({
+        productIds: { $in: [product._id] },
+        isActive: true,
+        startDate: { $lte: new Date() },
+        endDate: { $gte: new Date() }
+      });
+
+      if (offer) {
+        const offerDiscount = offer.discountType === 'percent'
+          ? (price * offer.discountValue) / 100
+          : offer.discountValue;
+
+        totalOfferDiscount += offerDiscount;
+        appliedOffers.push({
+          productId: product._id,
+          name: product.name,
+          discount: offerDiscount,
+          offerId: offer._id,
+          title: offer.title,
+          type: offer.discountType,
+          value: offer.discountValue
+        });
+      }
+    }
+
+    // Apply coupon
+    const priceAfterOffers = originalTotal - totalOfferDiscount;
+    let couponDiscount = 0, appliedCoupon = null;
+    if (couponCode) {
+      const coupon = await Coupon.findOne({ code: couponCode, isActive: true });
+      if (!coupon) return res.status(400).json({ message: 'Invalid coupon', success: false });
+      if (new Date() > coupon.expiryDate) return res.status(400).json({ message: 'Coupon expired', success: false });
+      if (coupon.usageLimit && coupon.usedCount >= coupon.usageLimit)
+        return res.status(400).json({ message: 'Coupon usage limit reached', success: false });
+
+      if (coupon.minOrderAmount && priceAfterOffers < coupon.minOrderAmount)
+        return res.status(400).json({ message: `Min order ₹${coupon.minOrderAmount} needed`, success: false });
+
+      couponDiscount = coupon.discountType === 'percent'
+        ? (priceAfterOffers * coupon.discountValue) / 100
+        : coupon.discountValue;
+
+      appliedCoupon = {
+        code: coupon.code,
+        discountType: coupon.discountType,
+        discountValue: coupon.discountValue
+      };
+
+      coupon.usedCount += 1;
+      await coupon.save();
+    }
+
+    const totalDiscount = totalOfferDiscount + couponDiscount;
+    const totalAmount = originalTotal - totalDiscount;
+    const deliverycharge = originalTotal < 500;
+    const savings = totalDiscount;
+
+    // Get user lat/lng if missing
+    if (!deliveryAddress.latitude || !deliveryAddress.longitude) {
+      const fullAddress = `${deliveryAddress.flatNumber}, ${deliveryAddress.area}, ${deliveryAddress.place}`;
+      const coords = await getLatLngFromAddress(fullAddress);
+      if (coords) {
+        deliveryAddress.latitude = coords.latitude;
+        deliveryAddress.longitude = coords.longitude;
+      }
+    }
+
+    // Calculate distance & earning
+    const shop = await Shop.findOne({ _id: shopId });
+    const shopLatLng = shop?.shopeDetails?.shopLocation?.split(',').map(Number);
+    let deliveryDistance = 0;
+    let deliveryEarning = 0;
+    if (shopLatLng?.length === 2 && deliveryAddress.latitude && deliveryAddress.longitude) {
+      deliveryDistance = geolib.getDistance(
+        { latitude: shopLatLng[0], longitude: shopLatLng[1] },
+        { latitude: deliveryAddress.latitude, longitude: deliveryAddress.longitude }
+      ) / 1000;
+      deliveryEarning = +(PER_KM_RATE * deliveryDistance).toFixed(2);
+    }
+
+    // Reduce Stock
+    for (const pid of productIds) {
+      await Stock.findOneAndUpdate(
+        { shopId, productId: pid },
+        { $inc: { quantity: -1 } },
+        { new: true }
+      );
+    }
+
+    // Save order
+    const newOrder = new Order({
+      userId,
+      shopId,
+      productId: productIds,
+      deliveryAddress,
+      totalAmount,
+      discount: totalDiscount,
+      deliverycharge,
+      couponCode,
+      appliedCoupon,
+      appliedOffers,
+      orderStatus: 'Pending',
+      refundRequest: { requested: false, status: 'Pending' },
+      deliveryDistance,
+      deliveryEarning,
+      paymentType,
+      additionalcharges: 0,
+    });
+
+    await newOrder.save();
+
+    // Emit socket event to all connected clients (shopId-based filtering on frontend)
+    let io;
+    try {
+      io = require('../sockets/socket').getIO();
+      io.emit('newOrder', {
+        shopId: shopId.toString(),
+        order: newOrder
+      });
+    } catch (err) {
+      console.error('Socket.IO emit failed:', err.message);
+    }
+
+    // Respond
+    return res.status(201).json({
+      message: 'Order placed successfully',
+      success: true,
+      data: {
+        orderId: newOrder._id,
+        originalTotal,
+        discount: totalDiscount,
+        totalAmount,
+        finalPayable: totalAmount,
+        deliverycharge,
+        savings,
+        deliveryDistance,
+        deliveryEarning,
+        appliedCoupon,
+        appliedOffers,
+        deliveryAddress,
+        items: productIds.length,
+        products: allProducts.map(p => ({
+          id: p._id,
+          name: p.name,
+          price: p.price
+        })),
+        additionalcharges: 0,
+        paymentType,
+      }
+    });
+
+  } catch (err) {
+    console.error('Create Direct Buy Order Error:', err);
+    res.status(500).json({
+      message: 'Failed to place direct buy order',
       success: false,
       data: err.message
     });
@@ -487,12 +703,16 @@ exports.updateOrderStatus = async (req, res) => {
     }
 
     // 🔔 Emit real-time status update
-    if (io) {
+    let io;
+    try {
+      io = require('../sockets/socket').getIO();
       io.emit('orderStatusUpdated', {
         shopId: updatedOrder.shopId.toString(),
         orderId: updatedOrder._id.toString(),
         newStatus: updatedOrder.orderStatus
       });
+    } catch (err) {
+      console.error('Socket.IO emit failed:', err.message);
     }
 
     return res.status(200).json({
@@ -782,6 +1002,7 @@ function calculateDistance(lat1, lon1, lat2, lon2) {
 
 exports.autoAssignDeliveryBoyWithin5km = async (req, res) => {
   try {
+    console.log('🚀 API hit: autoAssignDeliveryBoyWithin5km');
     const orderId = req.params.orderId;
 
     // 1️⃣ Find order
@@ -805,26 +1026,59 @@ exports.autoAssignDeliveryBoyWithin5km = async (req, res) => {
     // 3️⃣ Fetch available delivery boys
     const deliveryBoys = await DeliveryBoy.find({ availability: true });
 
+    // Get customer coordinates from order
+    const customerLat = order.deliveryAddress.latitude;
+    const customerLng = order.deliveryAddress.longitude;
+
     const nearbyDeliveryBoys = deliveryBoys
       .map(boy => {
-        const distance = calculateDistance(shopLatitude, shopLongitude, boy.latitude, boy.longitude);
-        return { ...boy._doc, distance };
+        const pickupDistance = calculateDistance(shopLatitude, shopLongitude, boy.latitude, boy.longitude);
+        const dropDistance = calculateDistance(shopLatitude, shopLongitude, customerLat, customerLng);
+        // Estimated time: assume average speed of 30 km/h → time = distance / speed × 60
+        const pickupTime = Math.ceil((pickupDistance / 30) * 60); // in minutes
+        const dropTime = Math.ceil((dropDistance / 30) * 60); // in minutes
+        return {
+          ...boy._doc,
+          pickupDistance: +pickupDistance.toFixed(2),
+          dropDistance: +dropDistance.toFixed(2),
+          pickupTime: `${pickupTime} mins`,
+          dropTime: `${dropTime} mins`
+        };
       })
-      .filter(boy => boy.distance <= 5)
-      .sort((a, b) => a.distance - b.distance);
+      .filter(boy => boy.pickupDistance <= 5)
+      .sort((a, b) => a.pickupDistance - b.pickupDistance);
 
     if (nearbyDeliveryBoys.length === 0) {
       return res.status(404).json({ message: 'No delivery boy found within 5 km', success: false });
     }
 
     // 4️⃣ Notify all nearby delivery boys
-    if (io) {
+    // After selecting delivery boys, update order status before emitting events
+    order.orderStatus = 'Delivery Boy Assigned';
+    await order.save();
+    let io;
+    try {
+      io = require('../sockets/socket').getIO();
       nearbyDeliveryBoys.forEach(boy => {
-        io.to(boy._id.toString()).emit('new_order_assigned', {
+        const deliveryBoyId = boy._id.toString();
+        console.log(`📢 Emitting to userId room: ${deliveryBoyId}`);
+        console.log(`📦 Sending to deliveryBoyId: ${deliveryBoyId}`);
+        io.to(deliveryBoyId).emit('new_order_assigned', {
           message: 'You have a new order to accept or reject',
-          orderId: order._id,
+          orderId: order._id.toString(),
+          data: {
+            nearbyDeliveryBoys,
+            order,
+            shop: {
+              id: shop._id,
+              name: shop.name,
+              shopeDetails: shop.shopeDetails
+            }
+          }
         });
       });
+    } catch (err) {
+      console.error('Socket.IO emit failed:', err.message);
     }
 
     return res.status(200).json({
@@ -832,7 +1086,12 @@ exports.autoAssignDeliveryBoyWithin5km = async (req, res) => {
       success: true,
       data: {
         nearbyDeliveryBoys,
-        order
+      order,
+        shop: {
+          id: shop._id,
+          name: shop.name,
+          shopeDetails: shop.shopeDetails
+        }
       }
     });
 
@@ -842,6 +1101,82 @@ exports.autoAssignDeliveryBoyWithin5km = async (req, res) => {
       message: 'Failed to auto assign delivery boy',
       success: false,
       data: error.message
+    });
+  }
+};
+
+exports.seedDummyOrder = async (req, res) => {
+  try {
+    // Step 1: Create a dummy user ID
+    const userId = new mongoose.Types.ObjectId();
+
+    // Step 2: Create a dummy shop
+    const shop = await Shop.create({
+      name: 'Dummy Shop',
+      shopeDetails: {
+        shopLocation: '12.9352,77.6145'
+      }
+    });
+
+    // Step 3: Add products to the shop
+    const product = {
+      _id: new mongoose.Types.ObjectId(),
+      name: 'Test Product',
+      price: 200,
+      image: 'https://via.placeholder.com/150'
+    };
+
+    const productDoc = await Product.create({
+      shopId: shop._id,
+      products: [product]
+    });
+
+    // Step 4: Add dummy stock for that product
+    await Stock.create({
+      shopId: shop._id,
+      productId: product._id,
+      quantity: 10
+    });
+
+    // Step 5: Add dummy address for the user
+    await CustomerAddress.create({
+      userId,
+      customerAddress: [{
+        name: 'John Doe',
+        email: 'john@example.com',
+        flatNumber: '123',
+        contact: '9999999999',
+        area: 'Koramangala',
+        place: 'Bangalore',
+        default: true,
+        addressType: 'Home',
+        latitude: 12.9376,
+        longitude: 77.6192
+      }]
+    });
+
+    // Step 6: Add product to the cart
+    await Cart.create({
+      userId,
+      cartProduct: [product._id]
+    });
+
+    return res.status(201).json({
+      message: 'Dummy user, shop, product, stock, address, and cart seeded successfully',
+      success: true,
+      data: {
+        userId: userId,
+        productId: product._id,
+        shopId: shop._id
+      }
+    });
+
+  } catch (error) {
+    console.error('Dummy Order Seed Error:', error);
+    return res.status(500).json({
+      message: 'Failed to seed dummy order data',
+      success: false,
+      error: error.message
     });
   }
 };

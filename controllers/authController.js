@@ -10,6 +10,55 @@ const generateToken = (user) => {
   return jwt.sign({ id: user._id, role: user.role }, JWT_SECRET, { expiresIn: JWT_EXPIRE });
 };
 
+
+// controllers/userController.js
+exports.registerUser1 = async (req, res) => {
+  try {
+    const {
+      name,
+      email,
+      phone,
+      password,
+      dob,
+      address,
+      card
+    } = req.body;
+
+    if (!name || !email || !phone || !password || !address || !card) {
+      return res.status(400).json({ message: 'All fields are required', success: false });
+    }
+
+    const user = new User({
+      name,
+      email,
+      phone,
+      password,
+      dob,
+      address,
+      card
+    });
+
+    await user.save();
+
+    return res.status(201).json({
+      message: 'User registered successfully',
+      success: true,
+      data: {
+        userId: user._id,
+        email: user.email,
+        phone: user.phone
+      }
+    });
+  } catch (error) {
+    console.error('Register Error:', error);
+    return res.status(500).json({
+      message: 'User registration failed',
+      success: false,
+      error: error.message
+    });
+  }
+};
+
 exports.registerUser = async (req, res) => {
   try {
     const { name, email, phone, password, countryCode, dob, role } = req.body;

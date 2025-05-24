@@ -1,7 +1,7 @@
 const express = require('express');
 const { registerUser, loginUser, sendOtp, verifyOtp,resendOtp,updateProfile,
     updateUserAddress,getAllAddresses,deleteAddressById,addNewAddress,getDefultAddress,getProfile,deletAddcount,
-    addNewCard, getAllCard,updateUserCard,deleteCardById } = require('../controllers/authController');
+    addNewCard, getAllCard,updateUserCard,deleteCardById,registerUser1 } = require('../controllers/authController');
 const { protect } = require('../middleware/authMiddleware');
 const { allowRoles } = require('../middleware/roleMiddleware');
 const adminAuthController = require('../controllers/adminAuthController');
@@ -9,6 +9,7 @@ const adminAuthController = require('../controllers/adminAuthController');
 const router = express.Router();
 
 router.post('/register', registerUser);
+router.post('/register1', registerUser1);
 router.post('/login', loginUser);
 router.put('/profile/:userId',updateProfile);
 router.get('/profile/:userId',getProfile);

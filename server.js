@@ -41,6 +41,8 @@ app.use(express.urlencoded({ extended: true, limit: '10mb' }));
 const server = http.createServer(app);
 const socket = require('./sockets/socket');
 const io = socket.init(server);
+global.io = io;
+global.connectedUsers = {};
 
 connectDB();
 // const io = socketIo(server, {
