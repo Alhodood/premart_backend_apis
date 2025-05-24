@@ -2,9 +2,10 @@ const mongoose = require('mongoose');
 
 const deliveryAddressSchema = new mongoose.Schema({
   name: { type: String, required: true },
-  email: { type: String, required: true },
-  flatNumber: { type: String, required: true },
+  email: { type: String },
+  flatNumber: { type: String },
   contact: { type: String, required: true },
+  address: { type: String, required: true },
   area: { type: String, required: true },
   place: { type: String, required: true },
   default: { type: Boolean, required: true },
@@ -50,10 +51,11 @@ const orderDetailsSchema = new mongoose.Schema({
   deliveryEarning: { type: Number, default: 0 }, // ✅ earned amount per order
 
   assignedDeliveryBoy: { type: mongoose.Schema.Types.ObjectId, ref: 'DeliveryBoy' },
+paymentType: { type: String },
 
   cancelReason: { type: String },
   refundRequest: refundRequestSchema,
-  refundDetails: refundDetailsSchema,
+  additionalcharges: { type: Number, default: 0 },
 
   items: { type: Number, default: 0 }, // ✅ number of items in the order (can be auto-calculated from productId.length if needed)
 

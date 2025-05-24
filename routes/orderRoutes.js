@@ -4,7 +4,9 @@ const orderController = require('../controllers/orderController');
 const { protect } = require('../middleware/authMiddleware');
 
 
-router.post('/create/:userId', protect,orderController.createOrder);
+router.post('/create/:userId',orderController.createOrder);
+
+router.post('/create-direct/:userId', orderController.createOrderFromDirectBuy);
 
 router.get('/my-orders/:userId',protect ,orderController.viewMyOrders);
 
@@ -28,6 +30,9 @@ router.put('/delivery-boy/accept-reject/:orderId', orderController.deliveryBoyAc
 router.put('/assign-delivery-boy', orderController.assignOrderManually);
 
 router.patch('/auto-assign/:orderId', orderController.autoAssignDeliveryBoyWithin5km);
+
+router.post('/createDummy/:userId', orderController.seedDummyOrder);
+
 
 
 
