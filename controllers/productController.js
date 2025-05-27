@@ -1,4 +1,6 @@
-const { Product, ProductDetails } = require('../models/Product');
+const { Product } = require('../models/Product');
+
+const Shop = require('../models/Shop');
 
 const Brand=  require('../models/Brand');
 
@@ -82,7 +84,7 @@ exports.getProductElement = async (req, res) => {
 };
 
 
-// Create or add a product to shop's cartProduct array
+// Create or add a product to shop's products array (no variants handling)
 exports.addProduct = async (req, res) => {
   try {
     const shopId = req.query.shopId;
@@ -92,54 +94,53 @@ exports.addProduct = async (req, res) => {
       return res.status(400).json({ success: false, message: 'Missing shopId or productData' });
     }
 
-    // Extract variants separately from the rest of the product data
-    const { variants, ...baseData } = productData;
-
-    // Add variants to baseData
-    baseData.variants = variants || [];
-
-    const productDetail = new ProductDetails(baseData);
-    await productDetail.save();
-
-    await Product.findOneAndUpdate(
+    // Directly push the productData into the products array
+    const result = await Product.findOneAndUpdate(
       { shopId },
-      { $push: { products: productDetail } },
+      { $push: { products: productData } },
       { upsert: true, new: true }
     );
 
-    const productIdObject = productDetail._id;
+    const productIdObject = result.products[result.products.length - 1]._id;
     await Promise.all([
       Brand.updateOne(
-        { brandName: baseData.brand },
+        { brandName: productData.brand },
         { $addToSet: { productIds: productIdObject } },
         { upsert: true }
       ),
       Category.updateOne(
-        { categoryName: baseData.category },
+        { categoryName: productData.category },
         { $addToSet: { productIds: productIdObject } },
         { upsert: true }
       ),
       Model.updateOne(
-        { modelName: baseData.model },
+        { modelName: productData.model },
         { $addToSet: { productIds: productIdObject } },
         { upsert: true }
       ),
       Year.updateOne(
-        { year: baseData.year },
+        { year: productData.year },
         { $addToSet: { productIds: productIdObject } },
         { upsert: true }
       ),
       Fuel.updateOne(
-        { type: baseData.fuelType },
+        { type: productData.fuelType },
         { $addToSet: { productIds: productIdObject } },
         { upsert: true }
       ),
     ]);
 
+    // Also push the productId into the Shop's products array
+    await Shop.findOneAndUpdate(
+      { "shopeDetails.shopId": shopId },
+      { $push: { products: productIdObject } },
+      { new: true }
+    );
+
     return res.status(201).json({
-      message: 'Product with variants created and linked successfully',
+      message: 'Product created and linked successfully',
       success: true,
-      data: productDetail
+      data: result.products[result.products.length - 1]
     });
 
   } catch (err) {

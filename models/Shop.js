@@ -31,12 +31,11 @@ const shopDetailsSchema = new mongoose.Schema({
 
 const shopSchema = new mongoose.Schema({
     // shopId:String,
-    shopeDetails: shopDetailsSchema
+    shopeDetails: shopDetailsSchema,
+    products: { type: Array, default: [] }
 },{ timestamps: true });
 
 
-const BankDetails = mongoose.model('BankDetails', bankDetailsSchema);
-const ShopeDetails = mongoose.model('ShopeDetails', shopDetailsSchema);
 const Shop = mongoose.model('Shop', shopSchema);
 
-module.exports = { BankDetails, ShopeDetails, Shop };
+module.exports = { Shop };
