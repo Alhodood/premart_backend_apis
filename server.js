@@ -4,6 +4,7 @@ const http = require('http');
 const socketIo = require('socket.io');
 const cors = require('cors');
 require('dotenv').config();
+const axios = require("axios");
 const authRoutes = require('./routes/authRoutes');
 const productRoutes = require('./routes/productRoutes.js');
 const shopRoutes = require('./routes/shopRoutes.js');
@@ -128,6 +129,72 @@ app.get('/generatePresignedUrl', async (req, res) => {
     res.status(500).send('Error generating signed URL');
   }
 });
+
+// 1---------
+// Decode VIN endpoint
+app.get("/api/decode/:vin", async (req, res) => {
+  const vin = req.params.vin;
+
+  if (!vin || vin.length !== 17) {
+    return res.status(400).json({ success: false, message: "VIN must be 17 characters" });
+  }
+
+  try {
+    const { data } = await axios.get(`https://vpic.nhtsa.dot.gov/api/vehicles/DecodeVin/${vin}?format=json`);
+    const results = data.Results;
+
+    const output = {
+      VIN: vin,
+      Manufacturer: results.find(r => r.Variable === "Manufacturer")?.Value,
+      ModelYear: results.find(r => r.Variable === "Model Year")?.Value,
+      VehicleType: results.find(r => r.Variable === "Vehicle Type")?.Value,
+      Series: results.find(r => r.Variable === "Series")?.Value,
+      PlantCity: results.find(r => r.Variable === "Plant City")?.Value,
+      PlantCountry: results.find(r => r.Variable === "Plant Country")?.Value,
+    };
+
+    res.json({ success: true, data: output });
+  } catch (err) {
+    console.error("Axios error:", err.message);
+    res.status(500).json({ success: false, message: "Failed to decode VIN" });
+  }
+});
+
+
+
+// 🔹 API #2 - API Ninjas (Needs API Key)
+app.get("/api/decode1/:vin", async (req, res) => {
+  const vin = req.params.vin;
+
+  if (!vin || vin.length !== 17) {
+    return res.status(400).json({ success: false, message: "VIN must be 17 characters long" });
+  }
+
+  try {
+    const response = await axios.get(`https://api.api-ninjas.com/v1/vinlookup?vin=${vin}`, {
+      headers: { "X-Api-Key": "+dSgdeA8BUMEiY1Zpg7NJA==1s967UxEbxE7WL8R" },
+    });
+
+    const data = response.data;
+
+    if (!data || !data.vin) {
+      return res.status(404).json({ success: false, message: "VIN not found or invalid response" });
+    }
+
+    res.json({
+      success: true,
+      source: "api-ninjas",
+      data,
+    });
+
+  } catch (error) {
+    console.error("API Ninjas error:", error.message);
+    res.status(500).json({ success: false, message: "API Ninjas error" });
+  }
+});
+
+
+
 
 // const s3 = new S3Client({ region: process.env.AWS_REGION });
 
