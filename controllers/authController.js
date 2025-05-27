@@ -42,7 +42,7 @@ exports.registerUser = async (req, res) => {
     });
 
     await newUser.save();
-
+// const token=generateToken();
     return res.status(201).json({
       message: 'User registered successfully',
       success: true,
@@ -96,6 +96,7 @@ console.log(user);
       });
     }
 
+    const token=generateToken(user);
     return res.status(200).json({
       message: 'Login successful',
       success: true,
@@ -106,6 +107,8 @@ console.log(user);
         phone: user.phone,
         role: user.role,
         accountStatus: user.accountVerify,dob:user.dob ,
+        token:token,
+        accountVisibility: user.accountVisibility
       
       }
     });

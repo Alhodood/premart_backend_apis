@@ -129,6 +129,35 @@ exports.getMyNotifications = async (req, res) => {
     res.status(500).json({ message: 'Error', success: false, data: err.message });
   }
 };
+exports.getAllUserNotifications = async (req, res) => {
+  try {
+    const userId = req.params.userId;
+
+    const notifications = await Notification.find({
+      $or: [
+        { role: 'all' },
+        { role: req.query.role || 'customer' }, // optional: filter by role
+        { recipientIds: userId } // targeted notifications
+      ],
+      readBy: { $ne: userId } // exclude notifications already read
+    })
+    .sort({ createdAt: -1 }); // optional: latest first
+
+    res.status(200).json({
+      success: true,
+      message: 'Unread notifications fetched successfully',
+      data: notifications
+    });
+    
+  } catch (err) {
+    res.status(500).json({
+      success: false,
+      message: 'Failed to fetch notifications',
+      error: err.message
+    });
+  }
+};
+
 
 exports.markAsRead = async (req, res) => {
   try {
@@ -153,6 +182,7 @@ exports.markAsRead = async (req, res) => {
     res.status(500).json({ message: 'Failed to mark as read', success: false, data: err.message });
   }
 };
+
 
 exports.updateNotification = async (req, res) => {
   try {
