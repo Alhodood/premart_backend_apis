@@ -1,6 +1,6 @@
 const Order = require('../models/Order');
 const Cart = require('../models/Cart');
-const { Product } = require('../models/Product');
+const Product = require('../models/Product');
 
 const DeliveryBoy = require('../models/DeliveryBoy');
 const mongoose = require('mongoose');
@@ -75,47 +75,26 @@ exports.createOrder = async (req, res) => {
       return res.status(400).json({ message: 'Cart is empty', success: false });
 
     const productIds = cart.cartProduct;
-    const productDocs = await Product.find({ 'products._id': { $in: productIds } });
+    const productDocs = await Product.find({ _id: { $in: productIds } });
 
-    const allProducts = productDocs.flatMap(shop =>
-      shop.products.filter(p => productIds.includes(p._id.toString()))
-    );
-    const shopId = productDocs[0]?.shopId || null;
+    const allProducts = productDocs;
+    const shopId = allProducts[0]?.shopId || null;
     if (!shopId) return res.status(400).json({ message: 'No valid shopId found', success: false });
 
-    // Step 3: Calculate offers
-    let originalTotal = 0, totalOfferDiscount = 0, appliedOffers = [];
+    // Calculate original total from nested part prices
+    let originalTotal = 0;
     for (const product of allProducts) {
-      const price = product.price;
-      originalTotal += price;
-
-      const offer = await Offer.findOne({
-        productIds: { $in: [product._id] },
-        isActive: true,
-        startDate: { $lte: new Date() },
-        endDate: { $gte: new Date() }
-      });
-
-      if (offer) {
-        const offerDiscount = offer.discountType === 'percent'
-          ? (price * offer.discountValue) / 100
-          : offer.discountValue;
-
-        totalOfferDiscount += offerDiscount;
-        appliedOffers.push({
-          productId: product._id,
-          name: product.name,
-          discount: offerDiscount,
-          offerId: offer._id,
-          title: offer.title,
-          type: offer.discountType,
-          value: offer.discountValue
-        });
+      for (const category of product.subCategories || []) {
+        for (const part of category.parts || []) {
+          originalTotal += part.discountedPrice || part.price || 0;
+        }
       }
     }
 
+    // Step 3: Calculate offers
+
     // Step 4: Apply coupon
-    const priceAfterOffers = originalTotal - totalOfferDiscount;
+    const priceAfterOffers = originalTotal;
     let couponDiscount = 0, appliedCoupon = null;
     if (couponCode) {
       const coupon = await Coupon.findOne({ code: couponCode, isActive: true });
@@ -124,8 +103,13 @@ exports.createOrder = async (req, res) => {
       if (coupon.usageLimit && coupon.usedCount >= coupon.usageLimit)
         return res.status(400).json({ message: 'Coupon usage limit reached', success: false });
 
-      if (coupon.minOrderAmount && priceAfterOffers < coupon.minOrderAmount)
-        return res.status(400).json({ message: `Min order ₹${coupon.minOrderAmount} needed`, success: false });
+      if (coupon.minOrderAmount && priceAfterOffers < coupon.minOrderAmount) {
+        console.warn(`Coupon minimum order not met: Required ₹${coupon.minOrderAmount}, but got ₹${priceAfterOffers}`);
+        return res.status(400).json({
+          message: `Coupon code requires minimum order of ₹${coupon.minOrderAmount}, but current order is ₹${priceAfterOffers}`,
+          success: false
+        });
+      }
 
       couponDiscount = coupon.discountType === 'percent'
         ? (priceAfterOffers * coupon.discountValue) / 100
@@ -141,10 +125,11 @@ exports.createOrder = async (req, res) => {
       await coupon.save();
     }
 
-    const totalDiscount = totalOfferDiscount + couponDiscount;
-    const totalAmount = originalTotal - totalDiscount;
+    const totalDiscount = couponDiscount;
+    const totalAmount = +(originalTotal - totalDiscount).toFixed(2);
     const deliverycharge = originalTotal < 500;
     const savings = totalDiscount;
+    const finalPayable = totalAmount;
 
     // Step 5: Get user lat/lng if missing
     if (!deliveryAddress.latitude || !deliveryAddress.longitude) {
@@ -194,7 +179,6 @@ exports.createOrder = async (req, res) => {
       deliverycharge,
       couponCode,
       appliedCoupon,
-      appliedOffers,
       orderStatus: 'Pending',
       refundRequest: { requested: false, status: 'Pending' },
       deliveryDistance,
@@ -210,7 +194,8 @@ exports.createOrder = async (req, res) => {
       io = require('../sockets/socket').getIO();
       io.emit('newOrder', {
         shopId: shopId.toString(),
-        order: newOrder
+        order: newOrder,
+         shopDetails,
       });
     } catch (err) {
       console.error('Socket.IO emit failed:', err.message);
@@ -221,6 +206,8 @@ exports.createOrder = async (req, res) => {
     await cart.save();
 
     // Step 9: Respond
+    // Fetch full shop details before returning response
+    const shopDetails = await Shop.findById(shopId).lean();
     return res.status(201).json({
       message: 'Order placed successfully',
       success: true,
@@ -229,22 +216,18 @@ exports.createOrder = async (req, res) => {
         originalTotal,
         discount: totalDiscount,
         totalAmount,
-        finalPayable: totalAmount,
+        finalPayable,
         deliverycharge,
         savings,
         deliveryDistance,
         deliveryEarning,
         appliedCoupon,
-        appliedOffers,
         deliveryAddress,
         items: productIds.length,
-        products: allProducts.map(p => ({
-          id: p._id,
-          name: p.name,
-          price: p.price
-        })),
+        products: allProducts,
         additionalcharges: 0,
         paymentType,
+        shopDetails,
       }
     });
 

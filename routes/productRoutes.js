@@ -23,6 +23,8 @@ router.get('/product/element',productController.getProductElement);
 // Create a new product (restricted to Shop Admin)
 router.post('/product', productController.addProduct);
 
+router.get('/getAllProducts', productController.getAllProducts);
+
 // Get all products for a shop
 router.get('/product/:shopId', productController.getProductsByShop);
 
