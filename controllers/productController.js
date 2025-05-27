@@ -1,6 +1,6 @@
-const { Product } = require('../models/Product');
+const Product = require('../models/Product');
 
-const Shop = require('../models/Shop');
+const { Shop } = require('../models/Shop');
 
 const Brand=  require('../models/Brand');
 
@@ -94,43 +94,13 @@ exports.addProduct = async (req, res) => {
       return res.status(400).json({ success: false, message: 'Missing shopId or productData' });
     }
 
-    // Directly push the productData into the products array
-    const result = await Product.findOneAndUpdate(
-      { shopId },
-      { $push: { products: productData } },
-      { upsert: true, new: true }
-    );
+    // Create a new product
+    const newProduct = new Product(productData);
+    await newProduct.save();
 
-    const productIdObject = result.products[result.products.length - 1]._id;
-    await Promise.all([
-      Brand.updateOne(
-        { brandName: productData.brand },
-        { $addToSet: { productIds: productIdObject } },
-        { upsert: true }
-      ),
-      Category.updateOne(
-        { categoryName: productData.category },
-        { $addToSet: { productIds: productIdObject } },
-        { upsert: true }
-      ),
-      Model.updateOne(
-        { modelName: productData.model },
-        { $addToSet: { productIds: productIdObject } },
-        { upsert: true }
-      ),
-      Year.updateOne(
-        { year: productData.year },
-        { $addToSet: { productIds: productIdObject } },
-        { upsert: true }
-      ),
-      Fuel.updateOne(
-        { type: productData.fuelType },
-        { $addToSet: { productIds: productIdObject } },
-        { upsert: true }
-      ),
-    ]);
+    const productIdObject = newProduct._id;
 
-    // Also push the productId into the Shop's products array
+    // Push the productId into the Shop's products array
     await Shop.findOneAndUpdate(
       { "shopeDetails.shopId": shopId },
       { $push: { products: productIdObject } },
@@ -140,7 +110,7 @@ exports.addProduct = async (req, res) => {
     return res.status(201).json({
       message: 'Product created and linked successfully',
       success: true,
-      data: result.products[result.products.length - 1]
+      data: newProduct
     });
 
   } catch (err) {
@@ -152,6 +122,7 @@ exports.addProduct = async (req, res) => {
     });
   }
 };
+
 
 // Get all products for a shop
 exports.getProductsByShop = async (req, res) => {
