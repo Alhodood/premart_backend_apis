@@ -42,7 +42,10 @@ const orderDetailsSchema = new mongoose.Schema({
   couponCode: String,
   appliedCoupon: Object,
   appliedOffers: [Object],
-
+products: {
+  type: [mongoose.Schema.Types.Mixed],
+  default: []
+},
   totalAmount: { type: String, required: true },
   discount: { type: String },
   deliverycharge: { type: Boolean, required: true },
