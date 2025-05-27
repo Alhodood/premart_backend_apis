@@ -30,7 +30,7 @@ const dashboard = require('./routes/dashboardRoutes.js')
 const reports = require('./routes/reportRoutes.js')
 const { S3Client, PutObjectCommand } = require("@aws-sdk/client-s3");
 const { getSignedUrl } = require("@aws-sdk/s3-request-presigner");
-
+// const stripe = Stripe(process.env.STRIPE_SECRET_KEY);
 const connectDB =require("./config/db.js")
 const app = express();
 
@@ -166,6 +166,27 @@ app.post('/api/upload-url', async (req, res) => {
     return res.status(500).json({ message: 'Failed to generate URL', error: error.message });
   }
 });
+
+
+
+app.post("/create-payment-intent", async (req, res) => {
+  const { amount, currency } = req.body;
+
+  try {
+    const paymentIntent = await Stripe(process.env.STRIPE_SECRET_KEY).paymentIntents.create({
+      amount, // in cents
+      currency,
+      payment_method_types: ['card'],
+    });
+
+    res.send({
+      clientSecret: paymentIntent.client_secret,
+    });
+  } catch (err) {
+    res.status(500).send({ error: err.message });
+  }
+});
+
 const PORT = process.env.PORT || 3002;
 const HOST = process.env.HOST || '0.0.0.0';
 

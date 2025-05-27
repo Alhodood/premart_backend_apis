@@ -36,6 +36,7 @@ exports.addToCart = async (req, res) => {
         productIDs.includes(product._id.toString())
       );
 
+
       return res.status(201).json({
         message: 'Products added to new cart',
         success: true,
