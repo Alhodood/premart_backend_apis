@@ -102,10 +102,10 @@ exports.addProduct = async (req, res) => {
 
     // Push the productId into the Shop's products array
     await Shop.findOneAndUpdate(
-      { "shopeDetails.shopId": shopId },
-      { $push: { products: productIdObject } },
-      { new: true }
-    );
+  { _id: shopId }, // ✅ match by Mongo ObjectId
+  { $push: { products: productIdObject } },
+  { new: true }
+);
 
     return res.status(201).json({
       message: 'Product created and linked successfully',
