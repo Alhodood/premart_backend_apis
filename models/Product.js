@@ -33,6 +33,8 @@ const ProductSchema = new mongoose.Schema({
   productionStart: String,                            // e.g., 2019-08
   productionEnd: String,                              // e.g., 2025
 
+  shopId: { type: mongoose.Schema.Types.ObjectId, ref: 'Shop', required: true },
+
   subCategories: [SubCategorySchema],
   
   ratings: {

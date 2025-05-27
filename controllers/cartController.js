@@ -1,5 +1,5 @@
 const Cart = require('../models/Cart');
-const { Product, ProductDetails } = require('../models/Product');
+const Product = require('../models/Product');
 
 exports.addToCart = async (req, res) => {
   try {
@@ -19,10 +19,7 @@ exports.addToCart = async (req, res) => {
 
     let cart = await Cart.findOne({ userId });
 
-    const productDocs = await Product.find().lean();
-    const productDetails = productDocs.flatMap(doc =>
-      (doc.products || []).map(product => ({ ...product }))
-    );
+    const productDetails = await Product.find({ _id: { $in: productIDs } }).lean();
 
     // If no cart exists, create new and return "added" message
     if (!cart) {
@@ -32,9 +29,7 @@ exports.addToCart = async (req, res) => {
       });
       await newCart.save();
 
-      const filteredCart = productDetails.filter(product =>
-        productIDs.includes(product._id.toString())
-      );
+      const filteredCart = productDetails;
 
       return res.status(201).json({
         message: 'Products added to new cart',
@@ -63,11 +58,9 @@ exports.addToCart = async (req, res) => {
 
     await cart.save();
 
-    const filteredCart = productDetails.filter(product =>
-      cart.cartProduct.includes(product._id.toString())
-    );
-    const addedProducts = productDetails.filter(p => added.includes(p._id.toString()));
-    const removedProducts = productDetails.filter(p => removed.includes(p._id.toString()));
+    const filteredCart = await Product.find({ _id: { $in: cart.cartProduct } }).lean();
+    const addedProducts = await Product.find({ _id: { $in: added } }).lean();
+    const removedProducts = await Product.find({ _id: { $in: removed } }).lean();
 
     // Custom message logic
     let message = 'Cart updated successfully';

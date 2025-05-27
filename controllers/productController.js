@@ -37,6 +37,26 @@ const Model = require('../models/Model');
     } catch (error) {
         res.status(403).json({ status: false, error: error })
     }
+
+};
+
+// Get all products
+exports.getAllProducts = async (req, res) => {
+  try {
+    const products = await Product.find().lean();
+    res.status(200).json({
+      message: 'All products retrieved successfully',
+      success: true,
+      data: products
+    });
+  } catch (error) {
+    console.error('Get All Products Error:', error);
+    res.status(500).json({
+      message: 'Failed to retrieve products',
+      success: false,
+      error: error.message
+    });
+  }
 };
 
 
@@ -95,7 +115,7 @@ exports.addProduct = async (req, res) => {
     }
 
     // Create a new product
-    const newProduct = new Product(productData);
+    const newProduct = new Product({ ...productData, shopId });
     await newProduct.save();
 
     const productIdObject = newProduct._id;
