@@ -1,57 +1,50 @@
 const mongoose = require('mongoose');
 
-const productDetailesSchema = new mongoose.Schema({
-  name: String,
-  type: String,
-  brand: String,
-  category: String,
-  model: String,
-  year: String,
-  subCategories: [{
-    name: String,
-    Images: [String],
-    availablePartNumber: [String]
- }],
-  color: String,
+const PartSchema = new mongoose.Schema({
+  partNumber: { type: String, required: true },
+  partName: { type: String, required: true },
+  quantity: { type: Number, default: 0 },
   price: Number,
   discountedPrice: Number,
-  quantity: Number,
-  tax: String,
-  picture: [String],
   description: String,
-  partNumber: String,
-  partDescription: String,
-  otherNote: String,
-  position: String,
-  condition: String,
-  fitmentType: String,
-  manufacturer: String,
-  sku: String,
-  warranty: String,
-  useToAnotherVehichle: String,
-  shopId: String,
-  selectedCartForMobile: { type: Boolean, default: false },
+  imageUrl: [],           // URL to the part's image
+  notes: String,
   stockStatus: {
     type: String,
-    enum: ['in_stock', 'out_of_stock', 'low_stock'],
+    enum: ['in_stock', 'low_stock', 'out_of_stock'],
     default: 'in_stock'
-  },
+  }
+});
+
+const SubCategorySchema = new mongoose.Schema({
+  categoryTab: String,         // e.g., "Engine Gasket", "Short Block Assembly"
+  imageUrl: String,            // Exploded image URL
+  parts: [PartSchema]
+});
+
+const ProductSchema = new mongoose.Schema({
+  brand: { type: String, required: true },            // Toyota, Lexus, etc.
+  year: { type: Number, required: true },             // 2022, 2023, etc.
+  model: { type: String, required: true },            // e.g., 4RUNNER
+  frameCode: String,                                  // GRN280, etc.
+  region: String,                                     // e.g., "Asia and Middle East"
+  engineCode: String,                                 // e.g., 1GRFE
+  transmission: String,                               // e.g., 5FC
+  productionStart: String,                            // e.g., 2019-08
+  productionEnd: String,                              // e.g., 2025
+
+  subCategories: [SubCategorySchema],
+  
   ratings: {
-    average: { type: Number, default: 0 },
-    totalReviews: { type: Number, default: 0 }
+  average: { type: Number, default: 0 },
+  totalReviews: { type: Number, default: 0 }
+},// Each tab with image + parts,
+
+  vinMetadata: {
+    wmi: String,
+    vds: String,
+    vis: String
   },
-  comments: [{
-    userId: { type: mongoose.Schema.Types.ObjectId, ref: 'User' },
-    username: String,
-    comment: String,
-    createdAt: { type: Date, default: Date.now }
-  }]
 }, { timestamps: true });
 
-const productSchema = new mongoose.Schema({
-  shopId: { type: String, required: true },
-  products: [productDetailesSchema]
-}, { timestamps: true });
-
-const Product = mongoose.model('Product', productSchema);
-module.exports = { Product };
+module.exports = mongoose.model('Product', ProductSchema);
