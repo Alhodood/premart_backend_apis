@@ -173,6 +173,8 @@ exports.createOrder = async (req, res) => {
       userId,
       shopId,
       productId: productIds,
+      products: allProducts.map(p => p.toObject ? p.toObject() : p),
+      shopDetails: shop?.shopeDetails || {},
       deliveryAddress,
       totalAmount,
       discount: totalDiscount,
@@ -442,42 +444,47 @@ exports.createOrderFromDirectBuy = async (req, res) => {
 
 
 exports.viewMyOrders = async (req, res) => {
-    try {
-      const userId = req.params.userId;
-  
-      if (!userId) {
-        return res.status(400).json({
-          message: 'UserId is required',
-          success: false,
-          data: []
-        });
-      }
-  
-      const orders = await Order.find({ userId }).sort({ createdAt: -1 }); // Latest orders first
-  
-      if (!orders || orders.length === 0) {
-        return res.status(404).json({
-          message: 'No orders found',
-          success: false,
-          data: []
-        });
-      }
-  
-      return res.status(200).json({
-        message: 'Orders fetched successfully',
-        success: true,
-        data: orders
-      });
-  
-    } catch (error) {
-      console.error('View Orders Error:', error);
-      res.status(500).json({
-        message: 'Failed to fetch orders',
+  try {
+    const userId = req.params.userId;
+
+    if (!userId) {
+      return res.status(400).json({
+        message: 'UserId is required',
         success: false,
-        data: error.message
+        data: []
       });
     }
-  };
+
+    const orders = await Order.find({ userId }).sort({ createdAt: -1 }); // Latest orders first
+
+    if (!orders || orders.length === 0) {
+      return res.status(404).json({
+        message: 'No orders found',
+        success: false,
+        data: []
+      });
+    }
+
+    // For each order, convert to plain object
+    for (let i = 0; i < orders.length; i++) {
+      orders[i] = orders[i].toObject();
+    }
+
+    return res.status(200).json({
+      message: 'Orders fetched successfully',
+      success: true,
+      data: orders
+    });
+
+  } catch (error) {
+    console.error('View Orders Error:', error);
+    res.status(500).json({
+      message: 'Failed to fetch orders',
+      success: false,
+      data: error.message
+    });
+  }
+};
 
   exports.getAllOrders = async (req, res) => {
     try {

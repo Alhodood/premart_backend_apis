@@ -8,7 +8,7 @@ router.post('/create/:userId',orderController.createOrder);
 
 router.post('/create-direct/:userId', orderController.createOrderFromDirectBuy);
 
-router.get('/my-orders/:userId',protect ,orderController.viewMyOrders);
+router.get('/my-orders/:userId',orderController.viewMyOrders);
 
 router.get('/all-orders', orderController.getAllOrders);
 
