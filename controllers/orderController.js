@@ -8,7 +8,10 @@ const Stock = require('../models/Stock');
 const axios = require('axios');
 const CustomerAddress = require('../models/CustomerAddress');
 const geolib = require('geolib');
+
 const { Shop } = require('../models/Shop');
+const MasterOrder = require('../models/MasterOrder');
+const PDFDocument = require('pdfkit');
 
 
 // Create Order and auto-reduce stock
@@ -75,13 +78,18 @@ exports.createOrder = async (req, res) => {
       return res.status(400).json({ message: 'Cart is empty', success: false });
 
     const productIds = cart.cartProduct;
+    // Batch fetch all products in one go
     const productDocs = await Product.find({ _id: { $in: productIds } });
-
     const allProducts = productDocs;
-    const shopId = allProducts[0]?.shopId || null;
-    if (!shopId) return res.status(400).json({ message: 'No valid shopId found', success: false });
+    // --- Group products by shopId ---
+    const productsByShop = {};
+    for (const prod of allProducts) {
+      const sId = prod.shopId?.toString();
+      if (!productsByShop[sId]) productsByShop[sId] = [];
+      productsByShop[sId].push(prod);
+    }
 
-    // Calculate original total from nested part prices
+    // Calculate original total from nested part prices (all products)
     let originalTotal = 0;
     for (const product of allProducts) {
       for (const category of product.subCategories || []) {
@@ -91,9 +99,9 @@ exports.createOrder = async (req, res) => {
       }
     }
 
-    // Step 3: Calculate offers
+    // Step 3: Calculate offers (TODO: Per shop? Not implemented here)
 
-    // Step 4: Apply coupon
+    // Step 4: Apply coupon (applies only once to whole order, not per shop)
     const priceAfterOffers = originalTotal;
     let couponDiscount = 0, appliedCoupon = null;
     if (couponCode) {
@@ -141,95 +149,173 @@ exports.createOrder = async (req, res) => {
       }
     }
 
-    // Step 6: Calculate distance & earning
-    const shop = await Shop.findOne({ _id: shopId });
-    const shopLatLng = shop?.shopeDetails?.shopLocation?.split(',').map(Number);
-    let deliveryDistance = 0;
-    let deliveryEarning = 0;
-    if (shopLatLng?.length === 2 && deliveryAddress.latitude && deliveryAddress.longitude) {
-      deliveryDistance = geolib.getDistance(
-        { latitude: shopLatLng[0], longitude: shopLatLng[1] },
-        { latitude: deliveryAddress.latitude, longitude: deliveryAddress.longitude }
-      ) / 1000;
-      deliveryEarning = +(PER_KM_RATE * deliveryDistance).toFixed(2);
-    }
+    // --- Step 6: Per-shop order creation, parallelized ---
+    const shopIds = Object.keys(productsByShop);
 
-     // Step 7.0: Reduce Stock
-     for (const pid of productIds) {
-      await Stock.findOneAndUpdate(
-        { shopId, productId: pid },
-        { $inc: { quantity: -1 } }, // assuming quantity 1 for simplicity
-        { new: true }
+    // Helper for per-shop order creation
+    async function processShopOrder(shopId, shopProducts) {
+      // Calculate per-shop total
+      let shopOriginalTotal = 0;
+      for (const product of shopProducts) {
+        for (const category of product.subCategories || []) {
+          for (const part of category.parts || []) {
+            shopOriginalTotal += part.discountedPrice || part.price || 0;
+          }
+        }
+      }
+
+      // Calculate delivery distance/earning
+      const shop = await Shop.findOne({ _id: shopId });
+      const shopLatLng = shop?.shopeDetails?.shopLocation?.split(',').map(Number);
+      let deliveryDistance = 0;
+      let deliveryEarning = 0;
+      if (shopLatLng?.length === 2 && deliveryAddress.latitude && deliveryAddress.longitude) {
+        deliveryDistance = geolib.getDistance(
+          { latitude: shopLatLng[0], longitude: shopLatLng[1] },
+          { latitude: deliveryAddress.latitude, longitude: deliveryAddress.longitude }
+        ) / 1000;
+        deliveryEarning = +(PER_KM_RATE * deliveryDistance).toFixed(2);
+      }
+
+      // Batch update stock for all products in this shop
+      const stockUpdates = shopProducts.map(prod =>
+        Stock.findOneAndUpdate(
+          { shopId, productId: prod._id },
+          { $inc: { quantity: -1 } },
+          { new: true }
+        )
       );
-    }
+      await Promise.all(stockUpdates);
 
-    // io.emit('order_status_changed', {
-    //   orderId: updatedOrder._id,
-    //   status: updatedOrder.orderStatus,
-    // });
+      // Calculate per-shop coupon discount (proportionally to shop's products)
+      let totalCouponDiscount = 0;
+      if (couponDiscount > 0 && allProducts.length > 0) {
+        // Calculate shop subtotal (again, for coupon split)
+        let shopSubtotal = 0;
+        for (const product of shopProducts) {
+          for (const category of product.subCategories || []) {
+            for (const part of category.parts || []) {
+              shopSubtotal += part.discountedPrice || part.price || 0;
+            }
+          }
+        }
+        totalCouponDiscount = +(couponDiscount * (shopSubtotal / originalTotal)).toFixed(2);
+      }
 
-    // Step 7: Save order
-    const newOrder = new Order({
-      userId,
-      shopId,
-      productId: productIds,
-      products: allProducts.map(p => p.toObject ? p.toObject() : p),
-      shopDetails: shop?.shopeDetails || {},
-      deliveryAddress,
-      totalAmount,
-      discount: totalDiscount,
-      deliverycharge,
-      couponCode,
-      appliedCoupon,
-      orderStatus: 'Pending',
-      refundRequest: { requested: false, status: 'Pending' },
-      deliveryDistance,
-      deliveryEarning,
-      paymentType,
-      additionalcharges: 0,
-    });
-
-    await newOrder.save();
-    // 🔔 Emit socket event to all connected clients (shopId-based filtering on frontend)
-    let io;
-    try {
-      io = require('../sockets/socket').getIO();
-      io.emit('newOrder', {
-        shopId: shopId.toString(),
-        order: newOrder,
-         shopDetails,
+      // Save order for this shop
+      const createdOrder = new Order({
+        userId,
+        shopId,
+        productId: shopProducts.map(p => p._id),
+        products: shopProducts.map(p => p.toObject ? p.toObject() : p),
+        shopDetails: shop?.shopeDetails || {},
+        deliveryAddress,
+        totalAmount: shopOriginalTotal,
+        finalPayable: (shopOriginalTotal - (totalCouponDiscount || 0)),
+        deliverycharge: shopOriginalTotal < 500,
+        couponCode,
+        appliedCoupon,
+        orderStatus: 'Pending',
+        refundRequest: { requested: false, status: 'Pending' },
+        deliveryDistance,
+        deliveryEarning,
+        paymentType,
+        additionalcharges: 0,
       });
-    } catch (err) {
-      console.error('Socket.IO emit failed:', err.message);
+      await createdOrder.save();
+
+      // Push order to shop.orders[]
+      const shopPushPromise = Shop.findByIdAndUpdate(shopId, {
+        $push: {
+          orders: {
+            orderId: createdOrder._id
+          }
+        }
+      });
+
+      // Emit socket event per shop
+      let io;
+      try {
+        io = require('../sockets/socket').getIO();
+        io.emit('newOrder', {
+          shopId: shopId.toString(),
+          order: createdOrder,
+          shopDetails: shop?.shopeDetails || {},
+        });
+      } catch (err) {
+        console.error('Socket.IO emit failed:', err.message);
+      }
+
+      // Wait for shopPushPromise to finish
+      await shopPushPromise;
+
+      return {
+        createdOrder,
+        shopId,
+        shopDetails: shop,
+        deliveryDistance,
+        deliveryEarning,
+        shopOriginalTotal,
+        productCount: shopProducts.length
+      };
     }
 
-    // Step 8: Clear cart
-    cart.cartProduct = [];
-    await cart.save();
+    // Parallelize per-shop order creation
+    const perShopOrderPromises = shopIds.map(shopId =>
+      processShopOrder(shopId, productsByShop[shopId])
+    );
+    const perShopResults = await Promise.all(perShopOrderPromises);
+
+    const allOrderIds = perShopResults.map(r => r.createdOrder._id);
+    const perShopOrderInfo = perShopResults.map(r => ({
+      order: r.createdOrder,
+      shopId: r.shopId,
+      shopDetails: r.shopDetails,
+      deliveryDistance: r.deliveryDistance,
+      deliveryEarning: r.deliveryEarning,
+      shopOriginalTotal: r.shopOriginalTotal,
+      productCount: r.productCount
+    }));
+
+    // Step 8: Clear cart using batch update
+    await Cart.updateOne({ userId }, { $set: { cartProduct: [] } });
+
+    // --- Create MasterOrder ---
+    const masterOrder = new MasterOrder({
+      userId,
+      orderIds: allOrderIds,
+      totalAmount: originalTotal,
+      finalPayable: finalPayable,
+      couponApplied: appliedCoupon ? {
+        code: appliedCoupon.code,
+        discountType: appliedCoupon.discountType,
+        discountValue: appliedCoupon.discountValue,
+        discountAmount: totalDiscount
+      } : null
+    });
+    await masterOrder.save();
+    // --- End Create MasterOrder ---
 
     // Step 9: Respond
-    // Fetch full shop details before returning response
-    const shopDetails = await Shop.findById(shopId).lean();
     return res.status(201).json({
       message: 'Order placed successfully',
       success: true,
       data: {
-        orderId: newOrder._id,
+        orderIds: allOrderIds,
         originalTotal,
         discount: totalDiscount,
         totalAmount,
         finalPayable,
         deliverycharge,
         savings,
-        deliveryDistance,
-        deliveryEarning,
+        perShopOrderInfo,
         appliedCoupon,
         deliveryAddress,
-        items: productIds.length,
+        items: allProducts.length,
         products: allProducts,
         additionalcharges: 0,
         paymentType,
-        shopDetails,
+        masterOrderId: masterOrder._id
       }
     });
 
@@ -246,13 +332,20 @@ exports.createOrder = async (req, res) => {
 // Create Order From Direct Buy API Handler
 exports.createOrderFromDirectBuy = async (req, res) => {
   try {
-    const { productIds, couponCode, paymentType, userId: bodyUserId } = req.body;
-    const userId = bodyUserId || req.params.userId || req.user?._id;
-    if (!userId || !Array.isArray(productIds) || productIds.length === 0) {
-      return res.status(400).json({ message: 'User ID and productIds are required', success: false });
+    // Ensure userId is extracted from params first, then fallback to req.user._id
+    const userId = req.params.userId || req.user?._id;
+    // Ensure productIds are retrieved from req.body.productIds (array), fallback to single productId if present
+    let productIds = req.body.productIds;
+    if (!productIds && req.body.productId) {
+      productIds = [req.body.productId];
+    }
+    const { couponCode, paymentType } = req.body;
+
+    // Validate userId and productIds
+    if (!userId || !productIds || !Array.isArray(productIds) || productIds.length === 0) {
+      return res.status(400).json({ message: 'Missing userId or productIds', success: false });
     }
 
-    // Fetch user and address
     const user = await require('../models/User').findById(userId);
     if (!user || !user.address || user.address.length === 0) {
       return res.status(400).json({ message: 'No delivery address found', success: false });
@@ -260,96 +353,54 @@ exports.createOrderFromDirectBuy = async (req, res) => {
 
     let deliveryAddress = user.address.find(a => a.default) || user.address[0];
     deliveryAddress = deliveryAddress?.toObject?.() || deliveryAddress;
-    if (!deliveryAddress.address) {
-      const matchingAddress = user.address.find(a => a._id?.toString() === deliveryAddress._id?.toString());
-      if (matchingAddress && matchingAddress.address) {
-        deliveryAddress.address = matchingAddress.address;
-      }
+
+    // Fetch all products by ids
+    const products = await Product.find({ _id: { $in: productIds } });
+    if (!products || products.length === 0) {
+      return res.status(400).json({ message: 'Product(s) not found', success: false });
     }
 
-    // Fetch products
-    const productDocs = await Product.find({ 'products._id': { $in: productIds } });
-    const allProducts = productDocs.flatMap(shop =>
-      shop.products.filter(p => productIds.includes(p._id.toString()))
-    );
-    const shopId = productDocs[0]?.shopId || null;
-    if (!shopId) return res.status(400).json({ message: 'No valid shopId found', success: false });
+    // For direct buy, assume all products are from same shop
+    const shopId = products[0].shopId.toString();
+    const shop = await Shop.findOne({ _id: shopId });
 
-    // Calculate offers
-    let originalTotal = 0, totalOfferDiscount = 0, appliedOffers = [];
-    for (const product of allProducts) {
-      const price = product.price;
-      originalTotal += price;
-
-      const offer = await Offer.findOne({
-        productIds: { $in: [product._id] },
-        isActive: true,
-        startDate: { $lte: new Date() },
-        endDate: { $gte: new Date() }
-      });
-
-      if (offer) {
-        const offerDiscount = offer.discountType === 'percent'
-          ? (price * offer.discountValue) / 100
-          : offer.discountValue;
-
-        totalOfferDiscount += offerDiscount;
-        appliedOffers.push({
-          productId: product._id,
-          name: product.name,
-          discount: offerDiscount,
-          offerId: offer._id,
-          title: offer.title,
-          type: offer.discountType,
-          value: offer.discountValue
-        });
+    // Calculate total for all products
+    let productTotal = 0;
+    for (const product of products) {
+      for (const category of product.subCategories || []) {
+        for (const part of category.parts || []) {
+          productTotal += part.discountedPrice || part.price || 0;
+        }
       }
     }
 
     // Apply coupon
-    const priceAfterOffers = originalTotal - totalOfferDiscount;
     let couponDiscount = 0, appliedCoupon = null;
     if (couponCode) {
       const coupon = await Coupon.findOne({ code: couponCode, isActive: true });
-      if (!coupon) return res.status(400).json({ message: 'Invalid coupon', success: false });
-      if (new Date() > coupon.expiryDate) return res.status(400).json({ message: 'Coupon expired', success: false });
-      if (coupon.usageLimit && coupon.usedCount >= coupon.usageLimit)
-        return res.status(400).json({ message: 'Coupon usage limit reached', success: false });
+      if (coupon && new Date() <= coupon.expiryDate && (!coupon.usageLimit || coupon.usedCount < coupon.usageLimit)) {
+        if (!coupon.minOrderAmount || productTotal >= coupon.minOrderAmount) {
+          couponDiscount = coupon.discountType === 'percent'
+            ? (productTotal * coupon.discountValue) / 100
+            : coupon.discountValue;
 
-      if (coupon.minOrderAmount && priceAfterOffers < coupon.minOrderAmount)
-        return res.status(400).json({ message: `Min order ₹${coupon.minOrderAmount} needed`, success: false });
+          appliedCoupon = {
+            code: coupon.code,
+            discountType: coupon.discountType,
+            discountValue: coupon.discountValue
+          };
 
-      couponDiscount = coupon.discountType === 'percent'
-        ? (priceAfterOffers * coupon.discountValue) / 100
-        : coupon.discountValue;
-
-      appliedCoupon = {
-        code: coupon.code,
-        discountType: coupon.discountType,
-        discountValue: coupon.discountValue
-      };
-
-      coupon.usedCount += 1;
-      await coupon.save();
-    }
-
-    const totalDiscount = totalOfferDiscount + couponDiscount;
-    const totalAmount = originalTotal - totalDiscount;
-    const deliverycharge = originalTotal < 500;
-    const savings = totalDiscount;
-
-    // Get user lat/lng if missing
-    if (!deliveryAddress.latitude || !deliveryAddress.longitude) {
-      const fullAddress = `${deliveryAddress.flatNumber}, ${deliveryAddress.area}, ${deliveryAddress.place}`;
-      const coords = await getLatLngFromAddress(fullAddress);
-      if (coords) {
-        deliveryAddress.latitude = coords.latitude;
-        deliveryAddress.longitude = coords.longitude;
+          coupon.usedCount += 1;
+          await coupon.save();
+        }
       }
     }
 
-    // Calculate distance & earning
-    const shop = await Shop.findOne({ _id: shopId });
+    const originalTotal = productTotal;
+    const totalDiscount = couponDiscount;
+    const totalAmount = +(originalTotal - totalDiscount).toFixed(2);
+    const finalPayable = totalAmount;
+    const deliverycharge = productTotal < 500;
     const shopLatLng = shop?.shopeDetails?.shopLocation?.split(',').map(Number);
     let deliveryDistance = 0;
     let deliveryEarning = 0;
@@ -361,27 +412,26 @@ exports.createOrderFromDirectBuy = async (req, res) => {
       deliveryEarning = +(PER_KM_RATE * deliveryDistance).toFixed(2);
     }
 
-    // Reduce Stock
-    for (const pid of productIds) {
-      await Stock.findOneAndUpdate(
-        { shopId, productId: pid },
+    // Update stock for each product
+    await Promise.all(products.map(product =>
+      Stock.findOneAndUpdate(
+        { shopId, productId: product._id },
         { $inc: { quantity: -1 } },
         { new: true }
-      );
-    }
+      )
+    ));
 
-    // Save order
-    const newOrder = new Order({
+    const order = new Order({
       userId,
       shopId,
-      productId: productIds,
+      productId: products.map(p => p._id),
+      products: products.map(p => p.toObject ? p.toObject() : p),
       deliveryAddress,
-      totalAmount,
-      discount: totalDiscount,
+      totalAmount: productTotal,
+      finalPayable,
       deliverycharge,
       couponCode,
       appliedCoupon,
-      appliedOffers,
       orderStatus: 'Pending',
       refundRequest: { requested: false, status: 'Pending' },
       deliveryDistance,
@@ -390,52 +440,53 @@ exports.createOrderFromDirectBuy = async (req, res) => {
       additionalcharges: 0,
     });
 
-    await newOrder.save();
+    await order.save();
+    await Shop.findByIdAndUpdate(shopId, {
+      $push: {
+        orders: {
+          orderId: order._id
+        }
+      }
+    });
 
-    // Emit socket event to all connected clients (shopId-based filtering on frontend)
-    let io;
-    try {
-      io = require('../sockets/socket').getIO();
-      io.emit('newOrder', {
-        shopId: shopId.toString(),
-        order: newOrder
-      });
-    } catch (err) {
-      console.error('Socket.IO emit failed:', err.message);
-    }
+    // --- Push this order into MasterOrder collection ---
+    const masterOrder = new MasterOrder({
+      userId,
+      orderIds: [order._id],
+      totalAmount: originalTotal,
+      finalPayable: finalPayable,
+      couponApplied: appliedCoupon ? {
+        code: appliedCoupon.code,
+        discountType: appliedCoupon.discountType,
+        discountValue: appliedCoupon.discountValue,
+        discountAmount: totalDiscount
+      } : null
+    });
+    await masterOrder.save();
+    // --- End MasterOrder addition ---
 
-    // Respond
     return res.status(201).json({
       message: 'Order placed successfully',
       success: true,
       data: {
-        orderId: newOrder._id,
+        orderId: order._id,
+        masterOrderId: masterOrder._id,
         originalTotal,
         discount: totalDiscount,
         totalAmount,
-        finalPayable: totalAmount,
+        finalPayable,
         deliverycharge,
-        savings,
-        deliveryDistance,
-        deliveryEarning,
         appliedCoupon,
-        appliedOffers,
         deliveryAddress,
-        items: productIds.length,
-        products: allProducts.map(p => ({
-          id: p._id,
-          name: p.name,
-          price: p.price
-        })),
+        products: products,
         additionalcharges: 0,
-        paymentType,
+        paymentType
       }
     });
-
   } catch (err) {
-    console.error('Create Direct Buy Order Error:', err);
+    console.error('Create Direct Order Error:', err);
     res.status(500).json({
-      message: 'Failed to place direct buy order',
+      message: 'Failed to place direct order',
       success: false,
       data: err.message
     });
@@ -1170,4 +1221,71 @@ exports.seedDummyOrder = async (req, res) => {
     });
   }
 };
+
+// Generate Invoice PDF (User or Shop)
+exports.generateInvoice =  async (req, res) => {
+  try {
+    const { orderId } = req.params;
+    const order = await Order.findById(orderId)
+      .populate('userId')
+      .populate('shopId')
+      .lean();
+
+    if (!order) return res.status(404).json({ message: 'Order not found', success: false });
+
+    const doc = new PDFDocument({ size: 'A4', margin: 50 });
+    let buffers = [];
+    doc.on('data', buffers.push.bind(buffers));
+    doc.on('end', () => {
+      let pdfData = Buffer.concat(buffers);
+      res.setHeader('Content-Disposition', `attachment; filename=Invoice_${order._id}.pdf`);
+      res.contentType('application/pdf');
+      res.send(pdfData);
+    });
+
+    // PDF Content
+    doc.fontSize(20).text('INVOICE', { align: 'center' });
+    doc.moveDown();
+
+    doc.fontSize(12).text(`Invoice ID: ${order._id}`);
+    doc.text(`Date: ${new Date(order.createdAt).toLocaleDateString()}`);
+    doc.text(`Payment Type: ${order.paymentType}`);
+    doc.moveDown();
+
+    doc.text(`Customer: ${order.deliveryAddress.name}`);
+    doc.text(`Contact: ${order.deliveryAddress.contact}`);
+    doc.text(`Address: ${order.deliveryAddress.address}`);
+    doc.moveDown();
+
+    doc.text(`Shop: ${order.shopId?.shopeDetails?.shopName || 'N/A'}`);
+    doc.text(`Shop Contact: ${order.shopId?.shopeDetails?.shopContact || 'N/A'}`);
+    doc.moveDown();
+
+    doc.fontSize(14).text('Products:', { underline: true });
+    order.products.forEach((product, idx) => {
+      product.subCategories?.forEach(cat => {
+        cat.parts?.forEach(part => {
+          doc.text(
+            `${idx + 1}. ${part.partName} (${part.partNumber}) - Qty: ${part.quantity || 1} - Price: AED ${part.discountedPrice || part.price}`
+          );
+        });
+      });
+    });
+
+    doc.moveDown();
+    doc.fontSize(12).text(`Subtotal: AED ${order.totalAmount}`);
+    if (order.appliedCoupon) {
+      doc.text(`Coupon Applied: ${order.appliedCoupon.code}`);
+      doc.text(`Discount: AED ${(parseFloat(order.totalAmount) - parseFloat(order.finalPayable)).toFixed(2)}`);
+    }
+    doc.text(`Total Payable: AED ${order.finalPayable}`);
+
+    doc.end();
+  } catch (err) {
+    console.error('Invoice generation failed:', err);
+    res.status(500).json({ message: 'Failed to generate invoice', success: false, data: err.message });
+  }
+}
+
+
 

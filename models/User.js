@@ -2,32 +2,32 @@ const mongoose = require('mongoose');
 const bcrypt = require('bcrypt');
 
 const cardDetailsSchema = new mongoose.Schema({
-  cardHolderName: { type: String, required: true },
+  cardHolderName: { type: String },
   // email: { type: String, required: true },
-  cardNumber: { type: String, required: true },
-  expiry: { type: String, required: true },
-  cvv: { type: String, required: true },
+  cardNumber: { type: String },
+  expiry: { type: String },
+  cvv: { type: String },
 }, { timestamps: true });
 const customerAddressDetailsSchema = new mongoose.Schema({
-  name: { type: String, required: true },
+  name: { type: String },
   address: { type: String },
-  contact: { type: String, required: true },
-  area: { type: String, required: true },
-  place: { type: String, required: true },
-  default: { type: Boolean, required: true,defult:false },
-  addressType: {type: String,required: true}
+  contact: { type: String },
+  area: { type: String },
+  place: { type: String },
+  default: { type: Boolean, defult:false },
+  addressType: {type: String}
 }, { timestamps: true });
 const UserSchema = new mongoose.Schema({
-  name: { type: String, required: true },
+  name: { type: String },
   email: { type: String, unique: true, sparse: true },
   phone: { type: String, unique: true, sparse: true },
-  password: { type: String, required: true },
+  password: { type: String },
   accountVisibility: { type: Boolean ,default:true},
   dob: String,
   accountVerify:{type: Boolean, default:false},
   role: {
     type: String,
-    enum: ['customer', 'superAdmin', 'shopAdmin'],
+    enum: ['customer'],
     default: 'customer'
   }, address: [customerAddressDetailsSchema],
   card:[cardDetailsSchema],
