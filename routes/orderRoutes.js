@@ -33,8 +33,9 @@ router.patch('/auto-assign/:orderId', orderController.autoAssignDeliveryBoyWithi
 
 router.post('/createDummy/:userId', orderController.seedDummyOrder);
 
+ //--------
 
-
+ router.get('/generateInvoice/:orderId', orderController.generateInvoice);
 
 
 

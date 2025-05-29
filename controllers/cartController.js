@@ -3,72 +3,64 @@ const Product = require('../models/Product');
 
 exports.addToCart = async (req, res) => {
   try {
+    console.log("Request body received:", req.body);
     const userId = req.params.userId;
-    let { productID, productIDs } = req.body;
+    const { productIDs } = req.body;
 
-    if (!userId || (!productID && !productIDs)) {
+    if (!userId || !Array.isArray(productIDs) || productIDs.length === 0) {
       return res.status(400).json({
-        message: 'UserId and at least one productID or productIDs array is required',
+        message: 'UserId and productIDs array are required',
         success: false,
         data: []
       });
     }
 
-    // Normalize to array
-    if (productID) productIDs = [productID];
-
     let cart = await Cart.findOne({ userId });
 
-    const productDetails = await Product.find({ _id: { $in: productIDs } }).lean();
+    const productDocs = await Product.find({ _id: { $in: productIDs } }).lean();
 
-    // If no cart exists, create new and return "added" message
     if (!cart) {
       const newCart = new Cart({
         userId,
-        cartProduct: productIDs.map(id => id.toString())
+        cartProduct: productDocs.map(p => p._id.toString())
       });
       await newCart.save();
-
-      const filteredCart = productDetails;
 
       return res.status(201).json({
         message: 'Products added to new cart',
         success: true,
-        action: 'added',
-        data: filteredCart
+        added: productDocs,
+        removed: [],
+        cart: productDocs
       });
     }
 
-    // Track added & removed
-    const added = [];
-    const removed = [];
+    const addedProducts = [];
+    const removedProducts = [];
 
-    for (let element of productIDs) {
-      const strId = element.toString();
+    for (let product of productDocs) {
+      const strId = product._id.toString();
       const index = cart.cartProduct.indexOf(strId);
 
       if (index === -1) {
         cart.cartProduct.push(strId);
-        added.push(strId);
+        addedProducts.push(product);
       } else {
         cart.cartProduct.splice(index, 1);
-        removed.push(strId);
+        removedProducts.push(product);
       }
     }
 
     await cart.save();
 
-    const filteredCart = await Product.find({ _id: { $in: cart.cartProduct } }).lean();
-    const addedProducts = await Product.find({ _id: { $in: added } }).lean();
-    const removedProducts = await Product.find({ _id: { $in: removed } }).lean();
+    const updatedCart = await Product.find({ _id: { $in: cart.cartProduct } }).lean();
 
-    // Custom message logic
     let message = 'Cart updated successfully';
-    if (added.length && !removed.length) {
+    if (addedProducts.length && !removedProducts.length) {
       message = 'Products added to cart';
-    } else if (!added.length && removed.length) {
+    } else if (!addedProducts.length && removedProducts.length) {
       message = 'Products removed from cart';
-    } else if (added.length && removed.length) {
+    } else if (addedProducts.length && removedProducts.length) {
       message = 'Products added and removed from cart';
     }
 
@@ -77,7 +69,7 @@ exports.addToCart = async (req, res) => {
       success: true,
       added: addedProducts,
       removed: removedProducts,
-      cart: filteredCart
+      cart: updatedCart
     });
 
   } catch (error) {
@@ -103,35 +95,23 @@ exports.getCart = async (req, res) => {
         data: []
       });
     }
-let filterdCart=[];
+
     const productDocs = await Product.find().lean();
-    const productDetails = productDocs.flatMap(doc =>
-      (doc.products || []).map(product => ({
-        ...product,
-        // shopId: doc.shopId
-      }))
+    const allParts = productDocs.flatMap(doc =>
+      (doc.subCategories || []).flatMap(sub =>
+        (sub.parts || []).map(part => ({
+          ...part,
+          shopId: doc.shopId
+        }))
+      )
     );
 
-
-    const tempCartList = cart.cartProduct.map(id => id.toString());
-for(let i =0;i<tempCartList.length;i++){
-console.log("element in car", tempCartList[i])
-  for(let j =0;j<productDetails.length;j++){
-    console.log("element in product", productDetails[j]._id.toString())
-
-  if(tempCartList[i].toString()==productDetails[j]._id.toString()){
-    console.log(i);
-    filterdCart.push(productDetails[j]);
-  }
-  
-  }
-}
-
+    const filteredCart = allParts.filter(p => cart.cartProduct.includes(p._id.toString()));
 
     return res.status(200).json({
       message: 'Cart founded with products',
       success: true,
-      data: filterdCart
+      data: filteredCart
     });
 
   } catch (e) {

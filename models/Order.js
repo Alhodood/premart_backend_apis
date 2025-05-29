@@ -41,13 +41,13 @@ const orderDetailsSchema = new mongoose.Schema({
 
   couponCode: String,
   appliedCoupon: Object,
-  appliedOffers: [Object],
 products: {
   type: [mongoose.Schema.Types.Mixed],
   default: []
 },
   totalAmount: { type: String, required: true },
-  discount: { type: String },
+  finalPayable: { type: String, required: true },
+  
   deliverycharge: { type: Boolean, required: true },
 
   deliveryDistance: { type: Number, default: 0 }, // ✅ distance between pickup and drop

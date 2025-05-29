@@ -11,6 +11,7 @@ const shopRoutes = require('./routes/shopRoutes.js');
 const customerAddress= require("./routes/customerAddressRoutes.js")
 // const customerCard= require("./routes/customerCardRoutes.js")
 const banner = require("./routes/bannerRoutes.js")
+const ExcelJS = require('exceljs');
 
 const notification = require('./routes/notificationRoutes.js')
 
@@ -190,6 +191,49 @@ app.get("/api/decode1/:vin", async (req, res) => {
   } catch (error) {
     console.error("API Ninjas error:", error.message);
     res.status(500).json({ success: false, message: "API Ninjas error" });
+  }
+});
+
+app.get('/api/export-products', async (req, res) => {
+  try {
+    const filters = req.query;
+
+    // 1. Fetch filtered data (customize this based on your schema)
+    const query = {};
+    if (filters.brand) query.brand = filters.brand;
+    if (filters.model) query.model = filters.model;
+    // Add more filters as needed
+
+    const products = await Product.find(query).lean();
+
+    // 2. Create workbook
+    const workbook = new ExcelJS.Workbook();
+    const worksheet = workbook.addWorksheet('Products');
+
+    if (!products.length) return res.status(400).json({ message: 'No data to export.' });
+
+    // 3. Add headers
+    worksheet.columns = Object.keys(products[0]).map(key => ({
+      header: key.toUpperCase(),
+      key: key,
+      width: 20
+    }));
+
+    // 4. Add rows
+    products.forEach(product => {
+      worksheet.addRow(product);
+    });
+
+    // 5. Set headers and stream the file
+    res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
+    res.setHeader('Content-Disposition', 'attachment; filename=products.xlsx');
+
+    await workbook.xlsx.write(res);
+    res.end();
+
+  } catch (err) {
+    console.error('Export Error:', err);
+    res.status(500).json({ message: 'Failed to export Excel file.' });
   }
 });
 

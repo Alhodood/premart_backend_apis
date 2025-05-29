@@ -1,7 +1,8 @@
 const express = require('express');
-const { registerUser, loginUser, sendOtp, verifyOtp,resendOtp,updateProfile,
-    updateUserAddress,getAllAddresses,deleteAddressById,addNewAddress,getDefultAddress,getProfile,deletAddcount,
-    addNewCard, getAllCard,updateUserCard,deleteCardById,registerUser1 } = require('../controllers/authController');
+const { registerUser, loginUser, updateProfile,
+    updateUserAddress, getAllAddresses, deleteAddressById, addNewAddress, getDefultAddress, getProfile, deletAddcount,
+    addNewCard, getAllCard, updateUserCard, deleteCardById, registerUser1,sendOtpToCustomer, verifyOtpForCustomer, resendOtpToCustomer  } = require('../controllers/authController');
+
 const { protect } = require('../middleware/authMiddleware');
 const { allowRoles } = require('../middleware/roleMiddleware');
 const adminAuthController = require('../controllers/adminAuthController');
@@ -40,18 +41,10 @@ router.post('/shop-admin/register', adminAuthController.registerShopAdmin);
 router.post('/shop-admin/login', adminAuthController.loginShopAdmin);
 
 
-
-// Example protected route
-// router.get('/admin-only', protect, allowRoles('superAdmin'), (req, res) => {
-//   res.json({ message: 'Welcome, Super Admin!' });
-// });
-
-
-//OTP LOGIN AND REGISTER through twilio
-
-router.post('/send-otp', sendOtp);
-router.post('/verify-otp', verifyOtp);
-router.post('/resend-otp', resendOtp);
+// Customer OTP Routes
+router.post('/send-otp', sendOtpToCustomer);
+router.post('/verify-otp', verifyOtpForCustomer);
+router.post('/resend-otp', resendOtpToCustomer);
 //router.post('/sendOtpOnly', sendOtpOnly);
 
 

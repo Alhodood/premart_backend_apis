@@ -1,3 +1,4 @@
+const Product = require('../models/Product');
 const Year = require('../models/Year');
 
 // Create a new year
@@ -8,6 +9,21 @@ exports.createYear = async (req, res) => {
     res.status(201).json({ message: 'Year created successfully', data: newYear,success:true });
   } catch (error) {
     res.status(500).json({ message: 'Error creating year', data: error.message,success:false  });
+  }
+};
+
+// Get products by year
+exports.getProductsByYear = async (req, res) => {
+  const { year } = req.params;
+  if (!year) {
+    return res.status(400).json({ message: 'Year parameter is required', success: false });
+  }
+
+  try {
+    const products = await Product.find({ year: parseInt(year) });
+    res.status(200).json({ message: 'Products by year', success: true, data: products });
+  } catch (error) {
+    res.status(500).json({ message: 'Error fetching products by year', success: false, data: error.message });
   }
 };
 
