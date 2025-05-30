@@ -1,7 +1,8 @@
 const bcrypt = require('bcrypt');
 const jwt = require('jsonwebtoken');
 const mongoose = require('mongoose');
-const  DeliveryBoy  = require('../models/DeliveryBoy');
+const DeliveryBoy = require('../models/DeliveryBoy');
+const { DeliveryAgency } = require('../models/DeliveryAgency');
 const Order = require('../models/Order');
 const { Shop } = require('../models/Shop');
 const axios = require('axios');
@@ -597,62 +598,98 @@ exports.getNearbyPendingOrders = async (req, res) => {
   };
   
   
-  exports.deliveryBoyUpdateOrderStatus = async (req, res) => {
-    try {
-      const orderId = req.params.orderId;
-      const { newStatus } = req.body;
-  
-      if (!orderId || !newStatus) {
-        return res.status(400).json({
-          message: 'OrderId and newStatus are required',
-          success: false,
-          data: []
-        });
-      }
-  
-      const updatedOrder = await Order.findByIdAndUpdate(
-        orderId,
-        { orderStatus: newStatus },
-        { new: true }
-      );
-  
-      if (!updatedOrder) {
-        return res.status(404).json({
-          message: 'Order not found',
-          success: false,
-          data: []
-        });
-      }
-  
-      // ✅ Get Socket.IO only when needed
-      try {
-        const io = getIO();
-        io.emit('order_status_changed', {
-          orderId: updatedOrder._id,
-          status: updatedOrder.orderStatus,
-          shopId: updatedOrder.shopId,
-          deliveryBoyId: updatedOrder.assignedDeliveryBoy,
-          updatedAt: updatedOrder.updatedAt,
-        });
-      } catch (socketErr) {
-        console.warn("Socket.IO not initialized yet:", socketErr.message);
-      }
-  
-      return res.status(200).json({
-        message: 'Order status updated successfully',
-        success: true,
-        data: updatedOrder
-      });
-  
-    } catch (error) {
-      console.error('DeliveryBoy Update Status Error:', error);
-      res.status(500).json({
-        message: 'Failed to update order status',
+exports.deliveryBoyUpdateOrderStatus = async (req, res) => {
+  try {
+    const orderId = req.params.orderId;
+    const { newStatus } = req.body;
+
+    if (!orderId || !newStatus) {
+      return res.status(400).json({
+        message: 'OrderId and newStatus are required',
         success: false,
-        data: error.message
+        data: []
       });
     }
-  };
+
+    const updatedOrder = await Order.findByIdAndUpdate(
+      orderId,
+      { orderStatus: newStatus },
+      { new: true }
+    );
+
+    if (!updatedOrder) {
+      return res.status(404).json({
+        message: 'Order not found',
+        success: false,
+        data: []
+      });
+    }
+
+    // If the status is set to Delivered, add logic for agency payment record
+    if (updatedOrder.orderStatus === 'Delivered') {
+      // Calculate current month string
+      const currentMonth = new Date().toLocaleString('default', { month: 'long', year: 'numeric' }); // e.g. May 2025
+      console.log('Calculated month string:', currentMonth);
+      const deliveryBoy = await DeliveryBoy.findById(updatedOrder.assignedDeliveryBoy).lean();
+      console.log('Delivery boy:', deliveryBoy);
+      if (!deliveryBoy?.agencyId) {
+        console.log('No agencyId found for delivery boy');
+      }
+      if (deliveryBoy && deliveryBoy.agencyId) {
+        const DeliveryAgency = require('../models/DeliveryAgency').DeliveryAgency;
+        const agency = await DeliveryAgency.findById(deliveryBoy.agencyId);
+        console.log('Fetched agency:', agency);
+        if (agency) {
+          // Find existing payment record for the month
+          const existingRecord = agency.paymentRecords.find(record => record.month === currentMonth);
+          if (existingRecord) {
+            existingRecord.amount += 10;
+          } else {
+            agency.paymentRecords.push({
+              amount: 10,
+              month: currentMonth,
+              paymentMethod: 'Bank Transfer',
+              status: 'Paid',
+              paymentDate: new Date(),
+              transactionId: `DEL-${Date.now()}`
+            });
+          }
+          console.log('Updated payment records:', agency.paymentRecords);
+          await agency.save();
+          console.log('Agency saved with updated payments');
+        }
+      }
+    }
+
+    // ✅ Get Socket.IO only when needed
+    try {
+      const io = getIO();
+      io.emit('order_status_changed', {
+        orderId: updatedOrder._id,
+        status: updatedOrder.orderStatus,
+        shopId: updatedOrder.shopId,
+        deliveryBoyId: updatedOrder.assignedDeliveryBoy,
+        updatedAt: updatedOrder.updatedAt,
+      });
+    } catch (socketErr) {
+      console.warn("Socket.IO not initialized yet:", socketErr.message);
+    }
+
+    return res.status(200).json({
+      message: 'Order status updated successfully',
+      success: true,
+      data: updatedOrder
+    });
+
+  } catch (error) {
+    console.error('DeliveryBoy Update Status Error:', error);
+    res.status(500).json({
+      message: 'Failed to update order status',
+      success: false,
+      data: error.message
+    });
+  }
+};
   
   
   exports.deliveryBoyRaiseIssue = async (req, res) => {

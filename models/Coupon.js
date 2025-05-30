@@ -2,6 +2,7 @@ const mongoose = require('mongoose');
 
 const couponSchema = new mongoose.Schema({
   shopId: { type: mongoose.Schema.Types.ObjectId, ref: 'Shop', required: false }, // Null for SuperAdmin-wide
+  userId: [{ type: mongoose.Schema.Types.ObjectId, ref: 'User' }],
   code: { type: String, unique: true, required: true },
   discountType: { type: String, enum: ['flat', 'percent'], required: true },
   discountValue: { type: Number, required: true },

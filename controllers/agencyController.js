@@ -181,3 +181,85 @@ exports.getAllAgencies = async (req, res) => {
     });
   }
 };
+
+
+exports.getAgenciesWithPayments = async (req, res) => {
+  try {
+    const agencies = await DeliveryAgency.find();
+
+    // Flatten agencies based on multiple paymentRecords
+    const expandedAgencies = [];
+
+    for (const agency of agencies) {
+      if (agency.paymentRecords && agency.paymentRecords.length > 0) {
+        for (const record of agency.paymentRecords) {
+          expandedAgencies.push({
+            _id: agency._id,
+            agencyName: agency.agencyDetails.agencyName,
+            agencyAddress: agency.agencyDetails.agencyAddress,
+            agencyMail: agency.agencyDetails.agencyMail,
+            agencyContact: agency.agencyDetails.agencyContact,
+            agencyLicenseNumber: agency.agencyDetails.agencyLicenseNumber,
+            agencyLicenseExpiry: agency.agencyDetails.agencyLicenseExpiry,
+            emiratesId: agency.agencyDetails.emiratesId,
+            agencyLocation: agency.agencyDetails.agencyLocation,
+            agencyLicenseImage: agency.agencyDetails.agencyLicenseImage,
+            termsAndCondition: agency.agencyDetails.termsAndCondition,
+            supportMail: agency.agencyDetails.supportMail,
+            supportNumber: agency.agencyDetails.supportNumber,
+            payoutType: agency.agencyDetails.payoutType,
+            bankName: agency.agencyDetails.agencyBankDetails?.bankName,
+            accountNumber: agency.agencyDetails.agencyBankDetails?.accountNumber,
+            amount: record.amount,
+            month: record.month,
+            paymentDate: record.paymentDate,
+            transactionId: record.transactionId,
+            paymentMethod: record.paymentMethod,
+            status: record.status
+          });
+        }
+      } else {
+        // Push agency without payments
+        expandedAgencies.push({
+          _id: agency._id,
+          agencyName: agency.agencyDetails.agencyName,
+          agencyAddress: agency.agencyDetails.agencyAddress,
+          agencyMail: agency.agencyDetails.agencyMail,
+          agencyContact: agency.agencyDetails.agencyContact,
+          agencyLicenseNumber: agency.agencyDetails.agencyLicenseNumber,
+          agencyLicenseExpiry: agency.agencyDetails.agencyLicenseExpiry,
+          emiratesId: agency.agencyDetails.emiratesId,
+          agencyLocation: agency.agencyDetails.agencyLocation,
+          agencyLicenseImage: agency.agencyDetails.agencyLicenseImage,
+          termsAndCondition: agency.agencyDetails.termsAndCondition,
+          supportMail: agency.agencyDetails.supportMail,
+          supportNumber: agency.agencyDetails.supportNumber,
+          payoutType: agency.agencyDetails.payoutType,
+          bankName: agency.agencyDetails.agencyBankDetails?.bankName,
+          accountNumber: agency.agencyDetails.agencyBankDetails?.accountNumber,
+          amount: null,
+          month: null,
+          paymentDate: null,
+          transactionId: null,
+          paymentMethod: null,
+          status: null
+        });
+      }
+    }
+
+    return res.status(200).json({
+      message: 'Agency details with payment records',
+      success: true,
+      total: expandedAgencies.length,
+      data: expandedAgencies
+    });
+
+  } catch (err) {
+    console.error('Get Agencies With Payments Error:', err);
+    return res.status(500).json({
+      message: 'Failed to fetch agency payment details',
+      success: false,
+      data: err.message
+    });
+  }
+};
