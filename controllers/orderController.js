@@ -1,7 +1,7 @@
 const Order = require('../models/Order');
 const Cart = require('../models/Cart');
 const Product = require('../models/Product');
-
+const Payment = require('../models/Payment');
 const DeliveryBoy = require('../models/DeliveryBoy');
 const mongoose = require('mongoose');
 const Stock = require('../models/Stock');
@@ -52,7 +52,9 @@ const getLatLngFromAddress = async (addressString) => {
 
 exports.createOrder = async (req, res) => {
   try {
-    const { couponCode, paymentType } = req.body;
+    const { couponCode, paymentType,transactionId } = req.body;
+    // Ensure transactionId is destructured from req.body before payment creation
+    
     const userId = req.user?._id || req.params.userId;
     if (!userId) return res.status(400).json({ message: 'User ID is required', success: false });
     console.log(userId);
@@ -77,10 +79,22 @@ exports.createOrder = async (req, res) => {
     if (!cart || cart.cartProduct.length === 0)
       return res.status(400).json({ message: 'Cart is empty', success: false });
 
-    const productIds = cart.cartProduct;
-    // Batch fetch all products in one go
+    const cartItems = cart.cartProduct;
+    const productIds = cartItems.map(item => item.productId);
     const productDocs = await Product.find({ _id: { $in: productIds } });
-    const allProducts = productDocs;
+
+    // Map productId to quantity from cart
+    const productQuantities = {};
+    cartItems.forEach(item => {
+      productQuantities[item.productId.toString()] = item.quantity;
+    });
+
+    // Attach quantity to each product
+    const allProducts = productDocs.map(prod => {
+      const quantity = productQuantities[prod._id.toString()] || 1;
+      return { ...prod.toObject(), quantity };
+    });
+
     // --- Group products by shopId ---
     const productsByShop = {};
     for (const prod of allProducts) {
@@ -94,7 +108,8 @@ exports.createOrder = async (req, res) => {
     for (const product of allProducts) {
       for (const category of product.subCategories || []) {
         for (const part of category.parts || []) {
-          originalTotal += part.discountedPrice || part.price || 0;
+          const quantity = productQuantities[product._id.toString()] || 1;
+          originalTotal += quantity * (part.discountedPrice || part.price || 0);
         }
       }
     }
@@ -107,8 +122,9 @@ exports.createOrder = async (req, res) => {
     if (couponCode) {
       const coupon = await Coupon.findOne({ code: couponCode, isActive: true });
       if (!coupon) return res.status(400).json({ message: 'Invalid coupon', success: false });
+      const currentUserUsage = coupon.userId?.filter(id => id.toString() === userId.toString()).length || 0;
       if (new Date() > coupon.expiryDate) return res.status(400).json({ message: 'Coupon expired', success: false });
-      if (coupon.usageLimit && coupon.usedCount >= coupon.usageLimit)
+      if (coupon.usageLimit && currentUserUsage >= coupon.usageLimit)
         return res.status(400).json({ message: 'Coupon usage limit reached', success: false });
 
       if (coupon.minOrderAmount && priceAfterOffers < coupon.minOrderAmount) {
@@ -130,6 +146,7 @@ exports.createOrder = async (req, res) => {
       };
 
       coupon.usedCount += 1;
+      coupon.userId.push(userId);
       await coupon.save();
     }
 
@@ -159,7 +176,8 @@ exports.createOrder = async (req, res) => {
       for (const product of shopProducts) {
         for (const category of product.subCategories || []) {
           for (const part of category.parts || []) {
-            shopOriginalTotal += part.discountedPrice || part.price || 0;
+            const quantity = productQuantities[product._id.toString()] || 1;
+            shopOriginalTotal += quantity * (part.discountedPrice || part.price || 0);
           }
         }
       }
@@ -178,13 +196,15 @@ exports.createOrder = async (req, res) => {
       }
 
       // Batch update stock for all products in this shop
-      const stockUpdates = shopProducts.map(prod =>
-        Stock.findOneAndUpdate(
+      const stockUpdates = shopProducts.map(prod => {
+        const quantityObj = cart.cartProduct.find(p => p.productId.toString() === prod._id.toString());
+        const quantityToReduce = quantityObj?.quantity || 1;
+        return Stock.findOneAndUpdate(
           { shopId, productId: prod._id },
-          { $inc: { quantity: -1 } },
+          { $inc: { quantity: -quantityToReduce } },
           { new: true }
-        )
-      );
+        );
+      });
       await Promise.all(stockUpdates);
 
       // Calculate per-shop coupon discount (proportionally to shop's products)
@@ -195,7 +215,8 @@ exports.createOrder = async (req, res) => {
         for (const product of shopProducts) {
           for (const category of product.subCategories || []) {
             for (const part of category.parts || []) {
-              shopSubtotal += part.discountedPrice || part.price || 0;
+              const quantity = productQuantities[product._id.toString()] || 1;
+              shopSubtotal += quantity * (part.discountedPrice || part.price || 0);
             }
           }
         }
@@ -206,7 +227,10 @@ exports.createOrder = async (req, res) => {
       const createdOrder = new Order({
         userId,
         shopId,
-        productId: shopProducts.map(p => p._id),
+        productId: shopProducts.map(p => ({
+          productId: p._id,
+          quantity: productQuantities[p._id.toString()] || 1
+        })),
         products: shopProducts.map(p => p.toObject ? p.toObject() : p),
         shopDetails: shop?.shopeDetails || {},
         deliveryAddress,
@@ -215,6 +239,7 @@ exports.createOrder = async (req, res) => {
         deliverycharge: shopOriginalTotal < 500,
         couponCode,
         appliedCoupon,
+         transactionId: transactionId || null,
         orderStatus: 'Pending',
         refundRequest: { requested: false, status: 'Pending' },
         deliveryDistance,
@@ -296,6 +321,24 @@ exports.createOrder = async (req, res) => {
     await masterOrder.save();
     // --- End Create MasterOrder ---
 
+    // 🔐 Create payment after order is saved successfully
+    if (paymentType !== 'COD') {
+      const allShopIds = perShopResults.map(r => r.shopId);
+      const totalFinalPayable = perShopResults.reduce((sum, r) => sum + parseFloat(r.createdOrder.finalPayable), 0);
+
+      const payment = new Payment({
+        orderId: masterOrder._id, // Use master order ID
+        userId,
+        shopId: allShopIds,
+        amount: totalFinalPayable,
+        paymentMethod: paymentType,
+        transactionId: req.body.transactionId || null,
+        paymentStatus: 'Paid'
+      });
+
+      await payment.save();
+    }
+
     // Step 9: Respond
     return res.status(201).json({
       message: 'Order placed successfully',
@@ -332,48 +375,35 @@ exports.createOrder = async (req, res) => {
 // Create Order From Direct Buy API Handler
 exports.createOrderFromDirectBuy = async (req, res) => {
   try {
-    // Ensure userId is extracted from params first, then fallback to req.user._id
+    // Accept productId, quantity, transactionId, paymentType from req.body
+    const { productId, quantity = 1, transactionId, paymentType, couponCode } = req.body;
+    // Accept userId from params or req.user
     const userId = req.params.userId || req.user?._id;
-    // Ensure productIds are retrieved from req.body.productIds (array), fallback to single productId if present
-    let productIds = req.body.productIds;
-    if (!productIds && req.body.productId) {
-      productIds = [req.body.productId];
+    if (!userId || !productId) {
+      return res.status(400).json({ message: 'Missing userId or productId', success: false });
     }
-    const { couponCode, paymentType } = req.body;
-
-    // Validate userId and productIds
-    if (!userId || !productIds || !Array.isArray(productIds) || productIds.length === 0) {
-      return res.status(400).json({ message: 'Missing userId or productIds', success: false });
-    }
-
+    // Find user and address
     const user = await require('../models/User').findById(userId);
     if (!user || !user.address || user.address.length === 0) {
       return res.status(400).json({ message: 'No delivery address found', success: false });
     }
-
     let deliveryAddress = user.address.find(a => a.default) || user.address[0];
     deliveryAddress = deliveryAddress?.toObject?.() || deliveryAddress;
-
-    // Fetch all products by ids
-    const products = await Product.find({ _id: { $in: productIds } });
-    if (!products || products.length === 0) {
-      return res.status(400).json({ message: 'Product(s) not found', success: false });
+    // Fetch product
+    const product = await Product.findById(productId);
+    if (!product) {
+      return res.status(400).json({ message: 'Product not found', success: false });
     }
-
-    // For direct buy, assume all products are from same shop
-    const shopId = products[0].shopId.toString();
+    // Shop
+    const shopId = product.shopId.toString();
     const shop = await Shop.findOne({ _id: shopId });
-
-    // Calculate total for all products
+    // Calculate total for product (with all subcategories/parts)
     let productTotal = 0;
-    for (const product of products) {
-      for (const category of product.subCategories || []) {
-        for (const part of category.parts || []) {
-          productTotal += part.discountedPrice || part.price || 0;
-        }
+    for (const category of product.subCategories || []) {
+      for (const part of category.parts || []) {
+        productTotal += (part.discountedPrice || part.price || 0) * quantity;
       }
     }
-
     // Apply coupon
     let couponDiscount = 0, appliedCoupon = null;
     if (couponCode) {
@@ -383,19 +413,16 @@ exports.createOrderFromDirectBuy = async (req, res) => {
           couponDiscount = coupon.discountType === 'percent'
             ? (productTotal * coupon.discountValue) / 100
             : coupon.discountValue;
-
           appliedCoupon = {
             code: coupon.code,
             discountType: coupon.discountType,
             discountValue: coupon.discountValue
           };
-
           coupon.usedCount += 1;
           await coupon.save();
         }
       }
     }
-
     const originalTotal = productTotal;
     const totalDiscount = couponDiscount;
     const totalAmount = +(originalTotal - totalDiscount).toFixed(2);
@@ -411,21 +438,18 @@ exports.createOrderFromDirectBuy = async (req, res) => {
       ) / 1000;
       deliveryEarning = +(PER_KM_RATE * deliveryDistance).toFixed(2);
     }
-
-    // Update stock for each product
-    await Promise.all(products.map(product =>
-      Stock.findOneAndUpdate(
-        { shopId, productId: product._id },
-        { $inc: { quantity: -1 } },
-        { new: true }
-      )
-    ));
-
+    // Update stock for this product
+    await Stock.findOneAndUpdate(
+      { shopId, productId: product._id },
+      { $inc: { quantity: -quantity } },
+      { new: true }
+    );
+    // Create order
     const order = new Order({
       userId,
       shopId,
-      productId: products.map(p => p._id),
-      products: products.map(p => p.toObject ? p.toObject() : p),
+      productId: [{ productId, quantity }],
+      products: [product.toObject ? product.toObject() : product],
       deliveryAddress,
       totalAmount: productTotal,
       finalPayable,
@@ -438,8 +462,8 @@ exports.createOrderFromDirectBuy = async (req, res) => {
       deliveryEarning,
       paymentType,
       additionalcharges: 0,
+      transactionId: transactionId || null,
     });
-
     await order.save();
     await Shop.findByIdAndUpdate(shopId, {
       $push: {
@@ -448,7 +472,6 @@ exports.createOrderFromDirectBuy = async (req, res) => {
         }
       }
     });
-
     // --- Push this order into MasterOrder collection ---
     const masterOrder = new MasterOrder({
       userId,
@@ -464,7 +487,18 @@ exports.createOrderFromDirectBuy = async (req, res) => {
     });
     await masterOrder.save();
     // --- End MasterOrder addition ---
-
+    if (paymentType !== 'COD') {
+      const payment = new Payment({
+        orderId: order._id,
+        userId,
+        shopId: shop._id,
+        amount: finalPayable,
+        paymentMethod: paymentType,
+        transactionId: transactionId || null,
+        paymentStatus: 'Paid'
+      });
+      await payment.save();
+    }
     return res.status(201).json({
       message: 'Order placed successfully',
       success: true,
@@ -478,7 +512,7 @@ exports.createOrderFromDirectBuy = async (req, res) => {
         deliverycharge,
         appliedCoupon,
         deliveryAddress,
-        products: products,
+        products: [product],
         additionalcharges: 0,
         paymentType
       }

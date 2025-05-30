@@ -11,4 +11,6 @@ router.get('/search', agencyController.searchAgencies);
 
 router.get('/all', agencyController.getAllAgencies);
 
+router.get('/agenciesPayments', agencyController.getAgenciesWithPayments);
+
 module.exports = router;

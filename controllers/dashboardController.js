@@ -1,5 +1,5 @@
 const Order = require('../models/Order');
-const { Product } = require('../models/Product');
+const  Product  = require('../models/Product');
 const Stock = require('../models/Stock');
 const User = require('../models/User');
 const DeliveryBoy = require('../models/DeliveryBoy'); // If separate model

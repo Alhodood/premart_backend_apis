@@ -34,7 +34,10 @@ const statusTimestampsSchema = new mongoose.Schema({
 
 const orderDetailsSchema = new mongoose.Schema({
   userId: { type: String, required: true },
-  productId: [{ type: String, required: true }],
+  productId: [{
+    productId: { type: String, required: true },
+    quantity: { type: Number, required: true, default: 1 }
+  }],
   shopId: { type: String, required: true },
 
   deliveryAddress: deliveryAddressSchema,
@@ -55,12 +58,12 @@ products: {
 
   assignedDeliveryBoy: { type: mongoose.Schema.Types.ObjectId, ref: 'DeliveryBoy' },
 paymentType: { type: String },
-
+ transactionId: { type: String },
   cancelReason: { type: String },
   refundRequest: refundRequestSchema,
   additionalcharges: { type: Number, default: 0 },
 
-  items: { type: Number, default: 0 }, // ✅ number of items in the order (can be auto-calculated from productId.length if needed)
+  //items: { type: Number, default: 0 }, // ✅ number of items in the order (can be auto-calculated from productId.length if needed)
 
   orderStatus: { type: String, default: "Pending" },
   statusTimestamps: statusTimestampsSchema // ✅ tracking delivery steps

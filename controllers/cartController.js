@@ -5,24 +5,30 @@ exports.addToCart = async (req, res) => {
   try {
     console.log("Request body received:", req.body);
     const userId = req.params.userId;
-    const { productIDs } = req.body;
+    const { productItems } = req.body;
 
-    if (!userId || !Array.isArray(productIDs) || productIDs.length === 0) {
+    if (!userId || !Array.isArray(productItems) || productItems.length === 0) {
       return res.status(400).json({
-        message: 'UserId and productIDs array are required',
+        message: 'UserId and productItems array are required',
         success: false,
         data: []
       });
     }
 
+    const productIds = productItems.map(p => p.productId);
+    const quantityMap = {};
+    productItems.forEach(p => {
+      quantityMap[p.productId] = p.quantity || 1;
+    });
+
     let cart = await Cart.findOne({ userId });
 
-    const productDocs = await Product.find({ _id: { $in: productIDs } }).lean();
+    const productDocs = await Product.find({ _id: { $in: productIds } }).lean();
 
     if (!cart) {
       const newCart = new Cart({
         userId,
-        cartProduct: productDocs.map(p => p._id.toString())
+        cartProduct: productDocs.map(p => ({ productId: p._id.toString(), quantity: quantityMap[p._id.toString()] || 1 }))
       });
       await newCart.save();
 
@@ -31,7 +37,7 @@ exports.addToCart = async (req, res) => {
         success: true,
         added: productDocs,
         removed: [],
-        cart: productDocs
+        cart: productDocs.map(p => ({ ...p, quantity: quantityMap[p._id.toString()] || 1 }))
       });
     }
 
@@ -40,20 +46,24 @@ exports.addToCart = async (req, res) => {
 
     for (let product of productDocs) {
       const strId = product._id.toString();
-      const index = cart.cartProduct.indexOf(strId);
-
-      if (index === -1) {
-        cart.cartProduct.push(strId);
+      const existingIndex = cart.cartProduct.findIndex(p => p.productId === strId);
+      if (existingIndex === -1) {
+        cart.cartProduct.push({ productId: strId, quantity: quantityMap[strId] || 1 });
         addedProducts.push(product);
       } else {
-        cart.cartProduct.splice(index, 1);
-        removedProducts.push(product);
+        cart.cartProduct[existingIndex].quantity = quantityMap[strId] || 1;
+        addedProducts.push(product);
       }
     }
 
     await cart.save();
 
-    const updatedCart = await Product.find({ _id: { $in: cart.cartProduct } }).lean();
+    const updatedCart = await Product.find({ _id: { $in: cart.cartProduct.map(p => p.productId) } }).lean();
+
+    const cartWithQuantities = updatedCart.map(product => {
+      const cartItem = cart.cartProduct.find(p => p.productId === product._id.toString());
+      return { ...product, quantity: cartItem?.quantity || 1 };
+    });
 
     let message = 'Cart updated successfully';
     if (addedProducts.length && !removedProducts.length) {
@@ -69,7 +79,7 @@ exports.addToCart = async (req, res) => {
       success: true,
       added: addedProducts,
       removed: removedProducts,
-      cart: updatedCart
+      cart: cartWithQuantities
     });
 
   } catch (error) {
@@ -106,7 +116,7 @@ exports.getCart = async (req, res) => {
       )
     );
 
-    const filteredCart = allParts.filter(p => cart.cartProduct.includes(p._id.toString()));
+    const filteredCart = allParts.filter(p => cart.cartProduct.some(cp => cp.productId === p._id.toString()));
 
     return res.status(200).json({
       message: 'Cart founded with products',
