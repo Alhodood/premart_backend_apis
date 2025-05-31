@@ -176,61 +176,45 @@ exports.verifyOtpForDeliveryBoy = async (req, res) => {
     }
   };
 
-  exports.getAllDeliveryBoys = async (req, res) => {
-    try {
-      const {
-        search,
-        agencyId,
-        availability,
-        page = 1,
-        limit = 10,
-        sort = 'desc',
-        sortBy = 'createdAt'
-      } = req.query;
-  
-      let filter = { role: 'deliveryBoy' };
-  
-      if (search) {
-        filter.$or = [
-          { name: { $regex: search, $options: 'i' } },
-          { email: { $regex: search, $options: 'i' } },
-          { phone: { $regex: search, $options: 'i' } }
-        ];
-      }
-  
-      if (agencyId) {
-        filter.agencyId = agencyId;
-      }
-  
-      if (availability === 'true' || availability === 'false') {
-        filter.availability = availability === 'true';
-      }
-  
-      const deliveryBoys = await DeliveryBoy.find(filter)
-        .sort({ [sortBy]: sort === 'asc' ? 1 : -1 })
-        .skip((page - 1) * limit)
-        .limit(parseInt(limit));
-  
-      const total = await DeliveryBoy.countDocuments(filter);
-  
-      return res.status(200).json({
-        message: 'Delivery boys fetched successfully',
-        success: true,
-        total,
-        page: parseInt(page),
-        limit: parseInt(limit),
-        data: deliveryBoys
-      });
-  
-    } catch (error) {
-      console.error('Get Delivery Boys Error:', error);
-      res.status(500).json({
-        message: 'Failed to fetch delivery boys',
-        success: false,
-        data: error.message
-      });
-    }
-  };
+exports.getAllDeliveryBoys = async (req, res) => {
+  try {
+    const deliveryBoys = await DeliveryBoy.find({}, {
+      name: 1,
+      phone: 1,
+      agencyId: 1,
+      accountVerify: 1,
+      isOnline: 1,
+      latitude: 1,
+      longitude: 1,
+      availability: 1,
+      createdAt: 1,
+      assignedOrders: 1
+    }).lean();
+
+    const formatted = deliveryBoys.map(boy => ({
+      _id: boy._id,
+      name: boy.name,
+      phone: boy.phone,
+      agencyId: boy.agencyId,
+      accountVerify: boy.accountVerify,
+      isOnline: boy.isOnline,
+      latitude: boy.latitude,
+      longitude: boy.longitude,
+      availability: boy.availability,
+      createdAt: boy.createdAt,
+      assignedOrder: boy.assignedOrders?.length || 0
+    }));
+
+    res.status(200).json({
+      message: "Delivery boys fetched successfully",
+      success: true,
+      data: formatted
+    });
+  } catch (err) {
+    console.error("Error fetching delivery boys:", err);
+    res.status(500).json({ success: false, message: "Failed to fetch delivery boys" });
+  }
+};
 
   exports.deleteDeliveryBoy = async (req, res) => {
     try {

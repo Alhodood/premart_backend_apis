@@ -17,6 +17,7 @@ const shopDetailsSchema = new mongoose.Schema({
     shopLicenseNumber: { type: String },
     shopLicenseExpiry: { type: String },
     EmiratesId: { type: String },
+     EmiratesIdImage: { type: String },
     shopLocation: { type: String },
     shopLicenseImage: { type: String },
     termsAndCondition: { type: String },
