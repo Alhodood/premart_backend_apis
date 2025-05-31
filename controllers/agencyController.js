@@ -163,13 +163,30 @@ exports.getAllAgencies = async (req, res) => {
 
     const total = await DeliveryAgency.countDocuments();
 
+    const simplifiedAgencies = agencies.map(agency => ({
+      _id: agency._id,
+      agencyName: agency.agencyDetails.agencyName,
+      agencyAddress: agency.agencyDetails.agencyAddress,
+      agencyMail: agency.agencyDetails.agencyMail,
+      agencyContact: agency.agencyDetails.agencyContact,
+      agencyLicenseNumber: agency.agencyDetails.agencyLicenseNumber,
+      agencyLicenseExpiry: agency.agencyDetails.agencyLicenseExpiry,
+      emiratesId: agency.agencyDetails.emiratesId,
+      supportMail: agency.agencyDetails.supportMail,
+      supportNumber: agency.agencyDetails.supportNumber,
+      payoutType: agency.agencyDetails.payoutType,
+      bankName: agency.agencyDetails.agencyBankDetails?.bankName,
+      accountNumber: agency.agencyDetails.agencyBankDetails?.accountNumber,
+      createdAt: agency.createdAt
+    }));
+
     return res.status(200).json({
       message: 'All agencies fetched successfully',
       success: true,
       total,
       page: parseInt(page),
       limit: parseInt(limit),
-      data: agencies
+      data: simplifiedAgencies
     });
 
   } catch (error) {

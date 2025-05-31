@@ -686,3 +686,37 @@ exports.verifyOtpForCustomer = async (req, res) => {
     res.status(500).json({ message: 'OTP verification failed', success: false, error: err.message });
   }
 };
+// Get all users (without password)
+exports.getAllUsers = async (req, res) => {
+  try {
+    const users = await User.find().select('-password');
+
+    const simplifiedUsers = users.map(user => {
+      const defaultAddress = user.address?.find(addr => addr.default === true);
+      return {
+        _id: user._id,
+        name: user.name,
+        email: user.email,
+        phone: user.phone,
+        accountVisibility: user.accountVisibility,
+        dob: user.dob,
+        accountVerify: user.accountVerify,
+        area: defaultAddress?.area || '',
+        place: defaultAddress?.place || '',
+        createdAt: user.createdAt
+      };
+    });
+
+    res.status(200).json({
+      success: true,
+      message: 'Users fetched successfully',
+      data: simplifiedUsers
+    });
+  } catch (error) {
+    res.status(500).json({
+      success: false,
+      message: 'Failed to fetch users',
+      error: error.message
+    });
+  }
+};
