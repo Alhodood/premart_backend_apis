@@ -2,9 +2,10 @@ const mongoose = require('mongoose');
 
 const deliveryAddressSchema = new mongoose.Schema({
   name: { type: String, required: true },
-  email: { type: String, required: true },
-  flatNumber: { type: String, required: true },
+  email: { type: String },
+  flatNumber: { type: String },
   contact: { type: String, required: true },
+  address: { type: String, required: true },
   area: { type: String, required: true },
   place: { type: String, required: true },
   default: { type: Boolean, required: true },
@@ -33,29 +34,36 @@ const statusTimestampsSchema = new mongoose.Schema({
 
 const orderDetailsSchema = new mongoose.Schema({
   userId: { type: String, required: true },
-  productId: [{ type: String, required: true }],
+  productId: [{
+    productId: { type: String, required: true },
+    quantity: { type: Number, required: true, default: 1 }
+  }],
   shopId: { type: String, required: true },
 
   deliveryAddress: deliveryAddressSchema,
 
   couponCode: String,
   appliedCoupon: Object,
-  appliedOffers: [Object],
-
+products: {
+  type: [mongoose.Schema.Types.Mixed],
+  default: []
+},
   totalAmount: { type: String, required: true },
-  discount: { type: String },
+  finalPayable: { type: String, required: true },
+  
   deliverycharge: { type: Boolean, required: true },
 
   deliveryDistance: { type: Number, default: 0 }, // ✅ distance between pickup and drop
   deliveryEarning: { type: Number, default: 0 }, // ✅ earned amount per order
 
   assignedDeliveryBoy: { type: mongoose.Schema.Types.ObjectId, ref: 'DeliveryBoy' },
-
+paymentType: { type: String },
+ transactionId: { type: String },
   cancelReason: { type: String },
   refundRequest: refundRequestSchema,
-  refundDetails: refundDetailsSchema,
+  additionalcharges: { type: Number, default: 0 },
 
-  items: { type: Number, default: 0 }, // ✅ number of items in the order (can be auto-calculated from productId.length if needed)
+  //items: { type: Number, default: 0 }, // ✅ number of items in the order (can be auto-calculated from productId.length if needed)
 
   orderStatus: { type: String, default: "Pending" },
   statusTimestamps: statusTimestampsSchema // ✅ tracking delivery steps

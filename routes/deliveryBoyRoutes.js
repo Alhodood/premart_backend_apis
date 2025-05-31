@@ -43,6 +43,8 @@ router.patch('/toggle-availability/:deliveryBoyId', toggleAvailability);
 
 router.get('/nearby-top-areas/:deliveryBoyId', deliveryBoyController.getNearbyTopOrderAreas);
 
+router.get('/pending-orders-nearby/:deliveryBoyId', deliveryBoyController.getNearbyPendingOrders);
+
 // Earnings history route
 router.get('/earnings/:deliveryBoyId', deliveryBoyController.getDeliveryEarningsHistory);
 

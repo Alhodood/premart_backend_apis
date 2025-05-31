@@ -45,11 +45,13 @@ exports.deleteCoupon = async (req, res) => {
   }
 };
 
+
+
 exports.applyCoupon = async (req, res) => {
   const { userId, code, orderAmount } = req.body;
 
   if (!userId || !code || orderAmount === undefined) {
-    return res.status(200).json({ message: 'userId, code, and orderAmount are required', success: false ,data:[]});
+    return res.status(400).json({ message: 'userId, code, and orderAmount are required', success: false });
   }
 
   try {
@@ -67,6 +69,14 @@ exports.applyCoupon = async (req, res) => {
       });
     }
 
+    // ✅ Check if coupon has valid discount fields
+    if (!coupon.discountType || coupon.discountValue === undefined) {
+      return res.status(400).json({
+        message: 'Coupon data is invalid. Missing discountType or discountValue',
+        success: false
+      });
+    }
+
     // ✅ Check expiry
     const now = new Date();
     if (coupon.expiryDate && coupon.expiryDate < now) {
@@ -75,14 +85,14 @@ exports.applyCoupon = async (req, res) => {
 
     // ✅ Check if already used
     if (coupon.usedBy && coupon.usedBy.includes(userId)) {
-      return res.status(200).json({ message: 'Coupon already used by this user', success: false,data:[] });
+      return res.status(400).json({ message: 'Coupon already used by this user', success: false });
     }
 
     // ✅ Check minimum order amount
     if (coupon.minOrderAmount && orderAmount < coupon.minOrderAmount) {
-      return res.status(200).json({message: `Minimum order amount is ${coupon.minOrderAmount}`,
-
-        success: false,data:[]
+      return res.status(400).json({
+        message: `Minimum order amount is ${coupon.minOrderAmount}`,
+        success: false
       });
     }
 

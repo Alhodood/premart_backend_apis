@@ -4,9 +4,11 @@ const orderController = require('../controllers/orderController');
 const { protect } = require('../middleware/authMiddleware');
 
 
-router.post('/create/:userId', protect,orderController.createOrder);
+router.post('/create/:userId',orderController.createOrder);
 
-router.get('/my-orders/:userId',protect ,orderController.viewMyOrders);
+router.post('/create-direct/:userId', orderController.createOrderFromDirectBuy);
+
+router.get('/my-orders/:userId',orderController.viewMyOrders);
 
 router.get('/all-orders', orderController.getAllOrders);
 
@@ -18,15 +20,22 @@ router.put('/cancel/:orderId', orderController.cancelOrder);
 
 router.put('/refund/:orderId', orderController.refundOrder);
 
-router.put('/delivery-boy/accept-reject/:orderId', orderController.deliveryBoyAcceptRejectOrder);
 
 router.put('/customer/refund-request/:orderId', orderController.customerRaiseRefundRequest);
+
+//---------  
+
+router.put('/delivery-boy/accept-reject/:orderId', orderController.deliveryBoyAcceptRejectOrder);
 
 router.put('/assign-delivery-boy', orderController.assignOrderManually);
 
 router.patch('/auto-assign/:orderId', orderController.autoAssignDeliveryBoyWithin5km);
 
+router.post('/createDummy/:userId', orderController.seedDummyOrder);
 
+ //--------
+
+ router.get('/generateInvoice/:orderId', orderController.generateInvoice);
 
 
 

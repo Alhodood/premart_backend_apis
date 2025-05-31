@@ -10,6 +10,55 @@ const generateToken = (user) => {
   return jwt.sign({ id: user._id, role: user.role }, JWT_SECRET, { expiresIn: JWT_EXPIRE });
 };
 
+
+// controllers/userController.js
+exports.registerUser1 = async (req, res) => {
+  try {
+    const {
+      name,
+      email,
+      phone,
+      password,
+      dob,
+      address,
+      card
+    } = req.body;
+
+    if (!name || !email || !phone || !password || !address || !card) {
+      return res.status(400).json({ message: 'All fields are required', success: false });
+    }
+
+    const user = new User({
+      name,
+      email,
+      phone,
+      password,
+      dob,
+      address,
+      card
+    });
+
+    await user.save();
+
+    return res.status(201).json({
+      message: 'User registered successfully',
+      success: true,
+      data: {
+        userId: user._id,
+        email: user.email,
+        phone: user.phone
+      }
+    });
+  } catch (error) {
+    console.error('Register Error:', error);
+    return res.status(500).json({
+      message: 'User registration failed',
+      success: false,
+      error: error.message
+    });
+  }
+};
+
 exports.registerUser = async (req, res) => {
   try {
     const { name, email, phone, password, countryCode, dob, role } = req.body;
@@ -141,91 +190,6 @@ await user.save();
 
 
 
-//OTP LOGIN AND REGISTER through twilio
-exports.sendOtp = async (req, res) => {
-  const { phone, role } = req.body;
-
-  try {
-    if (!phone) return res.status(200).json({ message: 'Phone and role are required', success:false, data:[] });
-
-    let user = await User.findOne({ phone });
-    if (!user) {
-      // Auto-register new user
-      return res.status(200).json({ message: 'user not founded. please enter valid phone number', success:false, data:[] });
-
-    }
-
-   const otpResponse= await client.verify.v2.services(process.env.TWILIO_SERVICE_SID)
-      .verifications
-      .create({ to:phone, channel: 'sms' });
-
-    res.status(200).json({ message: 'OTP sent to '+phone, success: true ,data:otpResponse});
-  } catch (err) {
-    res.status(500).json({ message: 'OTP send failed', success: false, error: err.message });
-  }
-};
-
-
-// ✅ Verify OTP
-exports.verifyOtp = async (req, res) => {
-  const { phone, code } = req.body;
-
-  if (!phone || !code) return res.status(400).json({ message: 'Phone and OTP are required' });
-
-  try {
-    const verification = await client.verify.v2.services(process.env.TWILIO_SERVICE_SID)
-      .verificationChecks
-      .create({ to: phone, code });
-console.log(verification.status);
-    if (verification.status === 'approved') {
-      const user = await User.findOne({ phone });
-      if (!user) return res.status(404).json({ message: 'User not found' });
-user.accountVerify=true;
-await user.save();
-      res.status(200).json({
-        message: 'OTP verified. Login successful',
-        success: true,
-        data: {
-          id: user._id,
-          name: user.name,
-          email: user.email,
-          phone: user.phone,
-          role: user.role,
-          accountStatus: user.accountVerify,dob:user.dob ,
-        
-        }
-      });
-    } else {
-      res.status(401).json({ message: 'Invalid OTP', success: false });
-    }
-  } catch (err) {
-    res.status(500).json({ message: 'OTP verification failed', success: false, error: err.message });
-  }
-};
-
-
-exports.resendOtp = async (req, res) => {
-  const { phone } = req.body;
-
-  if (!phone) {
-    return res.status(400).json({ message: 'Phone number is required' });
-  }
-
-  try {
-    const user = await User.findOne({ phone });
-    if (!user) {
-      return res.status(200).json({ message: 'User not found. Please register.' , });
-    }
-
-    await client.verify.v2.services(process.env.TWILIO_SERVICE_SID)
-      .verifications
-      .create({ to: phone, channel: 'sms' });
-
-    res.status(200).json({ message: 'OTP resent successfully', success: true });
-  } catch (err) {
-    res.status(500).json({ message: 'Failed to resend OTP', success: false, error: err.message });
-  }
-};
 
 
 exports.getProfile = async (req, res) => {
@@ -623,5 +587,102 @@ exports.getAllCard = async (req, res) => {
     });
   } catch (error) {
     res.status(500).json({ message: "Failed to fetch card", success: false, error: error.message });
+  }
+};
+
+
+// Customer OTP flows
+exports.sendOtpToCustomer = async (req, res) => {
+  const { phone } = req.body;
+  if (!phone) {
+    return res.status(400).json({ message: 'Phone is required', success: false });
+  }
+  try {
+    await client.verify.v2.services(process.env.TWILIO_SERVICE_SID)
+      .verifications
+      .create({ to: phone, channel: 'sms' });
+    return res.status(200).json({ message: 'OTP sent successfully', success: true });
+  } catch (err) {
+    console.error('Send OTP Error:', err);
+    res.status(500).json({ message: 'Failed to send OTP', success: false, error: err.message });
+  }
+};
+
+exports.resendOtpToCustomer = async (req, res) => {
+  const { phone } = req.body;
+  if (!phone) {
+    return res.status(400).json({ message: 'Phone is required', success: false });
+  }
+  try {
+    await client.verify.v2.services(process.env.TWILIO_SERVICE_SID)
+      .verifications
+      .create({ to: phone, channel: 'sms' });
+    return res.status(200).json({ message: 'OTP resent successfully', success: true });
+  } catch (err) {
+    console.error('Resend OTP Error:', err);
+    res.status(500).json({ message: 'Failed to resend OTP', success: false, error: err.message });
+  }
+};
+
+exports.verifyOtpForCustomer = async (req, res) => {
+  const { phone, code } = req.body;
+  if (!phone || !code) {
+    return res.status(400).json({ message: 'Phone and OTP code are required', success: false });
+  }
+  try {
+    const verification = await client.verify.v2.services(process.env.TWILIO_SERVICE_SID)
+      .verificationChecks
+      .create({ to: phone, code });
+
+    if (verification.status === 'approved') {
+      const user = await User.findOne({ phone });
+      if (!user) {
+        // Register new user with only phone
+        const newUser = new User({
+          phone,
+          accountVerify: true,
+          role: 'customer',
+          password: phone // temporarily use phone as password, or set dummy
+        });
+        await newUser.save();
+        const token = generateToken(newUser);
+        return res.status(201).json({
+          message: 'OTP verified and user registered successfully',
+          success: true,
+          data: {
+            id: newUser._id,
+            name: newUser.name,
+            email: newUser.email,
+            phone: newUser.phone,
+            role: newUser.role,
+            accountStatus: newUser.accountVerify,
+            dob: newUser.dob,
+            token
+          }
+        });
+      }
+      user.accountVerify = true;
+      await user.save();
+      const token = generateToken(user);
+      return res.status(200).json({
+        message: 'OTP verified successfully',
+        success: true,
+        data: {
+          id: user._id,
+          name: user.name,
+          email: user.email,
+          phone: user.phone,
+          role: user.role,
+          accountStatus: user.accountVerify,
+          dob: user.dob,
+          token
+        }
+      });
+    } else {
+      return res.status(401).json({ message: 'Invalid OTP', success: false });
+    }
+  } catch (err) {
+    console.error('Verify OTP Error:', err);
+    res.status(500).json({ message: 'OTP verification failed', success: false, error: err.message });
   }
 };

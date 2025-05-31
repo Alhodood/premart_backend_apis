@@ -10,9 +10,10 @@ router.post('/coupon/:creatorId', createCoupon);
 router.get('/coupon/:creatorId', getAllCoupons);
 router.delete('/coupon/:creatorId/:id', deleteCoupon);
 router.put('/coupon/:id', updateCoupon);
-// router.post('/coupon/check', applyCoupon);
+
 
 //------------------------------
+
 router.post('/offer/check', checkOfferValidity);
 router.post('/offer/:creatorId', createOffer);
 router.get('/offer/:creatorId', getAllOffers);
