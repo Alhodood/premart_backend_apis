@@ -1,28 +1,28 @@
 const mongoose = require('mongoose');
 
 const bankDetailsSchema = new mongoose.Schema({
-    bankName: { type: String, required: true },
-    accountNumber: { type: String, required: true },
-    ibanNuber: { type: String, required: true },
-    branch: { type: String, required: true },
+    bankName: { type: String },
+    accountNumber: { type: String },
+    ibanNuber: { type: String },
+    branch: { type: String },
     swiftCode: { type: String }
 },{ timestamps: true });
 
 
 const shopDetailsSchema = new mongoose.Schema({
-    shopName: { type: String, required: true },
-    shopAddress: { type: String, required: true },
-    shopMail: { type: String, required: true },
-    shopContact: { type: String, required: true },
-    shopLicenseNumber: { type: String, required: true },
-    shopLicenseExpiry: { type: String, required: true },
-    EmiratesId: { type: String, required: true },
+    shopName: { type: String },
+    shopAddress: { type: String },
+    shopMail: { type: String },
+    shopContact: { type: String },
+    shopLicenseNumber: { type: String },
+    shopLicenseExpiry: { type: String },
+    EmiratesId: { type: String },
     shopLocation: { type: String },
     shopLicenseImage: { type: String },
     termsAndCondition: { type: String },
     supportMail: { type: String },
     supportNumber: { type: String },
-    password: { type: String, required: true },
+    password: { type: String },
     shopBankDetails: bankDetailsSchema
 
 
@@ -30,13 +30,17 @@ const shopDetailsSchema = new mongoose.Schema({
 
 
 const shopSchema = new mongoose.Schema({
-    // shopId:String,
-    shopeDetails: shopDetailsSchema
+    shopeDetails: shopDetailsSchema,
+    products: { type: Array, default: [] },
+    orders: [
+        {
+            orderId: { type: mongoose.Schema.Types.ObjectId, ref: 'Order' },
+
+        }
+    ]
 },{ timestamps: true });
 
 
-const BankDetails = mongoose.model('BankDetails', bankDetailsSchema);
-const ShopeDetails = mongoose.model('ShopeDetails', shopDetailsSchema);
 const Shop = mongoose.model('Shop', shopSchema);
 
-module.exports = { BankDetails, ShopeDetails, Shop };
+module.exports = { Shop };

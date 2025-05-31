@@ -15,34 +15,26 @@ const uploadMiddleWare = require('../middleware/s3Upload');
 router.post('/upload',uploadMiddleWare.single('file'),productController.fileUpload);
 
 
-//===
 
-
-// extra api for mobile get the common product related element
 router.get('/product/element',productController.getProductElement);
-// Create a new product (restricted to Shop Admin)
 router.post('/product', productController.addProduct);
-
-// Get all products for a shop
+router.get('/getAllProducts', productController.getAllProducts);
 router.get('/product/:shopId', productController.getProductsByShop);
-
-// Retrieve a specific product by ID (public)
-router.get('/product/:shopId/:productId', productController.getProductById);
-
-// Update product (restricted to Shop Admin)
+router.get('/getProductById/:productId', productController.getProductById);
 router.put('/product/:productId/:shopId', productController.updateProduct);
-
-
-// Delete product (restricted to Shop Admin)
 router.delete('/product/:productId/:shopId', productController.deleteProduct);
+router.get('/products-by-part-number/:partNumber', productController.getProductsByPartNumber);
+router.get('/parts-by-part-number/:partNumber', productController.getPartsByPartNumber);
+router.get('/similar-products', productController.getSimilarProducts);//similar-products?brand=Nissan&model=Patrol&categoryTab=Fuel Injection
 
 
- // Brand Routes
+// Brand Routes
 router.post('/brand', brandController.createBrand);
 router.get('/brand', brandController.getAllBrands);
 router.get('/brand/:id', brandController.getBrandById);
 router.put('/brand/:id', brandController.updateBrand);
 router.delete('/brand/:id', brandController.deleteBrand);
+router.get('/brand-products/:brandName', brandController.getProductsByBrand);
 
 
 // CATEGORY ROUTES
@@ -51,6 +43,8 @@ router.get('/category', categoryController.getAllCategories);
 router.get('/category/:id', categoryController.getCategoryById);
 router.put('/category/:id', categoryController.updateCategory);
 router.delete('/category/:id', categoryController.deleteCategory);
+router.get('/products-by-category/:categoryTab', categoryController.getProductsByCategory);
+router.get('/parts-by-category/:categoryTab', categoryController.getPartsByCategory);
 
 
 // FUEL ROUTES
@@ -67,6 +61,7 @@ router.get('/model', modelController.getAllModels);
 router.get('/model/:id', modelController.getModelById);
 router.put('/model/:id', modelController.updateModel);
 router.delete('/model/:id', modelController.deleteModel);
+router.get('/products-by-model/:modelName', modelController.getProductsByModel);
 
 
 // YEAR ROUTES
@@ -75,6 +70,9 @@ router.get('/year', yearController.getAllYears);
 router.get('/year/:id', yearController.getYearById);
 router.put('/year/:id', yearController.updateYear);
 router.delete('/year/:id', yearController.deleteYear);
+router.get('/products-by-year/:year', yearController.getProductsByYear);
+
+
 
 
 

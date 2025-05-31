@@ -1,46 +1,52 @@
 const mongoose = require('mongoose');
 
-const productDetailesSchema = new mongoose.Schema({
-  name: String,
-  type: String,
-  brand: String,     // Reference by name
-  category: String,  // Reference by name
-  model: String,     // Reference by name
-  year: String,      // Reference by value
-  fuelType: String,  // New field
+const PartSchema = new mongoose.Schema({
+  partNumber: { type: String, required: true },
+  partName: { type: String, required: true },
+  quantity: { type: Number, default: 0 },
+  price: Number,
+  discountedPrice: Number,
+  description: String,
+  imageUrl: [],           // URL to the part's image
+  notes: String,
+  stockStatus: {
+    type: String,
+    enum: ['in_stock', 'low_stock', 'out_of_stock'],
+    default: 'in_stock'
+  }
+});
 
+const SubCategorySchema = new mongoose.Schema({
+  categoryTab: String,         // e.g., "Engine Gasket", "Short Block Assembly"
+  imageUrl: String,            // Exploded image URL
+  parts: [PartSchema]
+});
+
+const ProductSchema = new mongoose.Schema({
+  brand: { type: String, required: true },            // Toyota, Lexus, etc.
+  year: { type: Number, required: true },             // 2022, 2023, etc.
+  model: { type: String, required: true },            // e.g., 4RUNNER
+  frameCode: String,                                  // GRN280, etc.
+  region: String,                                     // e.g., "Asia and Middle East"
+  engineCode: String,                                 // e.g., 1GRFE
+  transmission: String,                               // e.g., 5FC
+  productionStart: String,                            // e.g., 2019-08
+  productionEnd: String,                              // e.g., 2025
+
+  shopId: { type: mongoose.Schema.Types.ObjectId, ref: 'Shop', required: true },
+
+  subCategories: [SubCategorySchema],
   
-  variants: [
-    {
-      color: String,
-      stock: Number,
-      price: Number,
-      discountedPrice: Number,
-      tax: String,
-      images: [String],
-      description: String,
-      partNumber: String,
-      partDescription: String,
-      otherNote: String,
-      position: String,
-      condition: String,
-      fitmentType: String,
-      manufacturer: String,
-      sku: String,
-      warranty: String,
-      thresholdQuantity: Number,
-      
-    }
-  ],
+  ratings: {
+  average: { type: Number, default: 0 },
+  totalReviews: { type: Number, default: 0 }
+},// Each tab with image + parts,
 
+  vinMetadata: {
+    wmi: String,
+    vds: String,
+    vis: String
+  },
 }, { timestamps: true });
 
-const productSchema = new mongoose.Schema({
-  shopId: { type: String, required: true },
-  products: [productDetailesSchema]
-}, { timestamps: true });
-
-const Product = mongoose.model('Product', productSchema);
-const ProductDetails = mongoose.model('ProductDetails', productDetailesSchema);
-
-module.exports = { Product, ProductDetails };
+module.exports = mongoose.model('Product', ProductSchema);

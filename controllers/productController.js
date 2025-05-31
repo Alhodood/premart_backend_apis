@@ -1,4 +1,6 @@
-const { Product, ProductDetails } = require('../models/Product');
+const Product = require('../models/Product');
+
+const { Shop } = require('../models/Shop');
 
 const Brand=  require('../models/Brand');
 
@@ -35,6 +37,120 @@ const Model = require('../models/Model');
     } catch (error) {
         res.status(403).json({ status: false, error: error })
     }
+
+};
+
+// Get similar products by brand, model, and category
+exports.getSimilarProducts = async (req, res) => {
+  try {
+    const { brand, model, categoryTab } = req.query;
+
+    if (!brand || !model || !categoryTab) {
+      return res.status(400).json({
+        message: 'brand, model, and categoryTab query parameters are required',
+        success: false
+      });
+    }
+
+    const products = await Product.find({
+      brand: brand,
+      model: model,
+      subCategories: {
+        $elemMatch: { categoryTab: categoryTab }
+      }
+    }).lean();
+
+    return res.status(200).json({
+      message: 'Similar products retrieved',
+      success: true,
+      data: products
+    });
+  } catch (error) {
+    console.error('Get Similar Products Error:', error);
+    return res.status(500).json({ message: 'Failed to retrieve similar products', success: false, error: error.message });
+  }
+};
+
+// Get products by part number
+exports.getProductsByPartNumber = async (req, res) => {
+  try {
+    const partNumber = req.params.partNumber?.trim();
+    if (!partNumber) {
+      return res.status(400).json({ message: 'Part number is required', success: false });
+    }
+
+    const products = await Product.find({
+      'subCategories.parts.partNumber': partNumber
+    }).lean();
+
+    return res.status(200).json({
+      message: 'Products by part number',
+      success: true,
+      data: products
+    });
+  } catch (error) {
+    console.error('Get Products by Part Number Error:', error);
+    return res.status(500).json({ message: 'Error fetching products by part number', success: false, data: error.message });
+  }
+};
+
+// Get parts by part number
+exports.getPartsByPartNumber = async (req, res) => {
+  try {
+    const partNumber = req.params.partNumber?.trim();
+    if (!partNumber) {
+      return res.status(400).json({ message: 'Part number is required', success: false });
+    }
+
+    const products = await Product.find({
+      'subCategories.parts.partNumber': partNumber
+    }).lean();
+
+    const matchedParts = [];
+
+    for (const product of products) {
+      for (const subCategory of product.subCategories || []) {
+        for (const part of subCategory.parts || []) {
+          if (part.partNumber === partNumber) {
+            matchedParts.push({
+              productId: product._id,
+              productModel: product.model,
+              categoryTab: subCategory.categoryTab,
+              ...part
+            });
+          }
+        }
+      }
+    }
+
+    return res.status(200).json({
+      message: 'Parts by part number',
+      success: true,
+      data: matchedParts
+    });
+  } catch (error) {
+    console.error('Get Parts by Part Number Error:', error);
+    return res.status(500).json({ message: 'Error fetching parts by part number', success: false, data: error.message });
+  }
+};
+
+// Get all products
+exports.getAllProducts = async (req, res) => {
+  try {
+    const products = await Product.find().lean();
+    res.status(200).json({
+      message: 'All products retrieved successfully',
+      success: true,
+      data: products
+    });
+  } catch (error) {
+    console.error('Get All Products Error:', error);
+    res.status(500).json({
+      message: 'Failed to retrieve products',
+      success: false,
+      error: error.message
+    });
+  }
 };
 
 
@@ -82,7 +198,7 @@ exports.getProductElement = async (req, res) => {
 };
 
 
-// Create or add a product to shop's cartProduct array
+// Create or add a product to shop's products array (no variants handling)
 exports.addProduct = async (req, res) => {
   try {
     const shopId = req.query.shopId;
@@ -92,54 +208,23 @@ exports.addProduct = async (req, res) => {
       return res.status(400).json({ success: false, message: 'Missing shopId or productData' });
     }
 
-    // Extract variants separately from the rest of the product data
-    const { variants, ...baseData } = productData;
+    // Create a new product
+    const newProduct = new Product({ ...productData, shopId });
+    await newProduct.save();
 
-    // Add variants to baseData
-    baseData.variants = variants || [];
+    const productIdObject = newProduct._id;
 
-    const productDetail = new ProductDetails(baseData);
-    await productDetail.save();
-
-    await Product.findOneAndUpdate(
-      { shopId },
-      { $push: { products: productDetail } },
-      { upsert: true, new: true }
-    );
-
-    const productIdObject = productDetail._id;
-    await Promise.all([
-      Brand.updateOne(
-        { brandName: baseData.brand },
-        { $addToSet: { productIds: productIdObject } },
-        { upsert: true }
-      ),
-      Category.updateOne(
-        { categoryName: baseData.category },
-        { $addToSet: { productIds: productIdObject } },
-        { upsert: true }
-      ),
-      Model.updateOne(
-        { modelName: baseData.model },
-        { $addToSet: { productIds: productIdObject } },
-        { upsert: true }
-      ),
-      Year.updateOne(
-        { year: baseData.year },
-        { $addToSet: { productIds: productIdObject } },
-        { upsert: true }
-      ),
-      Fuel.updateOne(
-        { type: baseData.fuelType },
-        { $addToSet: { productIds: productIdObject } },
-        { upsert: true }
-      ),
-    ]);
+    // Push the productId into the Shop's products array
+    await Shop.findOneAndUpdate(
+  { _id: shopId }, // ✅ match by Mongo ObjectId
+  { $push: { products: productIdObject } },
+  { new: true }
+);
 
     return res.status(201).json({
-      message: 'Product with variants created and linked successfully',
+      message: 'Product created and linked successfully',
       success: true,
-      data: productDetail
+      data: newProduct
     });
 
   } catch (err) {
@@ -151,6 +236,7 @@ exports.addProduct = async (req, res) => {
     });
   }
 };
+
 
 // Get all products for a shop
 exports.getProductsByShop = async (req, res) => {
@@ -170,23 +256,31 @@ exports.getProductsByShop = async (req, res) => {
   }
 };
 
-// Get a single product by shopId and productId within the products array
+const mongoose = require('mongoose');
+
 exports.getProductById = async (req, res) => {
   try {
-    const { shopId, productId } = req.params;
+    const { productId } = req.params;
 
-    const productEntry = await Product.findOne({ shopId });
-    if (!productEntry) {
-      return res.status(404).json({ success: false, message: 'Shop not found' });
+    // Validate productId
+    if (!mongoose.Types.ObjectId.isValid(productId)) {
+      return res.status(400).json({ success: false, message: 'Invalid product ID format' });
     }
 
-    const product = productEntry.products.find(p => p._id.toString() === productId);
+    // Fetch the product using findOne to be extra safe
+    const product = await Product.findOne({ _id: new mongoose.Types.ObjectId(productId) }).lean();
+
     if (!product) {
       return res.status(404).json({ success: false, message: 'Product not found' });
     }
 
-    return res.status(200).json({ success: true, data: product });
+    return res.status(200).json({
+      success: true,
+      message: 'Product retrieved successfully',
+      data: product
+    });
   } catch (error) {
+    console.error('Get Product By ID Error:', error);
     return res.status(500).json({ success: false, message: error.message });
   }
 };

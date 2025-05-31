@@ -1,81 +1,76 @@
 const Cart = require('../models/Cart');
-const { Product, ProductDetails } = require('../models/Product');
+const Product = require('../models/Product');
 
 exports.addToCart = async (req, res) => {
   try {
+    console.log("Request body received:", req.body);
     const userId = req.params.userId;
-    let { productID, productIDs } = req.body;
+    const { productItems } = req.body;
 
-    if (!userId || (!productID && !productIDs)) {
+    if (!userId || !Array.isArray(productItems) || productItems.length === 0) {
       return res.status(400).json({
-        message: 'UserId and at least one productID or productIDs array is required',
+        message: 'UserId and productItems array are required',
         success: false,
         data: []
       });
     }
 
-    // Normalize to array
-    if (productID) productIDs = [productID];
+    const productIds = productItems.map(p => p.productId);
+    const quantityMap = {};
+    productItems.forEach(p => {
+      quantityMap[p.productId] = p.quantity || 1;
+    });
 
     let cart = await Cart.findOne({ userId });
 
-    const productDocs = await Product.find().lean();
-    const productDetails = productDocs.flatMap(doc =>
-      (doc.products || []).map(product => ({ ...product }))
-    );
+    const productDocs = await Product.find({ _id: { $in: productIds } }).lean();
 
-    // If no cart exists, create new and return "added" message
     if (!cart) {
       const newCart = new Cart({
         userId,
-        cartProduct: productIDs.map(id => id.toString())
+        cartProduct: productDocs.map(p => ({ productId: p._id.toString(), quantity: quantityMap[p._id.toString()] || 1 }))
       });
       await newCart.save();
-
-      const filteredCart = productDetails.filter(product =>
-        productIDs.includes(product._id.toString())
-      );
 
       return res.status(201).json({
         message: 'Products added to new cart',
         success: true,
-        action: 'added',
-        data: filteredCart
+        added: productDocs,
+        removed: [],
+        cart: productDocs.map(p => ({ ...p, quantity: quantityMap[p._id.toString()] || 1 }))
       });
     }
 
-    // Track added & removed
-    const added = [];
-    const removed = [];
+    const addedProducts = [];
+    const removedProducts = [];
 
-    for (let element of productIDs) {
-      const strId = element.toString();
-      const index = cart.cartProduct.indexOf(strId);
-
-      if (index === -1) {
-        cart.cartProduct.push(strId);
-        added.push(strId);
+    for (let product of productDocs) {
+      const strId = product._id.toString();
+      const existingIndex = cart.cartProduct.findIndex(p => p.productId === strId);
+      if (existingIndex === -1) {
+        cart.cartProduct.push({ productId: strId, quantity: quantityMap[strId] || 1 });
+        addedProducts.push(product);
       } else {
-        cart.cartProduct.splice(index, 1);
-        removed.push(strId);
+        cart.cartProduct[existingIndex].quantity = quantityMap[strId] || 1;
+        addedProducts.push(product);
       }
     }
 
     await cart.save();
 
-    const filteredCart = productDetails.filter(product =>
-      cart.cartProduct.includes(product._id.toString())
-    );
-    const addedProducts = productDetails.filter(p => added.includes(p._id.toString()));
-    const removedProducts = productDetails.filter(p => removed.includes(p._id.toString()));
+    const updatedCart = await Product.find({ _id: { $in: cart.cartProduct.map(p => p.productId) } }).lean();
 
-    // Custom message logic
+    const cartWithQuantities = updatedCart.map(product => {
+      const cartItem = cart.cartProduct.find(p => p.productId === product._id.toString());
+      return { ...product, quantity: cartItem?.quantity || 1 };
+    });
+
     let message = 'Cart updated successfully';
-    if (added.length && !removed.length) {
+    if (addedProducts.length && !removedProducts.length) {
       message = 'Products added to cart';
-    } else if (!added.length && removed.length) {
+    } else if (!addedProducts.length && removedProducts.length) {
       message = 'Products removed from cart';
-    } else if (added.length && removed.length) {
+    } else if (addedProducts.length && removedProducts.length) {
       message = 'Products added and removed from cart';
     }
 
@@ -84,7 +79,7 @@ exports.addToCart = async (req, res) => {
       success: true,
       added: addedProducts,
       removed: removedProducts,
-      cart: filteredCart
+      cart: cartWithQuantities
     });
 
   } catch (error) {
@@ -110,35 +105,23 @@ exports.getCart = async (req, res) => {
         data: []
       });
     }
-let filterdCart=[];
+
     const productDocs = await Product.find().lean();
-    const productDetails = productDocs.flatMap(doc =>
-      (doc.products || []).map(product => ({
-        ...product,
-        // shopId: doc.shopId
-      }))
+    const allParts = productDocs.flatMap(doc =>
+      (doc.subCategories || []).flatMap(sub =>
+        (sub.parts || []).map(part => ({
+          ...part,
+          shopId: doc.shopId
+        }))
+      )
     );
 
-
-    const tempCartList = cart.cartProduct.map(id => id.toString());
-for(let i =0;i<tempCartList.length;i++){
-console.log("element in car", tempCartList[i])
-  for(let j =0;j<productDetails.length;j++){
-    console.log("element in product", productDetails[j]._id.toString())
-
-  if(tempCartList[i].toString()==productDetails[j]._id.toString()){
-    console.log(i);
-    filterdCart.push(productDetails[j]);
-  }
-  
-  }
-}
-
+    const filteredCart = allParts.filter(p => cart.cartProduct.some(cp => cp.productId === p._id.toString()));
 
     return res.status(200).json({
       message: 'Cart founded with products',
       success: true,
-      data: filterdCart
+      data: filteredCart
     });
 
   } catch (e) {
