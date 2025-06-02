@@ -18,9 +18,9 @@ const PartSchema = new mongoose.Schema({
 
 const SubCategorySchema = new mongoose.Schema({
   categoryTab: String, 
-  categoryTabImageUrl: String,
+  categoryTabImageUrl: [String],
   subCategoryTab: String,         // e.g., "Engine Gasket", "Short Block Assembly"
-subCategoryTabImageUrl: String,        // Exploded image URL
+  subCategoryTabImageUrl: [String],        // Exploded image URL
   parts: [PartSchema]
 });
 
