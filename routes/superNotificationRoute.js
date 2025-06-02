@@ -8,6 +8,7 @@ const { allowRoles } = require('../middleware/roleMiddleware');
 // 💬 Authenticated + Role-protected routes
 router.post('/create/:creatorId', notificationController.createNotification);
 router.get('/all/:creatorId', notificationController.getAllNotifications);
+router.get('/allAdmin/:creatorId', notificationController.getAllNotificationsAdmin);
 router.put('/update/:id', notificationController.updateNotification);
 router.delete('/:id', notificationController.deleteNotification);
 
