@@ -1,11 +1,12 @@
 const express = require('express');
 const { registerUser, loginUser, updateProfile,
-    updateUserAddress, getAllAddresses, deleteAddressById, addNewAddress, getDefultAddress, getProfile, deletAddcount,
+    updateUserAddress,getAllUsers ,getAllAddresses, deleteAddressById, addNewAddress, getDefultAddress, getProfile, deletAddcount,
     addNewCard, getAllCard, updateUserCard, deleteCardById, registerUser1,sendOtpToCustomer, verifyOtpForCustomer, resendOtpToCustomer  } = require('../controllers/authController');
 
 const { protect } = require('../middleware/authMiddleware');
 const { allowRoles } = require('../middleware/roleMiddleware');
 const adminAuthController = require('../controllers/adminAuthController');
+
 
 const router = express.Router();
 
@@ -17,13 +18,13 @@ router.get('/profile/:userId',getProfile);
 
 router.put('/profile-delete/:userId',deletAddcount);
 
+router.get('/getAllusers', getAllUsers);
 
 router.get("/address/:id",getAllAddresses);
 router.post("/address/:id",addNewAddress);
 router.put("/address/:id/:addressId",updateUserAddress);
 router.delete("/address/:id/:addressId",deleteAddressById);
 router.get("/defultAddress/:id",getDefultAddress);
-
 
 router.get("/card/:id",getAllCard);
 router.post("/card/:id",addNewCard);

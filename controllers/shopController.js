@@ -42,8 +42,26 @@ console.log(shopeDetails);
 // Get all shops
 exports.getAllShops = async (req, res) => {
   try {
-    const shops = await Shop.find();
-    res.status(200).json({ success: true, data: shops, message:"shops featched successfuly"});
+    const shops = await Shop.find().lean();
+    const formattedShops = shops.map(shop => {
+      return {
+        _id: shop._id,
+        shopName: shop.shopeDetails?.shopName,
+        orderCount: shop.orders?.length || 0,
+        shopAddress: shop.shopeDetails?.shopAddress,
+        shopMail: shop.shopeDetails?.shopMail,
+        shopContact: shop.shopeDetails?.shopContact,
+        shopLicenseNumber: shop.shopeDetails?.shopLicenseNumber,
+        EmiratesId: shop.shopeDetails?.EmiratesId,
+        shopLicenseImage: shop.shopeDetails?.shopLicenseImage,
+        bankName: shop.shopeDetails?.shopBankDetails?.bankName,
+        accountNumber: shop.shopeDetails?.shopBankDetails?.accountNumber,
+        supportMail: shop.shopeDetails?.supportMail,
+        supportNumber: shop.shopeDetails?.supportNumber,
+        createdAt: shop.createdAt
+      };
+    });
+    res.status(200).json({ success: true, data: formattedShops, message: "shops featched successfuly" });
   } catch (error) {
     res.status(500).json({ success: false, message: 'Server Error',data:[] });
   }

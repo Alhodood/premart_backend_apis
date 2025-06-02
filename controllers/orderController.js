@@ -152,9 +152,15 @@ exports.createOrder = async (req, res) => {
 
     const totalDiscount = couponDiscount;
     const totalAmount = +(originalTotal - totalDiscount).toFixed(2);
+    // Delivery charge logic: true for each order if master cart < 500, else false
     const deliverycharge = originalTotal < 500;
     const savings = totalDiscount;
-    const finalPayable = totalAmount;
+    let masterDeliveryCharge = 0;
+    if (originalTotal < 500) {
+      masterDeliveryCharge = 30;
+    }
+    // Update finalPayable to include master delivery charge
+    const finalPayable = totalAmount + masterDeliveryCharge;
 
     // Step 5: Get user lat/lng if missing
     if (!deliveryAddress.latitude || !deliveryAddress.longitude) {
@@ -168,6 +174,24 @@ exports.createOrder = async (req, res) => {
 
     // --- Step 6: Per-shop order creation, parallelized ---
     const shopIds = Object.keys(productsByShop);
+
+    // --- Create MasterOrder first so its _id is available ---
+    // We'll create an empty MasterOrder and update it after collecting orderIds
+    const masterOrder = new MasterOrder({
+      userId,
+      orderIds: [], // will update after per-shop orders
+      totalAmount: originalTotal,
+      // Set deliverycharge as 30 if total < 500, else 0
+      deliverycharge: masterDeliveryCharge,
+      finalPayable: finalPayable,
+      couponApplied: appliedCoupon ? {
+        code: appliedCoupon.code,
+        discountType: appliedCoupon.discountType,
+        discountValue: appliedCoupon.discountValue,
+        discountAmount: totalDiscount
+      } : null
+    });
+    await masterOrder.save();
 
     // Helper for per-shop order creation
     async function processShopOrder(shopId, shopProducts) {
@@ -223,7 +247,7 @@ exports.createOrder = async (req, res) => {
         totalCouponDiscount = +(couponDiscount * (shopSubtotal / originalTotal)).toFixed(2);
       }
 
-      // Save order for this shop
+      // Save order for this shop, and include masterOrderId
       const createdOrder = new Order({
         userId,
         shopId,
@@ -236,17 +260,21 @@ exports.createOrder = async (req, res) => {
         deliveryAddress,
         totalAmount: shopOriginalTotal,
         finalPayable: (shopOriginalTotal - (totalCouponDiscount || 0)),
-        deliverycharge: shopOriginalTotal < 500,
+        // Delivery charge per order: boolean: true if masterDeliveryCharge > 0, else false
+        deliverycharge: masterDeliveryCharge > 0,
         couponCode,
         appliedCoupon,
-         transactionId: transactionId || null,
+        transactionId: transactionId || null,
         orderStatus: 'Pending',
         refundRequest: { requested: false, status: 'Pending' },
         deliveryDistance,
         deliveryEarning,
         paymentType,
         additionalcharges: 0,
+        masterOrderId: masterOrder._id,
       });
+      // Debug log for deliverycharge
+      console.log(`Order for shop ${shopId} deliverycharge:`, originalTotal < 500);
       await createdOrder.save();
 
       // Push order to shop.orders[]
@@ -302,24 +330,12 @@ exports.createOrder = async (req, res) => {
       productCount: r.productCount
     }));
 
+    // Update masterOrder with orderIds
+    masterOrder.orderIds = allOrderIds;
+    await masterOrder.save();
+
     // Step 8: Clear cart using batch update
     await Cart.updateOne({ userId }, { $set: { cartProduct: [] } });
-
-    // --- Create MasterOrder ---
-    const masterOrder = new MasterOrder({
-      userId,
-      orderIds: allOrderIds,
-      totalAmount: originalTotal,
-      finalPayable: finalPayable,
-      couponApplied: appliedCoupon ? {
-        code: appliedCoupon.code,
-        discountType: appliedCoupon.discountType,
-        discountValue: appliedCoupon.discountValue,
-        discountAmount: totalDiscount
-      } : null
-    });
-    await masterOrder.save();
-    // --- End Create MasterOrder ---
 
     // 🔐 Create payment after order is saved successfully
     if (paymentType !== 'COD') {
@@ -349,7 +365,8 @@ exports.createOrder = async (req, res) => {
         discount: totalDiscount,
         totalAmount,
         finalPayable,
-        deliverycharge,
+        deliverycharge, // boolean: per order, true if < 500, else false
+        masterDeliveryCharge,
         savings,
         perShopOrderInfo,
         appliedCoupon,
@@ -445,37 +462,10 @@ exports.createOrderFromDirectBuy = async (req, res) => {
       { new: true }
     );
     // Create order
-    const order = new Order({
-      userId,
-      shopId,
-      productId: [{ productId, quantity }],
-      products: [product.toObject ? product.toObject() : product],
-      deliveryAddress,
-      totalAmount: productTotal,
-      finalPayable,
-      deliverycharge,
-      couponCode,
-      appliedCoupon,
-      orderStatus: 'Pending',
-      refundRequest: { requested: false, status: 'Pending' },
-      deliveryDistance,
-      deliveryEarning,
-      paymentType,
-      additionalcharges: 0,
-      transactionId: transactionId || null,
-    });
-    await order.save();
-    await Shop.findByIdAndUpdate(shopId, {
-      $push: {
-        orders: {
-          orderId: order._id
-        }
-      }
-    });
-    // --- Push this order into MasterOrder collection ---
+    // First create masterOrder so we can use its _id
     const masterOrder = new MasterOrder({
       userId,
-      orderIds: [order._id],
+      orderIds: [], // will update after order save
       totalAmount: originalTotal,
       finalPayable: finalPayable,
       couponApplied: appliedCoupon ? {
@@ -486,7 +476,38 @@ exports.createOrderFromDirectBuy = async (req, res) => {
       } : null
     });
     await masterOrder.save();
-    // --- End MasterOrder addition ---
+    const order = new Order({
+      userId,
+      shopId,
+      productId: [{ productId, quantity }],
+      products: [product.toObject ? product.toObject() : product],
+      deliveryAddress,
+      totalAmount: productTotal,
+      finalPayable,
+      // deliverycharge is boolean: true if productTotal < 500, else false
+      deliverycharge: productTotal < 500,
+      couponCode,
+      appliedCoupon,
+      orderStatus: 'Pending',
+      refundRequest: { requested: false, status: 'Pending' },
+      deliveryDistance,
+      deliveryEarning,
+      paymentType,
+      additionalcharges: 0,
+      transactionId: transactionId || null,
+      masterOrderId: masterOrder._id,
+    });
+    await order.save();
+    // Update masterOrder with orderId
+    masterOrder.orderIds = [order._id];
+    await masterOrder.save();
+    await Shop.findByIdAndUpdate(shopId, {
+      $push: {
+        orders: {
+          orderId: order._id
+        }
+      }
+    });
     if (paymentType !== 'COD') {
       const payment = new Payment({
         orderId: order._id,
@@ -1323,3 +1344,75 @@ exports.generateInvoice =  async (req, res) => {
 
 
 
+
+// Get all pending orders
+exports.getAllPendingOrders = async (req, res) => {
+  try {
+    const orders = await Order.find({ orderStatus: 'Pending' }).sort({ createdAt: -1 }).lean();
+    // Map and flatten the required fields as per specification
+    const mappedOrders = orders.map(order => {
+      // Extract deliveryAddress fields
+      const deliveryAddress = order.deliveryAddress || {};
+      // Get first productId and quantity
+      let productIdField = null, quantityField = null;
+      if (Array.isArray(order.productId) && order.productId.length > 0) {
+        productIdField = order.productId[0].productId || null;
+        quantityField = order.productId[0].quantity || null;
+      }
+      // Get first product in products array
+      let firstProduct = null;
+      if (Array.isArray(order.products) && order.products.length > 0) {
+        firstProduct = order.products[0];
+      }
+      // Get partName, partNumber from first part in first subCategory
+      let partName = null, partNumber = null, brand = null, year = null, model = null, category = null;
+      if (firstProduct && Array.isArray(firstProduct.subCategories) && firstProduct.subCategories.length > 0) {
+        const firstSubCat = firstProduct.subCategories[0];
+        if (Array.isArray(firstSubCat.parts) && firstSubCat.parts.length > 0) {
+          const firstPart = firstSubCat.parts[0];
+          partName = firstPart.partName || null;
+          partNumber = firstPart.partNumber || null;
+        }
+        category = firstSubCat.categoryTab || null;
+        // Get brand, year, model from parent product
+        brand = firstProduct.brand || null;
+        year = firstProduct.year || null;
+        model = firstProduct.model || null;
+      }
+      return {
+        _id: order._id,
+        userId: order.userId,
+        customer: deliveryAddress.name || null,
+        contact: deliveryAddress.contact || null,
+        Date:order.createdAt ,
+        address: deliveryAddress.address || null,
+        area: deliveryAddress.area || null,
+        place: deliveryAddress.place || null,
+        totalAmount: order.totalAmount,
+        finalPayable: order.finalPayable,
+        deliverycharge: order.deliverycharge,
+        paymentType: order.paymentType,
+        masterOrderId: order.masterOrderId,
+        productId: productIdField,
+        quantity: quantityField,
+        product:partName,
+        partNumber,
+        brand,
+        year,
+        model,
+        category
+      };
+    });
+    res.status(200).json({
+      success: true,
+      message: "Pending orders fetched successfully",
+      data: mappedOrders
+    });
+  } catch (error) {
+    res.status(500).json({
+      success: false,
+      message: "Failed to fetch pending orders",
+      error: error.message
+    });
+  }
+};

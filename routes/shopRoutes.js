@@ -6,7 +6,7 @@ const shopController = require('../controllers/shopController');
 
 router.post('/', shopController.createShop);
 
-router.get('/', shopController.getAllShops);
+router.get('/getAllShop', shopController.getAllShops);
 
 router.get('/:shopId', shopController.getShopById);
 
