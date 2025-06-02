@@ -153,6 +153,75 @@ exports.getAllProducts = async (req, res) => {
   }
 };
 
+exports.getAllProductsAdmin = async (req, res) => {
+  try {
+    // Commented out: any filter/search logic
+    // const { search, filter } = req.query;
+    // let query = {};
+    // if (search) { ... }
+    // if (filter) { ... }
+    const products = await Product.find().lean();
+    // Flatten and map products to only required fields
+    const simplified = products.map(product => {
+      // Extract from root
+      const {
+        _id, brand, year, model, frameCode, region, engineCode, transmission,
+        productionStart, productionEnd, shopId, createdAt, ratings = {}
+      } = product;
+      // Extract from first subCategory
+      const firstSubCategory = (product.subCategories && product.subCategories.length > 0)
+        ? product.subCategories[0]
+        : {};
+      const category = firstSubCategory.categoryTab;
+      // Extract from first part in first subCategory
+      const firstPart = (firstSubCategory.parts && firstSubCategory.parts.length > 0)
+        ? firstSubCategory.parts[0]
+        : {};
+      const {
+        partNumber, partName, quantity, price, discountedPrice, description
+      } = firstPart;
+      // Extract ratings fields
+      const average = ratings.average;
+      const totalReviews = ratings.totalReviews;
+      return {
+        _id,
+        brand,
+        year,
+        model,
+        frameCode,
+        region,
+        engineCode,
+        transmission,
+        productionStart,
+        productionEnd,
+        shopId,
+        createdAt,
+        'ratings': average,
+        'totalReviews': totalReviews,
+        category,
+        partNumber,
+        partName,
+        quantity,
+        price,
+        discountedPrice,
+        description
+      };
+    });
+    res.status(200).json({
+      message: 'All products retrieved successfully',
+      success: true,
+      data: simplified
+    });
+  } catch (error) {
+    console.error('Get All Products Error:', error);
+    res.status(500).json({
+      message: 'Failed to retrieve products',
+      success: false,
+      error: error.message
+    });
+  }
+};
+
 
 // Get all product part in single API - (Brand, category, year, )
 

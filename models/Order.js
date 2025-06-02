@@ -34,6 +34,7 @@ const statusTimestampsSchema = new mongoose.Schema({
 
 const orderDetailsSchema = new mongoose.Schema({
   userId: { type: String, required: true },
+  masterOrderId: { type: mongoose.Schema.Types.ObjectId, ref: 'MasterOrder' },
   productId: [{
     productId: { type: String, required: true },
     quantity: { type: Number, required: true, default: 1 }
@@ -51,7 +52,7 @@ products: {
   totalAmount: { type: String, required: true },
   finalPayable: { type: String, required: true },
   
-  deliverycharge: { type: Boolean, required: true },
+  deliverycharge: { type: Boolean, required: true, default: false },
 
   deliveryDistance: { type: Number, default: 0 }, // ✅ distance between pickup and drop
   deliveryEarning: { type: Number, default: 0 }, // ✅ earned amount per order

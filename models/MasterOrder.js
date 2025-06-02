@@ -7,6 +7,11 @@ const masterInvoiceSchema = new mongoose.Schema({
   orderIds: [{ type: mongoose.Schema.Types.ObjectId, ref: 'Order' }],
   totalAmount: { type: Number, required: true },
   finalPayable: { type: String, required: true },
+  deliverycharge: {
+  type: Number,
+  required: true,
+  default: 0,
+},
   couponApplied: {
     code: String,
     discountType: String,
