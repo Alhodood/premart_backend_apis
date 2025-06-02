@@ -108,6 +108,42 @@ exports.getAllNotifications = async (req, res) => {
 };
 
 
+exports.getAllNotificationsAdmin = async (req, res) => {
+  try {
+    const page = parseInt(req.query.page) || 1;
+    const limit = parseInt(req.query.limit) || 10;
+
+    const data = await Notification.find()
+      .sort({ createdAt: -1 })
+      .skip((page - 1) * limit)
+      .limit(limit);
+
+    const total = await Notification.countDocuments();
+
+    const formattedData = data.map(n => ({
+      _id: n._id,
+      title: n.title,
+      message: n.message,
+      type: n.type,
+      dateSent: n.sentAt,
+      createdAt: n.createdAt
+    }));
+
+    res.status(200).json({
+      message: 'Notifications fetched successfully',
+      success: true,
+      total,
+      page,
+      limit,
+      data: formattedData
+    });
+
+  } catch (err) {
+    res.status(500).json({ message: 'Error fetching notifications', success: false, data: err.message });
+  }
+};
+
+
 exports.getMyNotifications = async (req, res) => {
   try {
     const userId = req.params.userId;

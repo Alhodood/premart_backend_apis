@@ -1344,3 +1344,75 @@ exports.generateInvoice =  async (req, res) => {
 
 
 
+
+// Get all pending orders
+exports.getAllPendingOrders = async (req, res) => {
+  try {
+    const orders = await Order.find({ orderStatus: 'Pending' }).sort({ createdAt: -1 }).lean();
+    // Map and flatten the required fields as per specification
+    const mappedOrders = orders.map(order => {
+      // Extract deliveryAddress fields
+      const deliveryAddress = order.deliveryAddress || {};
+      // Get first productId and quantity
+      let productIdField = null, quantityField = null;
+      if (Array.isArray(order.productId) && order.productId.length > 0) {
+        productIdField = order.productId[0].productId || null;
+        quantityField = order.productId[0].quantity || null;
+      }
+      // Get first product in products array
+      let firstProduct = null;
+      if (Array.isArray(order.products) && order.products.length > 0) {
+        firstProduct = order.products[0];
+      }
+      // Get partName, partNumber from first part in first subCategory
+      let partName = null, partNumber = null, brand = null, year = null, model = null, category = null;
+      if (firstProduct && Array.isArray(firstProduct.subCategories) && firstProduct.subCategories.length > 0) {
+        const firstSubCat = firstProduct.subCategories[0];
+        if (Array.isArray(firstSubCat.parts) && firstSubCat.parts.length > 0) {
+          const firstPart = firstSubCat.parts[0];
+          partName = firstPart.partName || null;
+          partNumber = firstPart.partNumber || null;
+        }
+        category = firstSubCat.categoryTab || null;
+        // Get brand, year, model from parent product
+        brand = firstProduct.brand || null;
+        year = firstProduct.year || null;
+        model = firstProduct.model || null;
+      }
+      return {
+        _id: order._id,
+        userId: order.userId,
+        customer: deliveryAddress.name || null,
+        contact: deliveryAddress.contact || null,
+        Date:order.createdAt ,
+        address: deliveryAddress.address || null,
+        area: deliveryAddress.area || null,
+        place: deliveryAddress.place || null,
+        totalAmount: order.totalAmount,
+        finalPayable: order.finalPayable,
+        deliverycharge: order.deliverycharge,
+        paymentType: order.paymentType,
+        masterOrderId: order.masterOrderId,
+        productId: productIdField,
+        quantity: quantityField,
+        product:partName,
+        partNumber,
+        brand,
+        year,
+        model,
+        category
+      };
+    });
+    res.status(200).json({
+      success: true,
+      message: "Pending orders fetched successfully",
+      data: mappedOrders
+    });
+  } catch (error) {
+    res.status(500).json({
+      success: false,
+      message: "Failed to fetch pending orders",
+      error: error.message
+    });
+  }
+};
