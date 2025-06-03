@@ -22,6 +22,7 @@ console.log(shopeDetails);
         shopLicenseExpiry: req.body.shopeDetails.shopLicenseExpiry,
         shopLicenseImage: req.body.shopeDetails.shopLicenseImage,
         EmiratesId: req.body.shopeDetails.EmiratesId,
+        EmiratesIdImage: req.body.shopeDetails.EmiratesIdImage,
         shopLocation: req.body.shopeDetails.shopLocation,
         termsAndCondition: req.body.shopeDetails.termsAndCondition,
         supportMail: req.body.shopeDetails.supportMail,

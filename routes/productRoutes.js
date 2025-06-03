@@ -35,7 +35,7 @@ router.get('/brand/:id', brandController.getBrandById);
 router.put('/brand/:id', brandController.updateBrand);
 router.delete('/brand/:id', brandController.deleteBrand);
 router.get('/brand-products/:brandName', brandController.getProductsByBrand);
-
+router.get('/brand/models/:brandName', brandController.getModelsByBrand);
 
 // CATEGORY ROUTES
 router.post('/category', categoryController.createCategory);
@@ -62,6 +62,7 @@ router.get('/model/:id', modelController.getModelById);
 router.put('/model/:id', modelController.updateModel);
 router.delete('/model/:id', modelController.deleteModel);
 router.get('/products-by-model/:modelName', modelController.getProductsByModel);
+
 
 
 // YEAR ROUTES
