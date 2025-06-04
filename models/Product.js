@@ -32,8 +32,7 @@ const ProductSchema = new mongoose.Schema({
   region: String,                                     // e.g., "Asia and Middle East"
   engineCode: String,                                 // e.g., 1GRFE
   transmission: String,                               // e.g., 5FC
-  productionStart: String,                            // e.g., 2019-08
-  productionEnd: String,                              // e.g., 2025
+
 
   shopId: { type: mongoose.Schema.Types.ObjectId, ref: 'Shop', required: true },
 

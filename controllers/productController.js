@@ -163,26 +163,26 @@ exports.getAllProductsAdmin = async (req, res) => {
     const products = await Product.find().lean();
     // Flatten and map products to only required fields
     const simplified = products.map(product => {
-      // Extract from root
       const {
         _id, brand, year, model, frameCode, region, engineCode, transmission,
         productionStart, productionEnd, shopId, createdAt, ratings = {}
       } = product;
-      // Extract from first subCategory
+
       const firstSubCategory = (product.subCategories && product.subCategories.length > 0)
         ? product.subCategories[0]
         : {};
-      const category = firstSubCategory.categoryTab;
-      // Extract from first part in first subCategory
-      const firstPart = (firstSubCategory.parts && firstSubCategory.parts.length > 0)
-        ? firstSubCategory.parts[0]
-        : {};
+
       const {
-        partNumber, partName, quantity, price, discountedPrice, description
-      } = firstPart;
-      // Extract ratings fields
+        categoryTab,
+        categoryTabImageUrl = [],
+        subCategoryTab,
+        subCategoryTabImageUrl = [],
+        parts = []
+      } = firstSubCategory;
+
       const average = ratings.average;
       const totalReviews = ratings.totalReviews;
+
       return {
         _id,
         brand,
@@ -196,15 +196,13 @@ exports.getAllProductsAdmin = async (req, res) => {
         productionEnd,
         shopId,
         createdAt,
-        'ratings': average,
-        'totalReviews': totalReviews,
-        category,
-        partNumber,
-        partName,
-        quantity,
-        price,
-        discountedPrice,
-        description
+        ratings: average,
+        totalReviews: totalReviews,
+        categoryTab,
+        categoryTabImageUrl,
+        subCategoryTab,
+        subCategoryTabImageUrl,
+        parts
       };
     });
     res.status(200).json({
@@ -267,42 +265,149 @@ exports.getProductElement = async (req, res) => {
 };
 
 
-// Create or add a product to shop's products array (no variants handling)
+// Create or add a product to all shops' products arrays
 exports.addProduct = async (req, res) => {
   try {
-    const shopId = req.query.shopId;
     const productData = req.body;
 
-    if (!shopId || !productData) {
-      return res.status(400).json({ success: false, message: 'Missing shopId or productData' });
+    if (!productData) {
+      return res.status(400).json({ success: false, message: 'Missing productData' });
     }
 
-    // Create a new product
-    const newProduct = new Product({ ...productData, shopId });
-    await newProduct.save();
+    const shops = await Shop.find().lean();
+    if (!shops || shops.length === 0) {
+      return res.status(404).json({ success: false, message: 'No shops found' });
+    }
 
-    const productIdObject = newProduct._id;
+    const createdProducts = [];
 
-    // Push the productId into the Shop's products array
-    await Shop.findOneAndUpdate(
-  { _id: shopId }, // ✅ match by Mongo ObjectId
-  { $push: { products: productIdObject } },
-  { new: true }
-);
+    for (const shop of shops) {
+      const shopId = shop._id;
+      const newProduct = new Product({ ...productData, shopId });
+      await newProduct.save();
+      createdProducts.push(newProduct);
+
+      await Shop.findByIdAndUpdate(shopId, { $push: { products: newProduct._id } });
+    }
 
     return res.status(201).json({
-      message: 'Product created and linked successfully',
+      message: 'Product created and linked to all shops successfully',
       success: true,
-      data: newProduct
+      data: createdProducts
     });
 
   } catch (err) {
     console.error('Create Product Error:', err);
     res.status(500).json({
-      message: 'Failed to create product',
+      message: 'Failed to create product for all shops',
       success: false,
       data: err.message
     });
+  }
+};
+
+// Bulk product upload using Excel
+const XLSX = require('xlsx');
+const path = require('path');
+const fs = require('fs');
+
+exports.bulkUploadProducts = async (req, res) => {
+  try {
+    if (!req.file) {
+      return res.status(400).json({ message: 'No file uploaded', success: false });
+    }
+
+    const filePath = path.join(__dirname, '..', 'uploads', req.file.filename);
+    const workbook = XLSX.readFile(filePath);
+    const sheetName = workbook.SheetNames[0];
+    const worksheet = XLSX.utils.sheet_to_json(workbook.Sheets[sheetName]);
+
+    const shops = await Shop.find().lean();
+    if (!shops || shops.length === 0) {
+      return res.status(404).json({ message: 'No shops found', success: false });
+    }
+
+    const createdProducts = [];
+
+    for (const row of worksheet) {
+      const {
+        brand,
+        year,
+        model,
+        frameCode,
+        region,
+        engineCode,
+        transmission,
+        categoryTab,
+        categoryTabImageUrl,
+        subCategoryTab,
+        subCategoryTabImageUrl,
+        partNumber,
+        partName,
+        quantity,
+        price,
+        discountedPrice,
+        description,
+        imageUrl,
+        notes,
+        stockStatus
+      } = row;
+
+      const part = {
+        partNumber,
+        partName,
+        quantity,
+        price,
+        discountedPrice,
+        description,
+        imageUrl: imageUrl ? imageUrl.split(',') : [],
+        notes,
+        stockStatus: stockStatus || 'in_stock'
+      };
+
+      const subCategory = {
+        categoryTab,
+        categoryTabImageUrl: categoryTabImageUrl ? categoryTabImageUrl.split(',') : [],
+        subCategoryTab,
+        subCategoryTabImageUrl: subCategoryTabImageUrl ? subCategoryTabImageUrl.split(',') : [],
+        parts: [part]
+      };
+
+      for (const shop of shops) {
+        const product = new Product({
+          brand,
+          year,
+          model,
+          frameCode,
+          region,
+          engineCode,
+          transmission,
+          shopId: shop._id,
+          subCategories: [subCategory],
+          ratings: {
+            average: 0,
+            totalReviews: 0
+          }
+        });
+
+        await product.save();
+        createdProducts.push(product);
+
+        await Shop.findByIdAndUpdate(shop._id, { $push: { products: product._id } });
+      }
+    }
+
+    fs.unlinkSync(filePath); // Delete file after processing
+
+    return res.status(201).json({
+      message: 'Bulk products uploaded successfully',
+      success: true,
+      data: createdProducts
+    });
+
+  } catch (error) {
+    console.error('Bulk Upload Error:', error);
+    return res.status(500).json({ message: 'Failed to upload bulk products', success: false, error: error.message });
   }
 };
 
@@ -413,5 +518,31 @@ exports.deleteProduct = async (req, res) => {
     return res.status(200).json({ message: 'Product deleted', data: productEntry, success: true });
   } catch (error) {
     return res.status(500).json({ message: 'Failed to delete product', error: error.message, success: false });
+  }
+};
+
+// Delete a product directly by its ID
+exports.deleteProductById = async (req, res) => {
+  try {
+    const { productId } = req.params;
+
+    if (!mongoose.Types.ObjectId.isValid(productId)) {
+      return res.status(400).json({ success: false, message: 'Invalid product ID format' });
+    }
+
+    const deletedProduct = await Product.findByIdAndDelete(productId);
+
+    if (!deletedProduct) {
+      return res.status(404).json({ success: false, message: 'Product not found' });
+    }
+
+    return res.status(200).json({
+      success: true,
+      message: 'Product deleted successfully',
+      data: deletedProduct
+    });
+  } catch (error) {
+    console.error('Delete Product Error:', error);
+    return res.status(500).json({ success: false, message: 'Failed to delete product', error: error.message });
   }
 };
