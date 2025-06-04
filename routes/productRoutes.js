@@ -10,11 +10,18 @@ const brandController = require('../controllers/brandController');
 const categoryController = require('../controllers/categoryController');
 const uploadMiddleWare = require('../middleware/s3Upload');
 
+const subCategoriesController = require('../controllers/subCategoryController');
+const multer = require('multer');
+const upload = multer({ dest: 'uploads/' });
+
+
 
 /// ==== this is for upload image in s3 bucket
 router.post('/upload',uploadMiddleWare.single('file'),productController.fileUpload);
 
 
+
+router.post('/upload-bulk', upload.single('file'), productController.bulkUploadProducts);
 
 router.get('/product/element',productController.getProductElement);
 router.post('/product', productController.addProduct);
@@ -22,7 +29,8 @@ router.get('/getAllProducts', productController.getAllProducts);
 router.get('/product/:shopId', productController.getProductsByShop);
 router.get('/getProductById/:productId', productController.getProductById);
 router.put('/product/:productId/:shopId', productController.updateProduct);
-router.delete('/product/:productId/:shopId', productController.deleteProduct);
+
+router.delete('/product/delete/:productId', productController.deleteProductById);
 router.get('/products-by-part-number/:partNumber', productController.getProductsByPartNumber);
 router.get('/parts-by-part-number/:partNumber', productController.getPartsByPartNumber);
 router.get('/similar-products', productController.getSimilarProducts);//similar-products?brand=Nissan&model=Patrol&categoryTab=Fuel Injection
@@ -45,6 +53,14 @@ router.put('/category/:id', categoryController.updateCategory);
 router.delete('/category/:id', categoryController.deleteCategory);
 router.get('/products-by-category/:categoryTab', categoryController.getProductsByCategory);
 router.get('/parts-by-category/:categoryTab', categoryController.getPartsByCategory);
+
+
+// SUBCATEGORY ROUTES  
+router.post('/subCategory', subCategoriesController.addSubCategory);
+router.get('/subCategory', subCategoriesController.getAllSubCategories);
+router.put('/update/subCategory/:id', subCategoriesController.updateSubCategory);
+router.delete('/delete/subCategory/:id',subCategoriesController.deleteSubCategory);
+
 
 
 // FUEL ROUTES
