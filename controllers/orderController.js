@@ -571,15 +571,19 @@ exports.viewMyOrders = async (req, res) => {
       });
     }
 
-    // For each order, convert to plain object
-    for (let i = 0; i < orders.length; i++) {
-      orders[i] = orders[i].toObject();
-    }
+    // Map orders to transform productId and products arrays into single objects
+    const modifiedOrders = orders.map(order => {
+      return {
+        ...order.toObject(),
+        productId: order.productId && order.productId.length > 0 ? order.productId[0] : null,
+        products: order.products && order.products.length > 0 ? order.products[0] : null
+      };
+    });
 
     return res.status(200).json({
       message: 'Orders fetched successfully',
       success: true,
-      data: orders
+      data: modifiedOrders
     });
 
   } catch (error) {
