@@ -188,21 +188,33 @@ exports.getAllDeliveryBoys = async (req, res) => {
       longitude: 1,
       availability: 1,
       createdAt: 1,
-      assignedOrders: 1
+      assignedOrders: 1,
+      emiratesId: 1,
+      areaAssigned: 1,
+      city: 1,
+      dob: 1,
+      licenseNo: 1,
+      email: 1,
     }).lean();
 
     const formatted = deliveryBoys.map(boy => ({
       _id: boy._id,
-      name: boy.name,
-      phone: boy.phone,
-      agencyId: boy.agencyId,
-      accountVerify: boy.accountVerify,
-      isOnline: boy.isOnline,
-      latitude: boy.latitude,
-      longitude: boy.longitude,
-      availability: boy.availability,
-      createdAt: boy.createdAt,
-      assignedOrder: boy.assignedOrders?.length || 0
+      name: boy.name || "NA",
+      phone: boy.phone || "NA",
+      agencyId: boy.agencyId || "NA",
+      emiratesId: boy.emiratesId || "NA",
+      areaAssigned: boy.areaAssigned || "NA",
+      city: boy.city || "NA",
+      dob: boy.dob || "NA",
+      licenseNo: boy.licenseNo || "NA",
+      email: boy.email || "NA",
+      accountVerify: boy.accountVerify !== undefined && boy.accountVerify !== null ? boy.accountVerify : "NA",
+      isOnline: boy.isOnline !== undefined && boy.isOnline !== null ? boy.isOnline : "NA",
+      latitude: boy.latitude !== undefined && boy.latitude !== null ? boy.latitude : "NA",
+      longitude: boy.longitude !== undefined && boy.longitude !== null ? boy.longitude : "NA",
+      availability: boy.availability !== undefined && boy.availability !== null ? boy.availability : "NA",
+      createdAt: boy.createdAt || "NA",
+      assignedOrder: Array.isArray(boy.assignedOrders) ? boy.assignedOrders.length : 0
     }));
 
     res.status(200).json({
@@ -1147,6 +1159,49 @@ exports.updateDeliveryBoyDetails = async (req, res) => {
     return res.status(500).json({
       message: 'Failed to update delivery boy details',
       success: false,
+      error: error.message
+    });
+  }
+};
+// Register Delivery Boy
+exports.registerDeliveryBoy = async (req, res) => {
+  try {
+    const deliveryBoy = new DeliveryBoy(req.body);
+    await deliveryBoy.save();
+    res.status(201).json({
+      success: true,
+      message: 'Delivery boy registered successfully',
+      data: deliveryBoy
+    });
+  } catch (error) {
+    res.status(500).json({
+      success: false,
+      message: 'Error registering delivery boy',
+      error: error.message
+    });
+  }
+};
+// Delete delivery boy by ID (route: DELETE /delete/:id)
+exports.deleteDeliveryBoyById = async (req, res) => {
+  const { id } = req.params;
+  try {
+    const deleted = await DeliveryBoy.findByIdAndDelete(id);
+    if (!deleted) {
+      return res.status(404).json({
+        success: false,
+        message: 'Delivery boy not found',
+        data: []
+      });
+    }
+    res.status(200).json({
+      success: true,
+      message: 'Delivery boy deleted successfully',
+      data: deleted
+    });
+  } catch (error) {
+    res.status(500).json({
+      success: false,
+      message: 'Server error',
       error: error.message
     });
   }

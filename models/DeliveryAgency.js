@@ -16,6 +16,7 @@ const agencyDetailsSchema = new mongoose.Schema({
   agencyLicenseNumber: { type: String, required: true },
   agencyLicenseExpiry: { type: String, required: true },
   emiratesId: { type: String, required: true },
+   emiratesIdImage: { type: String, required: true },
   agencyLocation: { type: String },
   agencyLicenseImage: { type: String },
   termsAndCondition: { type: String },
