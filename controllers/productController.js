@@ -242,6 +242,10 @@ exports.getProductElement = async (req, res) => {
       }));
     });
 
+    // Fetch banners and include them in the response
+    const Banner = require('../models/Banner');
+    const banners = await Banner.find({ isActive: true }).lean();
+
     return res.status(200).json({
       message: 'Master data fetched successfully',
       success: true,
@@ -251,7 +255,8 @@ exports.getProductElement = async (req, res) => {
         models,
         years,
         categories,
-        productDetails
+        productDetails,
+        banners
       }
     });
   } catch (error) {
@@ -544,5 +549,85 @@ exports.deleteProductById = async (req, res) => {
   } catch (error) {
     console.error('Delete Product Error:', error);
     return res.status(500).json({ success: false, message: 'Failed to delete product', error: error.message });
+  }
+};
+
+// Set product rating
+exports.setProductRating = async (req, res) => {
+  try {
+    const { productId } = req.params;
+    const { rating } = req.body; // rating is the new star rating between 1 to 5
+
+    if (!mongoose.Types.ObjectId.isValid(productId)) {
+      return res.status(400).json({ success: false, message: 'Invalid product ID format' });
+    }
+
+    if (typeof rating !== 'number' || rating < 1 || rating > 5) {
+      return res.status(400).json({ success: false, message: 'Rating must be a number between 1 and 5' });
+    }
+
+    // Fetch product by ID directly
+    const product = await Product.findById(productId);
+
+    if (!product) {
+      return res.status(404).json({ success: false, message: 'Product not found' });
+    }
+
+    // Calculate new rating
+    const currentTotal = product.ratings.totalReviews || 0;
+    const currentAverage = product.ratings.average || 0;
+    const newTotal = currentTotal + 1;
+    const newAverage = ((currentAverage * currentTotal) + rating) / newTotal;
+
+    product.ratings.totalReviews = newTotal;
+    product.ratings.average = parseFloat(newAverage.toFixed(1));
+    await product.save();
+
+    return res.status(200).json({
+      success: true,
+      message: 'Product rating updated successfully',
+      data: product.ratings
+    });
+  } catch (error) {
+    return res.status(500).json({ success: false, message: 'Failed to update product rating', error: error.message });
+  }
+};
+
+// Get all product ratings with part details
+exports.getAllProductRatings = async (req, res) => {
+  try {
+    const products = await Product.find().lean();
+
+    const result = [];
+
+    for (const product of products) {
+      const { brand, model, subCategories = [], ratings } = product;
+
+      for (const subCat of subCategories) {
+        const { categoryTab, parts = [] } = subCat;
+
+        for (const part of parts) {
+          result.push({
+            _id: part._id,
+            brand,
+            model,
+            category: categoryTab,
+            partNumber: part.partNumber,
+            partName: part.partName,
+            price: part.price,
+            average: ratings?.average || 0,
+            totalReviews: ratings?.totalReviews || 0
+          });
+        }
+      }
+    }
+
+    return res.status(200).json({
+      success: true,
+      message: 'All product ratings with parts fetched',
+      data: result
+    });
+  } catch (error) {
+    return res.status(500).json({ success: false, message: 'Failed to fetch ratings', error: error.message });
   }
 };
