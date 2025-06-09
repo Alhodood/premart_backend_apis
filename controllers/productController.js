@@ -1,3 +1,4 @@
+const Banner = require('../models/Banners');
 const Product = require('../models/Product');
 
 const { Shop } = require('../models/Shop');
@@ -243,7 +244,6 @@ exports.getProductElement = async (req, res) => {
     });
 
     // Fetch banners and include them in the response
-    const Banner = require('../models/Banner');
     const banners = await Banner.find({ isActive: true }).lean();
 
     return res.status(200).json({
