@@ -3,7 +3,7 @@ const  Product  = require('../models/Product');
 const Stock = require('../models/Stock');
 const User = require('../models/User');
 const DeliveryBoy = require('../models/DeliveryBoy'); // If separate model
-const Agency = require('../models/DeliveryAgency'); // Optional
+const { DeliveryAgency } = require('../models/DeliveryAgency');
 
 exports.getShopDashboardByShopId = async (req, res) => {
   try {
@@ -25,10 +25,10 @@ exports.getShopDashboardByShopId = async (req, res) => {
 
     const getGrowthString = (current, previous) => {
       if (previous === 0 && current === 0) return `No change compared to ${lastMonthLabel}`;
-      const change = previous === 0 ? 100 : Math.round(((current - previous) / previous) * 100);
+      const change = previous === 0 ? 100 : ((current - previous) / previous) * 100;
       const arrow = change >= 0 ? '🔼' : '🔽';
       const sign = change >= 0 ? '+' : '';
-      return `Compared to ${lastMonthLabel} ${arrow} ${sign}${change}%`;
+      return `Compared to ${lastMonthLabel} ${arrow} ${sign}${Math.round(change)}%`;
     };
 
     // 🛒 Orders
@@ -125,6 +125,8 @@ const rawStock = await Stock.find({
         orderGrowth: getGrowthString(totalOrders, previousOrders),
         totalSales: parseFloat(currentSales.toFixed(2)),
         salesGrowth: getGrowthString(currentSales, previousSales),
+        salesDateCompared: lastMonthLabel,
+        orderDateCompared: lastMonthLabel,
         topProducts,
         lowStock: lowStockFormatted,
         newVisitors: newUsers,
@@ -156,8 +158,7 @@ exports.getSuperAdminDashboard = async (req, res) => {
       const getGrowth = (current, previous) => {
         if (previous === 0 && current === 0) return `No change`;
         const change = previous === 0 ? 100 : ((current - previous) / previous) * 100;
-        const arrow = change >= 0 ? '🔼' : '🔽';
-        return `${arrow} ${Math.abs(change).toFixed(2)}%`;
+        return `${Math.round(Math.abs(change))}%`;
       };
   
       // 📦 Orders
@@ -175,44 +176,84 @@ exports.getSuperAdminDashboard = async (req, res) => {
       ]);
       const totalSalesAmount = thisSales[0]?.total || 0;
       const previousSalesAmount = lastSales[0]?.total || 0;
-  
-      // 🧾 Payable to Agency (successful deliveries)
-      const agencyPayThisMonth = await Order.aggregate([
+
+      // 🎟️ Coupon Usage
+      const couponOrdersThisMonth = await Order.aggregate([
         {
           $match: {
             createdAt: { $gte: currentMonthStart },
-            orderStatus: 'Delivered',
-            assignedDeliveryBoy: { $ne: null }
-          }
-        },
-        {
-          $lookup: {
-            from: 'deliveryboys',
-            localField: 'assignedDeliveryBoy',
-            foreignField: '_id',
-            as: 'deliveryBoy'
-          }
-        },
-        { $unwind: '$deliveryBoy' },
-        {
-          $lookup: {
-            from: 'agencies',
-            localField: 'deliveryBoy.agencyId',
-            foreignField: '_id',
-            as: 'agency'
+            'appliedCoupon.code': { $exists: true, $ne: null }
           }
         },
         {
           $group: {
-            _id: '$deliveryBoy.agencyId',
-            agencyName: { $first: '$agency.agencyDetails.agencyName' },
-            totalOrders: { $sum: 1 },
-            totalAmount: { $sum: { $toDouble: '$totalAmount' } }
+            _id: '$masterOrderId'
+          }
+        },
+        {
+          $count: 'count'
+        }
+      ]);
+      const couponOrdersLastMonth = await Order.aggregate([
+        {
+          $match: {
+            createdAt: { $gte: lastMonthStart, $lt: currentMonthStart },
+            'appliedCoupon.code': { $exists: true, $ne: null }
+          }
+        },
+        {
+          $group: {
+            _id: '$masterOrderId'
+          }
+        },
+        {
+          $count: 'count'
+        }
+      ]);
+
+      const couponTotalUsageCount = couponOrdersThisMonth[0]?.count || 0;
+      const couponUsageLastMonth = couponOrdersLastMonth[0]?.count || 0;
+  
+      // 🧾 Payable to Agency (include Unpaid, Pending, Paid)
+      const agencyPayThisMonth = await DeliveryAgency.aggregate([
+        { $unwind: '$paymentRecords' },
+        {
+          $match: {
+            $expr: { $gte: [{ $toDate: '$paymentRecords.paymentDate' }, currentMonthStart] },
+            'paymentRecords.status': { $in: ['Unpaid', 'Pending', 'Paid'] }
+          }
+        },
+        {
+          $group: {
+            _id: null,
+            total: { $sum: '$paymentRecords.amount' }
           }
         }
       ]);
-  
-      const totalPayable = agencyPayThisMonth.reduce((acc, a) => acc + a.totalAmount, 0);
+
+      const agencyPayLastMonth = await DeliveryAgency.aggregate([
+        { $unwind: '$paymentRecords' },
+        {
+          $match: {
+            $expr: {
+              $and: [
+                { $gte: [{ $toDate: '$paymentRecords.paymentDate' }, lastMonthStart] },
+                { $lt: [{ $toDate: '$paymentRecords.paymentDate' }, currentMonthStart] }
+              ]
+            },
+            'paymentRecords.status': { $in: ['Unpaid', 'Pending', 'Paid'] }
+          }
+        },
+        {
+          $group: {
+            _id: null,
+            total: { $sum: '$paymentRecords.amount' }
+          }
+        }
+      ]);
+
+      const payableThisMonth = agencyPayThisMonth[0]?.total || 0;
+      const payableLastMonth = agencyPayLastMonth[0]?.total || 0;
   
       // 🔝 Top Products
       const topProductData = await Order.aggregate([
@@ -231,6 +272,46 @@ exports.getSuperAdminDashboard = async (req, res) => {
         });
         return { productId: entry._id, name, sold: entry.sold };
       });
+
+      // 🧾 Top Product Sales Total Amount (filter by delivered and compare correctly)
+      const topProductSalesCurrentMonthAgg = await Order.aggregate([
+        {
+          $match: {
+            orderStatus: 'Delivered',
+            createdAt: { $gte: currentMonthStart }
+          }
+        },
+        { $unwind: '$productId' },
+        {
+          $group: {
+            _id: '$productId.productId',
+            totalAmount: { $sum: { $toDouble: '$totalAmount' } },
+            count: { $sum: '$productId.quantity' }
+          }
+        },
+        { $sort: { count: -1 } },
+        { $limit: 1 }
+      ]);
+      const topProductSalesLastMonthAgg = await Order.aggregate([
+        {
+          $match: {
+            orderStatus: 'Delivered',
+            createdAt: { $gte: lastMonthStart, $lt: currentMonthStart }
+          }
+        },
+        { $unwind: '$productId' },
+        {
+          $group: {
+            _id: '$productId.productId',
+            totalAmount: { $sum: { $toDouble: '$totalAmount' } },
+            count: { $sum: '$productId.quantity' }
+          }
+        },
+        { $match: { _id: topProductSalesCurrentMonthAgg[0]?._id } }
+      ]);
+
+      const topSellingProductsTotalAmount = topProductSalesCurrentMonthAgg[0]?.totalAmount || 0;
+      const topSellingProductsLastAmount = topProductSalesLastMonthAgg[0]?.totalAmount || 0;
   
       // 🚚 Delivery Boys
       const totalDeliveryBoys = await User.countDocuments({ role: 'deliveryBoy' });
@@ -250,16 +331,25 @@ exports.getSuperAdminDashboard = async (req, res) => {
         message: 'Super Admin Dashboard Analytics',
         success: true,
         data: {
+          totalSalesAmount: totalSalesAmount.toFixed(0),
+          salesGrowth: getGrowth(totalSalesAmount, previousSalesAmount),
+          salesDateCompared: lastMonthLabel,
+          orderDateCompared: lastMonthLabel,
           totalOrders,
           orderGrowth: getGrowth(totalOrders, previousOrders),
-          totalSalesAmount: totalSalesAmount.toFixed(2),
-          salesGrowth: getGrowth(totalSalesAmount, previousSalesAmount),
-          payableToAgencies: totalPayable.toFixed(2),
-          topSellingProducts,
-          totalDeliveryBoys,
-          deliveryBoyGrowth: getGrowth(totalDeliveryBoys, previousDeliveryBoys),
+          orderDateCompared: lastMonthLabel,
+          payableToAgencies: payableThisMonth.toFixed(0),
+          payableToAgenciesGrowth: getGrowth(payableThisMonth, payableLastMonth),
+          payableToAgenciesDateCompared: lastMonthLabel,
+          topSellingProductsTotalAmount: topSellingProductsTotalAmount.toFixed(0),
+          topSellingProductsGrowth: getGrowth(topSellingProductsTotalAmount, topSellingProductsLastAmount),
+          topSellingProductsDateCompared: lastMonthLabel,
+           couponTotalUsageCount,
+          couponGrowth: getGrowth(couponTotalUsageCount, couponUsageLastMonth),
+          couponDateCompared: lastMonthLabel,
           totalVisitors,
-          visitorGrowth: getGrowth(totalVisitors, previousVisitors)
+          visitorGrowth: getGrowth(totalVisitors, previousVisitors),
+          visitorDateCompared: lastMonthLabel,
         }
       });
     } catch (err) {
