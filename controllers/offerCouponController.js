@@ -16,10 +16,21 @@ exports.createCoupon = async (req, res) => {
 
 exports.getAllCoupons = async (req, res) => {
   try {
-    const { creatorId } = req.params;
-    const filter = creatorId ? { creatorId } : {};
+    const filter = {};
     const coupons = await Coupon.find(filter).sort({ createdAt: -1 });
-    res.status(200).json({ message: 'Coupons fetched', success: true, data: coupons });
+    const transformedCoupons = coupons.map(coupon => ({
+      _id: coupon._id,
+      code: coupon.code,
+      discountType: coupon.discountType,
+      discountValue: coupon.discountValue,
+      minOrderAmount: coupon.minOrderAmount,
+      usageLimit: coupon.usageLimit,
+      usedCount: coupon.usedCount,
+      expiryDate: coupon.expiryDate,
+      isActive: coupon.isActive,
+      createdAt: coupon.createdAt
+    }));
+    res.status(200).json({ message: 'Coupons fetched', success: true, data: transformedCoupons });
   } catch (err) {
     res.status(500).json({ message: 'Failed to fetch coupons', success: false, data: err.message });
   }

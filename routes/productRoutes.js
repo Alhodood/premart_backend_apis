@@ -19,7 +19,10 @@ const upload = multer({ dest: 'uploads/' });
 /// ==== this is for upload image in s3 bucket
 router.post('/upload',uploadMiddleWare.single('file'),productController.fileUpload);
 
-
+// PRODUCT RATINGS ROUTES
+// Public route for setting product rating (does NOT require shopId)
+router.put('/product/rating/:productId', productController.setProductRating);
+router.get('/product/ratings', productController.getAllProductRatings);
 
 router.post('/upload-bulk', upload.single('file'), productController.bulkUploadProducts);
 
@@ -41,7 +44,7 @@ router.post('/brand', brandController.createBrand);
 router.get('/brand', brandController.getAllBrands);
 router.get('/brand/:id', brandController.getBrandById);
 router.put('/brand/:id', brandController.updateBrand);
-router.delete('/brand/:id', brandController.deleteBrand);
+router.delete('/brand/delete/:id', brandController.deleteBrand);
 router.get('/brand-products/:brandName', brandController.getProductsByBrand);
 router.get('/brand/models/:brandName', brandController.getModelsByBrand);
 
@@ -50,7 +53,7 @@ router.post('/category', categoryController.createCategory);
 router.get('/category', categoryController.getAllCategories);
 router.get('/category/:id', categoryController.getCategoryById);
 router.put('/category/:id', categoryController.updateCategory);
-router.delete('/category/:id', categoryController.deleteCategory);
+router.delete('/category/delete/:id', categoryController.deleteCategory);
 router.get('/products-by-category/:categoryTab', categoryController.getProductsByCategory);
 router.get('/parts-by-category/:categoryTab', categoryController.getPartsByCategory);
 
@@ -76,7 +79,7 @@ router.post('/model', modelController.createModel);
 router.get('/model', modelController.getAllModels);
 router.get('/model/:id', modelController.getModelById);
 router.put('/model/:id', modelController.updateModel);
-router.delete('/model/:id', modelController.deleteModel);
+router.delete('/model/delete/:id', modelController.deleteModel);
 router.get('/products-by-model/:modelName', modelController.getProductsByModel);
 
 
@@ -86,8 +89,9 @@ router.post('/year', yearController.createYear);
 router.get('/year', yearController.getAllYears);
 router.get('/year/:id', yearController.getYearById);
 router.put('/year/:id', yearController.updateYear);
-router.delete('/year/:id', yearController.deleteYear);
+router.delete('/year/delete/:id', yearController.deleteYear);
 router.get('/products-by-year/:year', yearController.getProductsByYear);
+
 
 
 
