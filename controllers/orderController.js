@@ -339,20 +339,19 @@ exports.createOrder = async (req, res) => {
 
     // 🔐 Create payment after order is saved successfully
     if (paymentType !== 'COD') {
-      const allShopIds = perShopResults.map(r => r.shopId);
-      const totalFinalPayable = perShopResults.reduce((sum, r) => sum + parseFloat(r.createdOrder.finalPayable), 0);
-
-      const payment = new Payment({
-        orderId: masterOrder._id, // Use master order ID
-        userId,
-        shopId: allShopIds,
-        amount: totalFinalPayable,
-        paymentMethod: paymentType,
-        transactionId: req.body.transactionId || null,
-        paymentStatus: 'Paid'
-      });
-
-      await payment.save();
+      // For each shop, create a separate Payment document
+      for (const result of perShopResults) {
+        const payment = new Payment({
+          orderId: result.createdOrder._id,
+          userId,
+          shopId: result.shopId,
+          amount: result.createdOrder.finalPayable,
+          paymentMethod: paymentType,
+          transactionId: transactionId || null,
+          paymentStatus: 'Paid'
+        });
+        await payment.save();
+      }
     }
 
     // Step 9: Respond
@@ -674,86 +673,58 @@ exports.viewMyOrders = async (req, res) => {
 // 2. View Orders By Shop (Shop Admin)
 exports.viewOrdersByShopAdmin = async (req, res) => {
   try {
-    const {
-      shopId
-    } = req.params;
-
-    const {
-      search,
-      userId,
-      orderStatus,
-      from,
-      to,
-      page = 1,
-      limit = 10,
-      sort = 'desc',
-      sortBy = 'createdAt',
-      minAmount,
-      maxAmount
-    } = req.query;
+    const { shopId } = req.params;
+    const { page = 1, limit = 10, sort = 'desc', sortBy = 'createdAt' } = req.query;
 
     if (!shopId) {
       return res.status(400).json({
         message: 'Shop ID is required',
-        success: false,
+        success: false
       });
     }
 
-    let filter = { shopId };
-
-    if (search) {
-      if (mongoose.Types.ObjectId.isValid(search)) {
-        filter._id = search;
-      } else {
-        // Optional: extend to other fields if needed
-        filter['deliveryAddress.name'] = { $regex: search, $options: 'i' };
-      }
-    }
-    if (userId) {
-      filter.userId = userId;
-    }
-    if (orderStatus) {
-      filter.orderStatus = new RegExp('^' + orderStatus + '$', 'i');
-    }
-    if (from && to) {
-      const fromDate = new Date(from);
-      const toDate = new Date(to);
-      toDate.setHours(23, 59, 59, 999); // Ensure end of day is included
-      filter.createdAt = {
-        $gte: fromDate,
-        $lte: toDate
-      };
-    }
-    // Filter by minAmount and maxAmount
-    if (minAmount || maxAmount) {
-      filter.totalAmount = {};
-      if (minAmount) filter.totalAmount.$gte = parseFloat(minAmount);
-      if (maxAmount) filter.totalAmount.$lte = parseFloat(maxAmount);
-    }
-
-    // Fetch orders and include delivery boy details, and lean for easier manipulation
-    const orders = await Order.find(filter)
-      .populate('assignedDeliveryBoy', 'name email phone agencyAddress city')
+    const orders = await Order.find({ shopId })
       .sort({ [sortBy]: sort === 'asc' ? 1 : -1 })
       .skip((page - 1) * limit)
       .limit(parseInt(limit))
       .lean();
 
-    // For each order, attach full product details
-    for (let order of orders) {
-      // Find products in all Product documents that match any of the order.productId
-      // order.productId could be array of ObjectIds or strings
-      const productDetails = await Product.find({ 'products._id': { $in: order.productId } });
+    const mappedOrders = orders.map(order => {
+      const delivery = order.deliveryAddress || {};
+      const productObj = order.productId && order.productId.length > 0 ? order.productId[0] : {};
+      const fullProd = order.products && order.products.length > 0 ? order.products[0] : {};
+      const subCat = fullProd.subCategories && fullProd.subCategories.length > 0 ? fullProd.subCategories[0] : {};
+      const part = subCat.parts && subCat.parts.length > 0 ? subCat.parts[0] : {};
 
-      // Flatten and filter out the actual products that match
-      order.fullProductDetails = productDetails.flatMap(shop =>
-        shop.products.filter(p =>
-          order.productId.map(id => id.toString()).includes(p._id.toString())
-        )
-      );
-    }
+      return {
+        _id: order._id,
+        userId: order.userId,
+        productId: productObj.productId,
+        quantity: productObj.quantity,
+        name: delivery.name,
+        contact: delivery.contact,
+        area: delivery.area,
+        couponCode: order.couponCode,
+        brand: fullProd.brand,
+        year: fullProd.year,
+        model: fullProd.model,
+        frameCode: fullProd.frameCode,
+        region: fullProd.region,
+        categoryTab: subCat.categoryTab,
+        subCategoryTab: subCat.subCategoryTab,
+        partNumber: part.partNumber,
+        partName: part.partName,
+        imageUrl: part.imageUrl,
+        totalAmount: order.totalAmount,
+        finalPayable: order.finalPayable,
+        deliverycharge: order.deliverycharge,
+        paymentType: order.paymentType,
+        orderStatus: order.orderStatus,
+        createdAt: order.createdAt
+      };
+    });
 
-    const total = await Order.countDocuments(filter);
+    const total = await Order.countDocuments({ shopId });
 
     return res.status(200).json({
       message: 'Shop orders fetched successfully',
@@ -761,9 +732,8 @@ exports.viewOrdersByShopAdmin = async (req, res) => {
       total,
       page: parseInt(page),
       limit: parseInt(limit),
-      data: orders
+      data: mappedOrders
     });
-
   } catch (error) {
     console.error('Shop Admin View Orders Error:', error);
     res.status(500).json({

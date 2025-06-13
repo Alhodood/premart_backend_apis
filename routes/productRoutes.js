@@ -38,6 +38,7 @@ router.get('/products-by-part-number/:partNumber', productController.getProducts
 router.get('/parts-by-part-number/:partNumber', productController.getPartsByPartNumber);
 router.get('/similar-products', productController.getSimilarProducts);//similar-products?brand=Nissan&model=Patrol&categoryTab=Fuel Injection
 router.get('/getAllProductsAdmin', productController.getAllProductsAdmin);
+router.post('/update-part-prices', productController.updatePartPrices);
 
 // Brand Routes
 router.post('/brand', brandController.createBrand);
