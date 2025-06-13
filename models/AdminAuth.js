@@ -1,6 +1,18 @@
 const mongoose = require('mongoose');
 const bcrypt = require('bcrypt');
 
+const SettingsSchema = new mongoose.Schema({
+  appName: { type: String, default: '' },
+  supportEmail: { type: String, default: '' },
+  supportPhone: { type: String, default: '' },
+  platformCommission: { type: Number, default: 0 },
+  taxRate: { type: Number, default: 0 },
+  stripePublicKey: { type: String, default: '' },
+  stripeSecretKey: { type: String, default: '' },
+  deliveryCharge: { type: Number, default: 0 },
+  maxActiveOrdersPerDeliveryBoy: { type: Number, default: 5 }
+}, { _id: false });
+
 const AdminSchema = new mongoose.Schema(
   {
     name: { type: String, required: true },
@@ -10,11 +22,12 @@ const AdminSchema = new mongoose.Schema(
     countryCode:{ type: String, required: true },
     dob:{ type: String },
     accountVerify:{type:Boolean},
-    role: { type: String, enum: ['customer', 'shopAdmin', 'superAdmin', 'deliveryBoy'], default: 'superAdmin' }
+    role: { type: String, enum: ['customer', 'shopAdmin', 'superAdmin', 'deliveryBoy'], default: 'superAdmin' },
     // Fields for OTP login
-   
+    // Nested settings for super admin configuration (e.g., commission, tax, Stripe keys)
+    settings: { type: SettingsSchema, default: () => ({}) }
   },
-  { timestamps: true }
+  { timestamps: true, minimize: false }
 );
 
 // Hash password before saving the user (for email registration)

@@ -22,4 +22,19 @@ router.get('/buyers/top', reportController.getTopBuyers);
 
 router.get('/coupons/most-used', reportController.getMostUsedCoupons);
 
+// Shop-specific reporting routes
+router.get('/shop-sales/by-id', reportController.getShopSalesById);
+router.get('/orders/cancelled/by-shop', reportController.getShopCancelledOrders);
+router.get('/orders/returned/by-shop', reportController.getShopReturnedOrders);
+
+router.get('/sales/daily/by-shop', reportController.getShopDailySales);
+router.get('/sales/weekly/by-shop', reportController.getShopWeeklySales);
+router.get('/sales/monthly/by-shop', reportController.getShopMonthlySales);
+
+router.get('/products/top-selling/by-shop', reportController.getShopTopSellingProducts);
+router.get('/products/low-selling/by-shop', reportController.getShopLowSellingProducts);
+router.get('/stock/low/by-shop', reportController.getShopLowStockParts);
+router.get('/stock/out-of-stock/by-shop', reportController.getShopOutOfStockParts);
+router.get('/orders/pending/by-shop', reportController.getShopPendingOrders);
+
 module.exports = router;

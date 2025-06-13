@@ -417,21 +417,61 @@ exports.bulkUploadProducts = async (req, res) => {
 };
 
 
-// Get all products for a shop
+// Get all products for a shop with simplified fields
 exports.getProductsByShop = async (req, res) => {
   try {
     const shopId = req.params.shopId || req.query.shopId;
     console.log('Looking for shopId:', shopId);
-    const productEntry = await Product.find({ shopId });
+    const products = await Product.find({ shopId }).lean();
 
-
-    if (!productEntry) {
-      return res.status(404).json({ message: 'Shop not found', data: [],success:false });
+    if (!products || products.length === 0) {
+      return res.status(404).json({ message: 'No products found for this shop', data: [], success: false });
     }
 
-    return res.status(200).json({ message: 'Products retrieved', data: productEntry, success:true });
+    const simplified = products.map(product => {
+      const {
+        _id, brand, year, model, frameCode, region, engineCode, transmission,
+        productionStart, productionEnd, shopId, createdAt, ratings = {}
+      } = product;
+
+      const firstSubCategory = (product.subCategories && product.subCategories.length > 0)
+        ? product.subCategories[0]
+        : {};
+
+      const {
+        categoryTab,
+        categoryTabImageUrl = [],
+        subCategoryTab,
+        subCategoryTabImageUrl = [],
+        parts = []
+      } = firstSubCategory;
+
+      return {
+        _id,
+        brand,
+        year,
+        model,
+        frameCode,
+        region,
+        engineCode,
+        transmission,
+        productionStart,
+        productionEnd,
+        shopId,
+        createdAt,
+        ratings: ratings.average,
+        totalReviews: ratings.totalReviews,
+        categoryTab,
+        categoryTabImageUrl,
+        subCategoryTab,
+        subCategoryTabImageUrl,
+        parts
+      };
+    });
+
+    return res.status(200).json({ message: 'Products retrieved', data: simplified, success: true });
   } catch (error) {
-    return res.status(500).json({ message: 'Failed to fetch products', data: error.message,success:false });
+    return res.status(500).json({ message: 'Failed to fetch products', data: error.message, success: false });
   }
 };
 
@@ -629,5 +669,59 @@ exports.getAllProductRatings = async (req, res) => {
     });
   } catch (error) {
     return res.status(500).json({ success: false, message: 'Failed to fetch ratings', error: error.message });
+  }
+};
+// Update price and discountedPrice of one or multiple parts inside a product document
+exports.updatePartPrices = async (req, res) => {
+  try {
+    const { updates } = req.body;
+
+    if (!Array.isArray(updates) || updates.length === 0) {
+      return res.status(400).json({
+        message: 'Updates must be a non-empty array',
+        success: false
+      });
+    }
+
+    let updatedParts = [];
+
+    for (const update of updates) {
+      const { partId, price, discountedPrice } = update;
+      const product = await Product.findOne({
+        'subCategories.parts._id': partId
+      });
+
+      if (!product) {
+        continue;
+      }
+
+      let updated = false;
+
+      for (const subCategory of product.subCategories) {
+        const part = subCategory.parts.id(partId);
+        if (part) {
+          if (typeof price === 'number') part.price = price;
+          if (typeof discountedPrice === 'number') part.discountedPrice = discountedPrice;
+          updatedParts.push({ partId, price: part.price, discountedPrice: part.discountedPrice });
+          updated = true;
+        }
+      }
+
+      if (updated) await product.save();
+    }
+
+    return res.status(200).json({
+      message: 'Parts price(s) updated successfully',
+      success: true,
+      data: updatedParts
+    });
+
+  } catch (error) {
+    console.error('Update Part Prices Error:', error);
+    return res.status(500).json({
+      message: 'Failed to update part prices',
+      success: false,
+      error: error.message
+    });
   }
 };
