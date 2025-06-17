@@ -1,87 +1,67 @@
 const Stock = require('../models/Stock');
-const { Product } = require('../models/Product'); 
+const Product = require('../models/Product');
 const mongoose = require('mongoose');
 
 // 1. View all stock for a shop
 
 exports.getStockByShop = async (req, res) => {
+  console.log('📥 API Called: getStockByShop');
+  const shopId = req.params.shopId;
+  console.log('🛒 Shop ID:', shopId);
+
+  if (!mongoose.Types.ObjectId.isValid(shopId)) {
+    console.error('❌ Invalid shopId:', shopId);
+    return res.status(400).json({ message: 'Invalid shop ID', success: false });
+  }
+
   try {
-    const stocks = await Stock.find({ shopId: req.params.shopId });
-
-    const enrichedStocks = await Promise.all(stocks.map(async (stock) => {
-      console.log('🔍 Matching ProductId:', stock.productId);
-      const productDoc = await Product.aggregate([
-        { $match: { shopId: stock.shopId.toString() } },
-        { $unwind: '$products' },
-        {
-          $match: {
-            $expr: {
-              $eq: ['$products._id', new mongoose.Types.ObjectId(stock.productId)]
-            }
-          }
-        },
-        { $project: { productDetails: '$products' } },
-        { $limit: 1 }
-      ]);
-      const productDetails = productDoc.length > 0 ? productDoc[0].productDetails : null;
-
-      return {
-        ...stock.toObject(),
-        productDetails
-      };
-    }));
-
-    let {
-      category,
-      status,
-      from,
-      to,
-      minThreshold,
-      maxThreshold
-    } = req.query;
-
-    if (status === 'Low Stock') status = 'low';
-    else if (status === 'Out of Stock') status = 'out';
-    else if (status === 'In Stock') status = 'in';
-
-    let filteredStocks = enrichedStocks;
-
-    if (category) {
-      filteredStocks = filteredStocks.filter(s => s.productDetails?.category === category);
+    const products = await Product.find({ shopId: new mongoose.Types.ObjectId(shopId) }).lean();
+    console.log('✅ Products found:', products.map(p => p._id.toString()));
+    if (!products || products.length === 0) {
+      return res.json({ message: 'No products found for this shop', success: true, data: [] });
     }
 
-    if (status === 'low') {
-      filteredStocks = filteredStocks.filter(s => s.quantity < s.threshold);
-    } else if (status === 'out') {
-      filteredStocks = filteredStocks.filter(s => s.quantity === 0);
-    } else if (status === 'in') {
-      filteredStocks = filteredStocks.filter(s => s.quantity > s.threshold);
+    const partStocks = [];
+
+    if (!Array.isArray(products)) {
+      console.error('❌ Expected products to be an array but got:', typeof products);
+      return res.status(500).json({
+        message: 'Invalid product structure returned',
+        success: false
+      });
     }
 
-    if (from && to) {
-      const fromDate = new Date(from);
-      const toDate = new Date(to);
-      filteredStocks = filteredStocks.filter(s =>
-        new Date(s.updatedAt) >= fromDate && new Date(s.updatedAt) <= toDate
-      );
+    for (const product of products) {
+      const subCategories = Array.isArray(product.subCategories) ? product.subCategories : [];
+      for (const sub of subCategories) {
+        const parts = Array.isArray(sub.parts) ? sub.parts : [];
+        for (const part of parts) {
+          partStocks.push({
+            partId: part._id,
+             quantity: part.quantity,
+            partName: part.partName,
+            partNumber: part.partNumber,
+           
+            stockStatus: part.stockStatus,
+            brand: product.brand,
+            model: product.model,
+            categoryTab: sub.categoryTab,
+            subCategoryTab: sub.subCategoryTab,
+            imageUrl: Array.isArray(part.imageUrl) && part.imageUrl.length > 0 ? part.imageUrl[0] : null
+          });
+        }
+      }
     }
 
-    if (minThreshold) {
-      filteredStocks = filteredStocks.filter(s => s.threshold >= parseInt(minThreshold));
-    }
-
-    if (maxThreshold) {
-      filteredStocks = filteredStocks.filter(s => s.threshold <= parseInt(maxThreshold));
-    }
-
-    res.json({
-      message: 'Stock fetched with filters',
+    return res.json({
+      message: 'Part quantities fetched successfully',
       success: true,
-      data: filteredStocks
+      data: partStocks
     });
 
   } catch (err) {
-    res.status(500).json({
+    console.error('❌ Error in getStockByShop:', err);
+    return res.status(500).json({
       message: 'Failed to fetch stock',
       success: false,
       data: err.message
@@ -108,46 +88,42 @@ exports.getStockByProduct = async (req, res) => {
 
 // 3. Add or update stock
 exports.addOrUpdateStock = async (req, res) => {
-    try {
-      const { shopId, productId, quantity, threshold } = req.body;
-  
-      // ✅ Validate that this product belongs to this shop
-      const productRecord = await Product.findOne({
-        shopId: shopId,
-        'products._id': productId
-      });
-  
-      if (!productRecord) {
-        return res.status(400).json({
-          message: 'Product not linked to the given shop',
-          success: false
-        });
-      }
-  
-      // ⬇ continue with add/update
-      let stock = await Stock.findOne({ shopId, productId });
-  
-      if (stock) {
-        stock.quantity += quantity;
-        stock.threshold = threshold ?? stock.threshold;
-        stock.lastRestockedAt = new Date();
-        await stock.save();
-      } else {
-        stock = await Stock.create({
-          shopId,
-          productId,
-          quantity,
-          threshold,
-          lastRestockedAt: new Date()
-        });
-      }
-  
-      res.json({ message: 'Stock updated', success: true, data: stock });
-  
-    } catch (err) {
-      res.status(500).json({ message: 'Failed to update stock', success: false, data: err.message });
+  try {
+    const { shopId, partId, quantity } = req.body;
+
+    if (!mongoose.Types.ObjectId.isValid(shopId) || !mongoose.Types.ObjectId.isValid(partId)) {
+      return res.status(400).json({ message: 'Invalid shopId or partId', success: false });
     }
-  };
+
+    const products = await Product.find({ shopId: new mongoose.Types.ObjectId(shopId) });
+
+    let updated = false;
+
+    for (const product of products) {
+      for (const sub of product.subCategories || []) {
+        for (const part of sub.parts || []) {
+          if (part._id.toString() === partId) {
+            part.quantity += quantity;
+            updated = true;
+            await product.save();
+            break;
+          }
+        }
+        if (updated) break;
+      }
+      if (updated) break;
+    }
+
+    if (!updated) {
+      return res.status(404).json({ message: 'Part not found in any product for this shop', success: false });
+    }
+
+    res.json({ message: 'Part quantity updated successfully', success: true });
+  } catch (err) {
+    console.error('Error updating part quantity:', err);
+    res.status(500).json({ message: 'Internal Server Error', success: false, data: err.message });
+  }
+};
 
 // 4. Adjust stock (e.g. -1 on sale, +1 on return)
 exports.adjustStock = async (req, res) => {

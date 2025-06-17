@@ -36,10 +36,16 @@ router.delete("/card/:id/:cardId",deleteCardById);
 // Super Admin
 router.post('/super-admin/register', adminAuthController.registerSuperAdmin);
 router.post('/super-admin/login', adminAuthController.loginSuperAdmin);
+router.put('/super-admin/profile-update/:adminId', adminAuthController.updateAdminSettings);
+router.get('/super-admin/settings/:adminId', adminAuthController.getSuperAdminSettings);
+
+
 
 // Shop Admin
 router.post('/shop-admin/register', adminAuthController.registerShopAdmin);
 router.post('/shop-admin/login', adminAuthController.loginShopAdmin);
+router.put('/shop/:shopId/update-details', adminAuthController.updateShopDetails);
+
 
 
 // Customer OTP Routes
@@ -47,6 +53,9 @@ router.post('/send-otp', sendOtpToCustomer);
 router.post('/verify-otp', verifyOtpForCustomer);
 router.post('/resend-otp', resendOtpToCustomer);
 //router.post('/sendOtpOnly', sendOtpOnly);
+
+
+
 
 
 module.exports = router;
