@@ -9,7 +9,7 @@ const authRoutes = require('./routes/authRoutes');
 const productRoutes = require('./routes/productRoutes.js');
 const shopRoutes = require('./routes/shopRoutes.js');
 const customerAddress= require("./routes/customerAddressRoutes.js")
-// const customerCard= require("./routes/customerCardRoutes.js")
+const vinData= require("./routes/vinDataRoutes.js")
 const banner = require("./routes/bannerRoutes.js")
 const ExcelJS = require('exceljs');
 
@@ -98,7 +98,7 @@ app.use('/api/superNotification',superNotification);
 app.use('/api/offer-Coupon',offerCoupon);
 app.use('/api/dashboard',dashboard);
 app.use('/api/report',reports);
-
+app.use('/api/vinData',vinData);
 
 
 // Basic route
