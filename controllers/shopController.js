@@ -1,3 +1,4 @@
+const mongoose = require('mongoose');
 const { Shop } = require('../models/Shop');
 const Order = require('../models/Order');
 
@@ -22,6 +23,7 @@ console.log(shopeDetails);
         shopLicenseExpiry: req.body.shopeDetails.shopLicenseExpiry,
         shopLicenseImage: req.body.shopeDetails.shopLicenseImage,
         EmiratesId: req.body.shopeDetails.EmiratesId,
+        EmiratesIdImage: req.body.shopeDetails.EmiratesIdImage,
         shopLocation: req.body.shopeDetails.shopLocation,
         termsAndCondition: req.body.shopeDetails.termsAndCondition,
         supportMail: req.body.shopeDetails.supportMail,
@@ -42,8 +44,28 @@ console.log(shopeDetails);
 // Get all shops
 exports.getAllShops = async (req, res) => {
   try {
-    const shops = await Shop.find();
-    res.status(200).json({ success: true, data: shops, message:"shops featched successfuly"});
+    const shops = await Shop.find().lean();
+    const formattedShops = shops.map(shop => {
+      return {
+        _id: shop._id,
+        shopName: shop.shopeDetails?.shopName,
+        orderCount: shop.orders?.length || 0,
+        shopAddress: shop.shopeDetails?.shopAddress,
+        shopMail: shop.shopeDetails?.shopMail,
+        shopContact: shop.shopeDetails?.shopContact,
+        shopLicenseNumber: shop.shopeDetails?.shopLicenseNumber,
+        shopLicenseExpiry: shop.shopeDetails?.shopLicenseExpiry,
+        EmiratesId: shop.shopeDetails?.EmiratesId,
+         EmiratesIdImage: shop.shopeDetails?.EmiratesIdImage,
+        shopLicenseImage: shop.shopeDetails?.shopLicenseImage,
+        bankName: shop.shopeDetails?.shopBankDetails?.bankName,
+        accountNumber: shop.shopeDetails?.shopBankDetails?.accountNumber,
+        supportMail: shop.shopeDetails?.supportMail,
+        supportNumber: shop.shopeDetails?.supportNumber,
+        createdAt: shop.createdAt
+      };
+    });
+    res.status(200).json({ success: true, data: formattedShops, message: "shops featched successfuly" });
   } catch (error) {
     res.status(500).json({ success: false, message: 'Server Error',data:[] });
   }
@@ -64,19 +86,26 @@ exports.getShopById = async (req, res) => {
 
 // Update shop by ID
 exports.updateShop = async (req, res) => {
-  console.log(req.body);
   try {
-    const updatedShop = await Shop.findByIdAndUpdate(
-      req.params.id,
-      req.body,
-      {runValidators: true }
-    );
-    if (!updatedShop) {
-      return res.status(404).json({ success: false, message: 'Shop not found',data:[] });
+    const shopId = req.params.id;
+
+    const shop = await Shop.findById(shopId);
+    if (!shop) {
+      return res.status(404).json({ success: false, message: 'Shop not found', data: [] });
     }
-    res.status(200).json({ success: true, data: updatedShop, message:"shops updated successfuly" });
+
+    // Update shopeDetails fields
+    shop.shopeDetails = {
+      ...shop.shopeDetails.toObject(),
+      ...req.body.shopeDetails
+    };
+
+    await shop.save();
+
+    res.status(200).json({ success: true, data: shop, message: "Shop updated successfully" });
   } catch (error) {
-    res.status(500).json({ success: false, message: 'Server Error' ,data:[]});
+    console.error('Update Shop Error:', error);
+    res.status(500).json({ success: false, message: 'Server Error', data: [] });
   }
 };
 
@@ -202,6 +231,48 @@ exports.shopConfirmReady = async (req, res) => {
     return res.status(500).json({
       message: 'Internal Server Error',
       success: false,
+      error: error.message
+    });
+  }
+};
+// Delete shop by ID using DELETE method and req.params.shopId
+exports.deleteShopById = async (req, res) => {
+  const { shopId } = req.params;
+  try {
+    console.log('Received shopId:', shopId);
+
+    const objectId = new mongoose.Types.ObjectId(shopId);
+    console.log('Converted to ObjectId:', objectId);
+
+    // Try deleting by root _id
+    let shop = await Shop.findOneAndDelete({ _id: objectId });
+    console.log('Attempt to delete by _id:', shop);
+
+    // If not found, try deleting by nested shopeDetails._id
+    if (!shop) {
+      shop = await Shop.findOneAndDelete({ 'shopeDetails._id': objectId });
+      console.log('Attempt to delete by shopeDetails._id:', shop);
+    }
+
+    if (!shop) {
+      return res.status(404).json({
+        success: false,
+        message: "Shop not found",
+        data: []
+      });
+    }
+
+    return res.status(200).json({
+      success: true,
+      message: "Shop deleted successfully",
+      data: shop
+    });
+
+  } catch (error) {
+    console.error('Delete Shop Error:', error);
+    return res.status(500).json({
+      success: false,
+      message: "Error deleting shop",
       error: error.message
     });
   }

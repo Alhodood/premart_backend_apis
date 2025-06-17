@@ -1,6 +1,8 @@
 const bcrypt = require('bcrypt');
 const jwt = require('jsonwebtoken');
-const  DeliveryBoy  = require('../models/DeliveryBoy');
+const mongoose = require('mongoose');
+const DeliveryBoy = require('../models/DeliveryBoy');
+const { DeliveryAgency } = require('../models/DeliveryAgency');
 const Order = require('../models/Order');
 const { Shop } = require('../models/Shop');
 const axios = require('axios');
@@ -16,7 +18,7 @@ const { getIO } = require('../sockets/socket');
 
 
 const twilio = require('twilio');
-const client = twilio(process.env.TWILIO_ACCOUNT_SID, process.env.TWILIO_AUTH_TOKEN);
+const client = twilio(process.env.TWILIO_ACCOUNT_SID, process.env.TWILIO_AUTHTOKEN);
 
 exports.sendOtpToDeliveryBoy = async (req, res) => {
   const { phone } = req.body;
@@ -174,61 +176,57 @@ exports.verifyOtpForDeliveryBoy = async (req, res) => {
     }
   };
 
-  exports.getAllDeliveryBoys = async (req, res) => {
-    try {
-      const {
-        search,
-        agencyId,
-        availability,
-        page = 1,
-        limit = 10,
-        sort = 'desc',
-        sortBy = 'createdAt'
-      } = req.query;
-  
-      let filter = { role: 'deliveryBoy' };
-  
-      if (search) {
-        filter.$or = [
-          { name: { $regex: search, $options: 'i' } },
-          { email: { $regex: search, $options: 'i' } },
-          { phone: { $regex: search, $options: 'i' } }
-        ];
-      }
-  
-      if (agencyId) {
-        filter.agencyId = agencyId;
-      }
-  
-      if (availability === 'true' || availability === 'false') {
-        filter.availability = availability === 'true';
-      }
-  
-      const deliveryBoys = await DeliveryBoy.find(filter)
-        .sort({ [sortBy]: sort === 'asc' ? 1 : -1 })
-        .skip((page - 1) * limit)
-        .limit(parseInt(limit));
-  
-      const total = await DeliveryBoy.countDocuments(filter);
-  
-      return res.status(200).json({
-        message: 'Delivery boys fetched successfully',
-        success: true,
-        total,
-        page: parseInt(page),
-        limit: parseInt(limit),
-        data: deliveryBoys
-      });
-  
-    } catch (error) {
-      console.error('Get Delivery Boys Error:', error);
-      res.status(500).json({
-        message: 'Failed to fetch delivery boys',
-        success: false,
-        data: error.message
-      });
-    }
-  };
+exports.getAllDeliveryBoys = async (req, res) => {
+  try {
+    const deliveryBoys = await DeliveryBoy.find({}, {
+      name: 1,
+      phone: 1,
+      agencyId: 1,
+      accountVerify: 1,
+      isOnline: 1,
+      latitude: 1,
+      longitude: 1,
+      availability: 1,
+      createdAt: 1,
+      assignedOrders: 1,
+      emiratesId: 1,
+      areaAssigned: 1,
+      city: 1,
+      dob: 1,
+      licenseNo: 1,
+      email: 1,
+    }).lean();
+
+    const formatted = deliveryBoys.map(boy => ({
+      _id: boy._id,
+      name: boy.name || "NA",
+      phone: boy.phone || "NA",
+      agencyId: boy.agencyId || "NA",
+      emiratesId: boy.emiratesId || "NA",
+      areaAssigned: boy.areaAssigned || "NA",
+      city: boy.city || "NA",
+      dob: boy.dob || "NA",
+      licenseNo: boy.licenseNo || "NA",
+      email: boy.email || "NA",
+      accountVerify: boy.accountVerify !== undefined && boy.accountVerify !== null ? boy.accountVerify : "NA",
+      isOnline: boy.isOnline !== undefined && boy.isOnline !== null ? boy.isOnline : "NA",
+      latitude: boy.latitude !== undefined && boy.latitude !== null ? boy.latitude : "NA",
+      longitude: boy.longitude !== undefined && boy.longitude !== null ? boy.longitude : "NA",
+      availability: boy.availability !== undefined && boy.availability !== null ? boy.availability : "NA",
+      createdAt: boy.createdAt || "NA",
+      assignedOrder: Array.isArray(boy.assignedOrders) ? boy.assignedOrders.length : 0
+    }));
+
+    res.status(200).json({
+      message: "Delivery boys fetched successfully",
+      success: true,
+      data: formatted
+    });
+  } catch (err) {
+    console.error("Error fetching delivery boys:", err);
+    res.status(500).json({ success: false, message: "Failed to fetch delivery boys" });
+  }
+};
 
   exports.deleteDeliveryBoy = async (req, res) => {
     try {
@@ -306,128 +304,197 @@ exports.verifyOtpForDeliveryBoy = async (req, res) => {
 
 
 
-  exports.viewAssignedOrders = async (req, res) => {
-    try {
-      const deliveryBoyId = req.params.deliveryBoyId;
-  
-      // ✅ 1. Validate delivery boy
-      const deliveryBoy = await DeliveryBoy.findById(deliveryBoyId);
-      if (!deliveryBoy) {
-        return res.status(404).json({
-          message: 'Delivery Boy not found',
-          success: false,
-          data: []
-        });
-      }
-  
-      // ✅ 2. Must be online
-      if (!deliveryBoy.isOnline) {
-        return res.status(200).json({
-          message: 'You are offline. No assigned orders shown.',
-          success: true,
-          data: []
-        });
-      }
-  
-      // ✅ 3. Fetch assigned orders
-      const assignedOrders = await Order.find({
-        assignedDeliveryBoy: deliveryBoy._id,
-        orderStatus: {
-          $in: ['Delivery Boy Assigned', 'Accepted by Delivery Boy', 'Picked Up']
-        }
-      }).sort({ createdAt: -1 });
-  
-      const results = [];
-  
-      for (const order of assignedOrders) {
-        // 🏪 Fetch shop details
-        const shop = await Shop.findById(order.shopId);
-        const shopLocation = shop?.shopeDetails?.shopLocation;
-        const [shopLat, shopLng] = shopLocation?.split(',').map(Number) || [];
-  
-        // 👟 Delivery Boy coordinates
-        const { latitude: boyLat, longitude: boyLng } = deliveryBoy;
-  
-        // 👤 Customer coordinates
-        const { latitude: customerLat, longitude: customerLng } = order.deliveryAddress;
-  
-        // 🧮 Distance calculations
-        const pickupDistanceKm = geolib.getDistance(
-          { latitude: boyLat, longitude: boyLng },
-          { latitude: shopLat, longitude: shopLng }
-        ) / 1000;
-  
-        const dropDistanceKm = geolib.getDistance(
-          { latitude: shopLat, longitude: shopLng },
-          { latitude: customerLat, longitude: customerLng }
-        ) / 1000;
-  
-        // 🕒 ETA using Google Distance Matrix API
-        const timeUrl = `https://maps.googleapis.com/maps/api/distancematrix/json?origins=${boyLat},${boyLng}&destinations=${shopLat},${shopLng}&key=${GOOGLE_MAPS_API_KEY}`;
-        const timeResponse = await axios.get(timeUrl);
-        const pickupTime = timeResponse.data?.rows?.[0]?.elements?.[0]?.duration?.text || 'N/A';
+exports.viewAssignedOrders = async (req, res) => {
+  try {
+    const deliveryBoyId = req.params.deliveryBoyId;
 
-        // 🕒 Estimate drop time using Google Maps API
-const dropTimeUrl = `https://maps.googleapis.com/maps/api/distancematrix/json?origins=${shopLat},${shopLng}&destinations=${customerLat},${customerLng}&key=${GOOGLE_MAPS_API_KEY}`;
-const dropTimeResponse = await axios.get(dropTimeUrl);
-const dropTime = dropTimeResponse.data?.rows?.[0]?.elements?.[0]?.duration?.text || 'N/A';
-
-
-const parseTimeToMinutes = (str) => {
-  if (!str || str === 'N/A') return 0;
-  const matches = str.match(/(\d+)\s*hour[s]?|(\d+)\s*min[s]?/g) || [];
-  let total = 0;
-
-  matches.forEach(part => {
-    if (part.includes('hour')) total += parseInt(part) * 60;
-    else if (part.includes('min')) total += parseInt(part);
-  });
-
-  return total;
-};
-
-const pickupMinutes = parseTimeToMinutes(pickupTime);
-const dropMinutes = parseTimeToMinutes(dropTime);
-const totalEstimatedTime = `${pickupMinutes + dropMinutes} mins`;
-
-// ✅ Fetch payment details
-const payment = await Payment.findOne({ orderId: order._id });
-const paymentInfo = {
-  method: payment?.paymentMethod || 'Unknown',
-  status: payment?.paymentStatus || 'Unpaid'
-};
-  
-        // 📦 Final response per order
-        results.push({
-          orderId: order._id, // 🔁 rename _id
-          ...order._doc,
-          _id: undefined, // remove _id key
-          shopDetails: shop, // ✅ Full shop object
-          pickupTime,
-          dropTime, 
-          deliveryEarning: order.deliveryEarning,
-          pickupDistance: `${pickupDistanceKm.toFixed(2)} km`,
-          dropDistance: `${dropDistanceKm.toFixed(2)} km`,
-          totalEstimatedTime,
-          payment: paymentInfo
-        });
-      }
-  
-      return res.status(200).json({
-        message: 'Assigned orders fetched successfully',
-        success: true,
-        data: results
-      });
-  
-    } catch (error) {
-      console.error('View Assigned Orders Error:', error);
-      return res.status(500).json({
-        message: 'Failed to fetch assigned orders',
+    // ✅ 1. Validate delivery boy
+    const deliveryBoy = await DeliveryBoy.findById(deliveryBoyId);
+    if (!deliveryBoy) {
+      return res.status(404).json({
+        message: 'Delivery Boy not found',
         success: false,
-        data: error.message
+        data: []
       });
     }
-  };
+
+    // ✅ 2. Must be online
+    if (!deliveryBoy.isOnline) {
+      return res.status(200).json({
+        message: 'You are offline. No assigned orders shown.',
+        success: true,
+        data: []
+      });
+    }
+
+    // ✅ 3. Fetch assigned orders
+    // Use direct ObjectId comparison for assignedDeliveryBoy and $in for orderStatus.
+    const assignedOrders = await Order.find({
+      assignedDeliveryBoy: new mongoose.Types.ObjectId(deliveryBoyId),
+      orderStatus: { $in: ['Delivery Boy Assigned', 'Accepted by Delivery Boy', 'Picked Up'] }
+    }).sort({ createdAt: -1 });
+
+    // Log the count and details of fetched assigned orders
+    console.log(`📦 Found assigned orders:`, assignedOrders.length);
+    assignedOrders.forEach(o => console.log(`- ${o._id} | ${o.orderStatus}`));
+
+    const results = [];
+
+    for (const order of assignedOrders) {
+      // 🏪 Fetch shop details
+      const shop = await Shop.findById(order.shopId);
+      const shopLocation = shop?.shopeDetails?.shopLocation;
+      const [shopLat, shopLng] = shopLocation?.split(',').map(Number) || [];
+
+      // 👟 Delivery Boy coordinates
+      const { latitude: boyLat, longitude: boyLng } = deliveryBoy;
+
+      // 👤 Customer coordinates
+      const { latitude: customerLat, longitude: customerLng } = order.deliveryAddress;
+
+      // 🧮 Distance calculations
+      const pickupDistanceKm = geolib.getDistance(
+        { latitude: boyLat, longitude: boyLng },
+        { latitude: shopLat, longitude: shopLng }
+      ) / 1000;
+
+      const dropDistanceKm = geolib.getDistance(
+        { latitude: shopLat, longitude: shopLng },
+        { latitude: customerLat, longitude: customerLng }
+      ) / 1000;
+
+      // 🕒 ETA using Google Distance Matrix API
+      const timeUrl = `https://maps.googleapis.com/maps/api/distancematrix/json?origins=${boyLat},${boyLng}&destinations=${shopLat},${shopLng}&key=${GOOGLE_MAPS_API_KEY}`;
+      const timeResponse = await axios.get(timeUrl);
+      const pickupTime = timeResponse.data?.rows?.[0]?.elements?.[0]?.duration?.text || 'N/A';
+
+      // 🕒 Estimate drop time using Google Maps API
+      const dropTimeUrl = `https://maps.googleapis.com/maps/api/distancematrix/json?origins=${shopLat},${shopLng}&destinations=${customerLat},${customerLng}&key=${GOOGLE_MAPS_API_KEY}`;
+      const dropTimeResponse = await axios.get(dropTimeUrl);
+      const dropTime = dropTimeResponse.data?.rows?.[0]?.elements?.[0]?.duration?.text || 'N/A';
+
+      const parseTimeToMinutes = (str) => {
+        if (!str || str === 'N/A') return 0;
+        const matches = str.match(/(\d+)\s*hour[s]?|(\d+)\s*min[s]?/g) || [];
+        let total = 0;
+        matches.forEach(part => {
+          if (part.includes('hour')) total += parseInt(part) * 60;
+          else if (part.includes('min')) total += parseInt(part);
+        });
+        return total;
+      };
+
+      const pickupMinutes = parseTimeToMinutes(pickupTime);
+      const dropMinutes = parseTimeToMinutes(dropTime);
+      const totalEstimatedTime = `${pickupMinutes + dropMinutes} mins`;
+
+      // ✅ Fetch payment details
+      const payment = await Payment.findOne({ orderId: order._id });
+      const paymentInfo = {
+        method: payment?.paymentMethod || 'Unknown',
+        status: payment?.paymentStatus || 'Unpaid'
+      };
+
+      // 📦 Final response per order
+      results.push({
+        orderId: order._id, // 🔁 rename _id
+        ...order._doc,
+        _id: undefined, // remove _id key
+        shopDetails: shop, // ✅ Full shop object
+        pickupTime,
+        dropTime,
+        deliveryEarning: order.deliveryEarning,
+        pickupDistance: `${pickupDistanceKm.toFixed(2)} km`,
+        dropDistance: `${dropDistanceKm.toFixed(2)} km`,
+        totalEstimatedTime,
+        payment: paymentInfo
+      });
+    }
+
+    // Log the count of final formatted results before returning
+    console.log(`✅ Final formatted results count:`, results.length);
+
+    return res.status(200).json({
+      message: 'Assigned orders fetched successfully',
+      success: true,
+      data: results
+    });
+
+  } catch (error) {
+    console.error('View Assigned Orders Error:', error);
+    return res.status(500).json({
+      message: 'Failed to fetch assigned orders',
+      success: false,
+      data: error.message
+    });
+  }
+};
+
+// Get nearby pending orders for delivery boy (within 10km, orderStatus='Pending for Delivery Assignment')
+exports.getNearbyPendingOrders = async (req, res) => {
+  try {
+    const deliveryBoyId = req.params.deliveryBoyId;
+
+    // 1. Validate delivery boy and get location
+    const deliveryBoy = await DeliveryBoy.findById(deliveryBoyId);
+    if (!deliveryBoy || !deliveryBoy.latitude || !deliveryBoy.longitude) {
+      return res.status(404).json({
+        message: 'Delivery Boy not found or location unavailable',
+        success: false,
+        data: []
+      });
+    }
+
+    const { latitude: boyLat, longitude: boyLng } = deliveryBoy;
+    const RANGE_KM = 10;
+
+    // 2. Fetch orders within 10km radius and status 'Pending for Delivery Assignment'
+    const pendingOrders = await Order.find({ orderStatus: 'Pending for Delivery Assignment' });
+
+    const nearbyOrders = [];
+
+    for (const order of pendingOrders) {
+      const shop = await Shop.findById(order.shopId);
+      const shopLocation = shop?.shopeDetails?.shopLocation;
+      if (!shopLocation) continue;
+
+      const [shopLat, shopLng] = shopLocation.split(',').map(Number);
+
+      const distanceKm = geolib.getDistance(
+        { latitude: boyLat, longitude: boyLng },
+        { latitude: shopLat, longitude: shopLng }
+      ) / 1000;
+
+      if (distanceKm > RANGE_KM) continue;
+
+      // Optional: calculate ETA
+      const timeUrl = `https://maps.googleapis.com/maps/api/distancematrix/json?origins=${boyLat},${boyLng}&destinations=${shopLat},${shopLng}&key=${GOOGLE_MAPS_API_KEY}`;
+      const timeResponse = await axios.get(timeUrl);
+      const pickupTime = timeResponse.data?.rows?.[0]?.elements?.[0]?.duration?.text || 'N/A';
+
+      nearbyOrders.push({
+        orderId: order._id,
+        shopDetails: shop,
+        distanceFromDeliveryBoy: `${distanceKm.toFixed(2)} km`,
+        pickupTime
+      });
+    }
+
+    return res.status(200).json({
+      message: 'Nearby pending orders fetched successfully',
+      success: true,
+      data: nearbyOrders
+    });
+
+  } catch (error) {
+    console.error('Get Nearby Pending Orders Error:', error);
+    return res.status(500).json({
+      message: 'Failed to fetch nearby pending orders',
+      success: false,
+      data: error.message
+    });
+  }
+};
   
   // Helper function
   function calculateDistance(lat1, lon1, lat2, lon2) {
@@ -527,62 +594,98 @@ const paymentInfo = {
   };
   
   
-  exports.deliveryBoyUpdateOrderStatus = async (req, res) => {
-    try {
-      const orderId = req.params.orderId;
-      const { newStatus } = req.body;
-  
-      if (!orderId || !newStatus) {
-        return res.status(400).json({
-          message: 'OrderId and newStatus are required',
-          success: false,
-          data: []
-        });
-      }
-  
-      const updatedOrder = await Order.findByIdAndUpdate(
-        orderId,
-        { orderStatus: newStatus },
-        { new: true }
-      );
-  
-      if (!updatedOrder) {
-        return res.status(404).json({
-          message: 'Order not found',
-          success: false,
-          data: []
-        });
-      }
-  
-      // ✅ Get Socket.IO only when needed
-      try {
-        const io = getIO();
-        io.emit('order_status_changed', {
-          orderId: updatedOrder._id,
-          status: updatedOrder.orderStatus,
-          shopId: updatedOrder.shopId,
-          deliveryBoyId: updatedOrder.assignedDeliveryBoy,
-          updatedAt: updatedOrder.updatedAt,
-        });
-      } catch (socketErr) {
-        console.warn("Socket.IO not initialized yet:", socketErr.message);
-      }
-  
-      return res.status(200).json({
-        message: 'Order status updated successfully',
-        success: true,
-        data: updatedOrder
-      });
-  
-    } catch (error) {
-      console.error('DeliveryBoy Update Status Error:', error);
-      res.status(500).json({
-        message: 'Failed to update order status',
+exports.deliveryBoyUpdateOrderStatus = async (req, res) => {
+  try {
+    const orderId = req.params.orderId;
+    const { newStatus } = req.body;
+
+    if (!orderId || !newStatus) {
+      return res.status(400).json({
+        message: 'OrderId and newStatus are required',
         success: false,
-        data: error.message
+        data: []
       });
     }
-  };
+
+    const updatedOrder = await Order.findByIdAndUpdate(
+      orderId,
+      { orderStatus: newStatus },
+      { new: true }
+    );
+
+    if (!updatedOrder) {
+      return res.status(404).json({
+        message: 'Order not found',
+        success: false,
+        data: []
+      });
+    }
+
+    // If the status is set to Delivered, add logic for agency payment record
+    if (updatedOrder.orderStatus === 'Delivered') {
+      // Calculate current month string
+      const currentMonth = new Date().toLocaleString('default', { month: 'long', year: 'numeric' }); // e.g. May 2025
+      console.log('Calculated month string:', currentMonth);
+      const deliveryBoy = await DeliveryBoy.findById(updatedOrder.assignedDeliveryBoy).lean();
+      console.log('Delivery boy:', deliveryBoy);
+      if (!deliveryBoy?.agencyId) {
+        console.log('No agencyId found for delivery boy');
+      }
+      if (deliveryBoy && deliveryBoy.agencyId) {
+        const DeliveryAgency = require('../models/DeliveryAgency').DeliveryAgency;
+        const agency = await DeliveryAgency.findById(deliveryBoy.agencyId);
+        console.log('Fetched agency:', agency);
+        if (agency) {
+          // Find existing payment record for the month
+          const existingRecord = agency.paymentRecords.find(record => record.month === currentMonth);
+          if (existingRecord) {
+            existingRecord.amount += 10;
+          } else {
+            agency.paymentRecords.push({
+              amount: 10,
+              month: currentMonth,
+              paymentMethod: 'Bank Transfer',
+              status: 'Paid',
+              paymentDate: new Date(),
+              transactionId: `DEL-${Date.now()}`
+            });
+          }
+          console.log('Updated payment records:', agency.paymentRecords);
+          await agency.save();
+          console.log('Agency saved with updated payments');
+        }
+      }
+    }
+
+    // ✅ Get Socket.IO only when needed
+    try {
+      const io = getIO();
+      io.emit('order_status_changed', {
+        orderId: updatedOrder._id,
+        status: updatedOrder.orderStatus,
+        shopId: updatedOrder.shopId,
+        deliveryBoyId: updatedOrder.assignedDeliveryBoy,
+        updatedAt: updatedOrder.updatedAt,
+      });
+    } catch (socketErr) {
+      console.warn("Socket.IO not initialized yet:", socketErr.message);
+    }
+
+    return res.status(200).json({
+      message: 'Order status updated successfully',
+      success: true,
+      data: updatedOrder
+    });
+
+  } catch (error) {
+    console.error('DeliveryBoy Update Status Error:', error);
+    res.status(500).json({
+      message: 'Failed to update order status',
+      success: false,
+      data: error.message
+    });
+  }
+};
   
   
   exports.deliveryBoyRaiseIssue = async (req, res) => {
@@ -772,7 +875,7 @@ exports.toggleAvailability = async (req, res) => {
   try {
     const { deliveryBoyId } = req.params;
 
-    const deliveryBoy = await User.findById(deliveryBoyId);
+    const deliveryBoy = await DeliveryBoy.findById(deliveryBoyId);
     if (!deliveryBoy || deliveryBoy.role !== 'deliveryBoy') {
       return res.status(404).json({
         success: false,
@@ -989,10 +1092,7 @@ exports.getDeliveryOrderHistory = async (req, res) => {
           day: label,
           orderStatus: order.orderStatus,
           earning: parseFloat(order.deliveryEarning || 0),
-          payment: {
-            method: payment?.paymentMethod || 'N/A',
-            status: payment?.paymentStatus || 'N/A',
-          },
+          paymentType: order.paymentType || 'N/A',
           deliveryAddress: `${order.deliveryAddress.flatNumber}, ${order.deliveryAddress.area}, ${order.deliveryAddress.place}`,
         };
       })
@@ -1059,6 +1159,49 @@ exports.updateDeliveryBoyDetails = async (req, res) => {
     return res.status(500).json({
       message: 'Failed to update delivery boy details',
       success: false,
+      error: error.message
+    });
+  }
+};
+// Register Delivery Boy
+exports.registerDeliveryBoy = async (req, res) => {
+  try {
+    const deliveryBoy = new DeliveryBoy(req.body);
+    await deliveryBoy.save();
+    res.status(201).json({
+      success: true,
+      message: 'Delivery boy registered successfully',
+      data: deliveryBoy
+    });
+  } catch (error) {
+    res.status(500).json({
+      success: false,
+      message: 'Error registering delivery boy',
+      error: error.message
+    });
+  }
+};
+// Delete delivery boy by ID (route: DELETE /delete/:id)
+exports.deleteDeliveryBoyById = async (req, res) => {
+  const { id } = req.params;
+  try {
+    const deleted = await DeliveryBoy.findByIdAndDelete(id);
+    if (!deleted) {
+      return res.status(404).json({
+        success: false,
+        message: 'Delivery boy not found',
+        data: []
+      });
+    }
+    res.status(200).json({
+      success: true,
+      message: 'Delivery boy deleted successfully',
+      data: deleted
+    });
+  } catch (error) {
+    res.status(500).json({
+      success: false,
+      message: 'Server error',
       error: error.message
     });
   }

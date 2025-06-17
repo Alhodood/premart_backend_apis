@@ -1,26 +1,40 @@
 const express = require('express');
 const router = express.Router();
-const  generateReport  = require('../controllers/reportController');
 
-router.get('/agency/download', generateReport.generateAgencyReportCsv);
-router.get('/banner/download', generateReport.generateBannerReportCsv);
-router.get('/brands', generateReport.getBrandReport);
-router.get('/categories', generateReport.getCategoryReport);
-router.get('/coupons', generateReport.getCouponReport);
-router.get('/delivery-agencies', generateReport.getDeliveryAgencyReport);
-router.get('/delivery-boys', generateReport.getDeliveryBoyReport);
-router.get('/fuel', generateReport.getFuelReport);
-router.get('/models', generateReport.getModelReport);
-router.get('/offers', generateReport.getOfferReport);
-router.get('/orders', generateReport.getOrderReport);
-router.get('/payments', generateReport.getPaymentReport);
-router.get('/products', generateReport.getProductReport);
-router.get('/shops', generateReport.getShopReport);
-router.get('/stock', generateReport.getStockReport);
-router.get('/super-notifications', generateReport.getSuperNotificationReport);
-router.get('/users', generateReport.getUserReport);
-router.get('/years', generateReport.getYearReport);
+const reportController = require('../controllers/reportController');
 
+//router.get('/agency/download', generateReport.generateAgencyReportCsv);
 
+router.get('/orders/cancelled', reportController.getCancelledOrders);
+router.get('/orders/returned', reportController.getReturnedOrders);
+
+router.get('/sales/daily', reportController.getDailySales);
+router.get('/sales/weekly', reportController.getWeeklySales);
+router.get('/sales/monthly', reportController.getMonthlySales);
+router.get('/shop-sales', reportController.getShopWiseSales);
+
+router.get('/products/top-selling', reportController.getTopSellingProducts);
+router.get('/products/low-selling', reportController.getLowSellingProducts);
+router.get('/stock/low', reportController.getLowStockParts);
+router.get('/stock/out-of-stock', reportController.getOutOfStockParts);
+
+router.get('/buyers/top', reportController.getTopBuyers);
+
+router.get('/coupons/most-used', reportController.getMostUsedCoupons);
+
+// Shop-specific reporting routes
+router.get('/shop-sales/by-id', reportController.getShopSalesById);
+router.get('/orders/cancelled/by-shop', reportController.getShopCancelledOrders);
+router.get('/orders/returned/by-shop', reportController.getShopReturnedOrders);
+
+router.get('/sales/daily/by-shop', reportController.getShopDailySales);
+router.get('/sales/weekly/by-shop', reportController.getShopWeeklySales);
+router.get('/sales/monthly/by-shop', reportController.getShopMonthlySales);
+
+router.get('/products/top-selling/by-shop', reportController.getShopTopSellingProducts);
+router.get('/products/low-selling/by-shop', reportController.getShopLowSellingProducts);
+router.get('/stock/low/by-shop', reportController.getShopLowStockParts);
+router.get('/stock/out-of-stock/by-shop', reportController.getShopOutOfStockParts);
+router.get('/orders/pending/by-shop', reportController.getShopPendingOrders);
 
 module.exports = router;

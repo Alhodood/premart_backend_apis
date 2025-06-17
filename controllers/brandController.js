@@ -1,4 +1,6 @@
+const Model = require('../models/Model');
 const Brand = require('../models/Brand');
+const Product = require('../models/Product');
 
 // Create a new brand
 exports.createBrand = async (req, res) => {
@@ -79,5 +81,71 @@ exports.deleteBrand = async (req, res) => {
     res.status(200).json({ message: 'Brand deleted successfully', success:true ,data:this.deleteBrand});
   } catch (error) {
     res.status(500).json({ message: 'Error deleting brand', data: error.message, success:false });
+  }
+};
+
+// Get all products for a specific brand
+exports.getProductsByBrand = async (req, res) => {
+  const { brandName } = req.params;
+
+  if (!brandName) {
+    return res.status(400).json({ message: 'Brand name is required', success: false });
+  }
+
+  try {
+    const products = await Product.find({ brand: brandName });
+
+    res.status(200).json({
+      message: 'Products fetched successfully',
+      success: true,
+      data: products
+    });
+  } catch (error) {
+    res.status(500).json({
+      message: 'Error fetching products by brand',
+      success: false,
+      error: error.message
+    });
+  }
+};
+
+// Get all models for a specific brand
+exports.getModelsByBrand = async (req, res) => {
+  const { brandName } = req.params;
+
+  if (!brandName) {
+    return res.status(400).json({ message: 'Brand name is required', success: false });
+  }
+
+  try {
+    let models = await Model.find({
+      brandName: { $regex: `^${brandName.trim()}$`, $options: 'i' },
+      visibility: true
+    });
+
+    // Fallback to extracting models from Product if none found in Model collection
+    if (!models.length) {
+      const productModels = await Product.find({ brand: { $regex: `^${brandName.trim()}$`, $options: 'i' } })
+        .lean();
+      const modelMap = new Map();
+      productModels.forEach(p => {
+        if (!modelMap.has(p.model)) {
+          modelMap.set(p.model, p);
+        }
+      });
+      models = Array.from(modelMap.values());
+    }
+
+    res.status(200).json({
+      message: 'Models fetched successfully',
+      success: true,
+      data: models
+    });
+  } catch (error) {
+    res.status(500).json({
+      message: 'Error fetching models by brand',
+      success: false,
+      error: error.message
+    });
   }
 };
