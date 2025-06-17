@@ -1,5 +1,5 @@
 const Model = require('../models/Model');
-
+const Product = require('../models/Product');
 // Create a new model entry
 exports.createModel = async (req, res) => {
   console.log('hai');
@@ -62,5 +62,26 @@ exports.deleteModel = async (req, res) => {
     res.status(200).json({ message: 'Model deleted successfully',  success:true , data:deletedModel});
   } catch (error) {
     res.status(500).json({ message: 'Error deleting model', data: error.message,  success:false });
+  }
+};
+
+
+
+// Get products by model name
+exports.getProductsByModel = async (req, res) => {
+  const { modelName } = req.params;
+  try {
+    const products = await Product.find({ model: modelName });
+    res.status(200).json({
+      success: true,
+      message: `Fetched products for model: ${modelName}`,
+      data: products,
+    });
+  } catch (error) {
+    res.status(500).json({
+      success: false,
+      message: 'Error fetching products by model',
+      error: error.message,
+    });
   }
 };

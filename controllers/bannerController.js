@@ -5,14 +5,12 @@ const Banner = require('../models/Banners');
 exports.addBanner = async (req, res) => {
   try {
     const { title, pic, redirectScreen, isActive = true } = req.body;
-    const { shopId } = req.params;
 
     const newBanner = new Banner({
       title,
       pic,
       redirectScreen,
       isActive,
-      shopId: new mongoose.Types.ObjectId(shopId),
     });
 
     await newBanner.save();
@@ -27,10 +25,6 @@ exports.getAllBanners = async (req, res) => {
   try {
     const { title, redirectScreen, isActive } = req.query;
     const filter = {};
-
-    if (req.query.shopId && mongoose.Types.ObjectId.isValid(req.query.shopId)) {
-      filter.shopId = new mongoose.Types.ObjectId(req.query.shopId);
-    }
 
     if (title) {
       filter.title = { $regex: title, $options: 'i' };
@@ -75,11 +69,11 @@ exports.getBannerByShopId = async (req, res) => {
 // Update banner
 exports.updateBanner = async (req, res) => {
   try {
-    if (!mongoose.Types.ObjectId.isValid(req.params.id) || !mongoose.Types.ObjectId.isValid(req.params.shopId)) {
-      return res.status(400).json({ message: 'Invalid ID or Shop ID' });
+    if (!mongoose.Types.ObjectId.isValid(req.params.id)) {
+      return res.status(400).json({ message: 'Invalid Banner ID' });
     }
     const updatedBanner = await Banner.findOneAndUpdate(
-      { _id: req.params.id, shopId: new mongoose.Types.ObjectId(req.params.shopId) },
+      { _id: req.params.id },
       req.body,
       { new: true, runValidators: true }
     );

@@ -4,12 +4,14 @@ const http = require('http');
 const socketIo = require('socket.io');
 const cors = require('cors');
 require('dotenv').config();
+const axios = require("axios");
 const authRoutes = require('./routes/authRoutes');
 const productRoutes = require('./routes/productRoutes.js');
 const shopRoutes = require('./routes/shopRoutes.js');
 const customerAddress= require("./routes/customerAddressRoutes.js")
 // const customerCard= require("./routes/customerCardRoutes.js")
 const banner = require("./routes/bannerRoutes.js")
+const ExcelJS = require('exceljs');
 
 const notification = require('./routes/notificationRoutes.js')
 
@@ -41,6 +43,8 @@ app.use(express.urlencoded({ extended: true, limit: '10mb' }));
 const server = http.createServer(app);
 const socket = require('./sockets/socket');
 const io = socket.init(server);
+global.io = io;
+global.connectedUsers = {};
 
 connectDB();
 // const io = socketIo(server, {
@@ -127,6 +131,115 @@ app.get('/generatePresignedUrl', async (req, res) => {
   }
 });
 
+// 1---------
+// Decode VIN endpoint
+app.get("/api/decode/:vin", async (req, res) => {
+  const vin = req.params.vin;
+
+  if (!vin || vin.length !== 17) {
+    return res.status(400).json({ success: false, message: "VIN must be 17 characters" });
+  }
+
+  try {
+    const { data } = await axios.get(`https://vpic.nhtsa.dot.gov/api/vehicles/DecodeVin/${vin}?format=json`);
+    const results = data.Results;
+
+    const output = {
+      VIN: vin,
+      Manufacturer: results.find(r => r.Variable === "Manufacturer")?.Value,
+      ModelYear: results.find(r => r.Variable === "Model Year")?.Value,
+      VehicleType: results.find(r => r.Variable === "Vehicle Type")?.Value,
+      Series: results.find(r => r.Variable === "Series")?.Value,
+      PlantCity: results.find(r => r.Variable === "Plant City")?.Value,
+      PlantCountry: results.find(r => r.Variable === "Plant Country")?.Value,
+    };
+
+    res.json({ success: true, data: output });
+  } catch (err) {
+    console.error("Axios error:", err.message);
+    res.status(500).json({ success: false, message: "Failed to decode VIN" });
+  }
+});
+
+
+
+// 🔹 API #2 - API Ninjas (Needs API Key)
+app.get("/api/decode1/:vin", async (req, res) => {
+  const vin = req.params.vin;
+
+  if (!vin || vin.length !== 17) {
+    return res.status(400).json({ success: false, message: "VIN must be 17 characters long" });
+  }
+
+  try {
+    const response = await axios.get(`https://api.api-ninjas.com/v1/vinlookup?vin=${vin}`, {
+      headers: { "X-Api-Key": "+dSgdeA8BUMEiY1Zpg7NJA==1s967UxEbxE7WL8R" },
+    });
+
+    const data = response.data;
+
+    if (!data || !data.vin) {
+      return res.status(404).json({ success: false, message: "VIN not found or invalid response" });
+    }
+
+    res.json({
+      success: true,
+      source: "api-ninjas",
+      data,
+    });
+
+  } catch (error) {
+    console.error("API Ninjas error:", error.message);
+    res.status(500).json({ success: false, message: "API Ninjas error" });
+  }
+});
+
+app.get('/api/export-products', async (req, res) => {
+  try {
+    const filters = req.query;
+
+    // 1. Fetch filtered data (customize this based on your schema)
+    const query = {};
+    if (filters.brand) query.brand = filters.brand;
+    if (filters.model) query.model = filters.model;
+    // Add more filters as needed
+
+    const products = await Product.find(query).lean();
+
+    // 2. Create workbook
+    const workbook = new ExcelJS.Workbook();
+    const worksheet = workbook.addWorksheet('Products');
+
+    if (!products.length) return res.status(400).json({ message: 'No data to export.' });
+
+    // 3. Add headers
+    worksheet.columns = Object.keys(products[0]).map(key => ({
+      header: key.toUpperCase(),
+      key: key,
+      width: 20
+    }));
+
+    // 4. Add rows
+    products.forEach(product => {
+      worksheet.addRow(product);
+    });
+
+    // 5. Set headers and stream the file
+    res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
+    res.setHeader('Content-Disposition', 'attachment; filename=products.xlsx');
+
+    await workbook.xlsx.write(res);
+    res.end();
+
+  } catch (err) {
+    console.error('Export Error:', err);
+    res.status(500).json({ message: 'Failed to export Excel file.' });
+  }
+});
+
+
+
+
 // const s3 = new S3Client({ region: process.env.AWS_REGION });
 
 // app.post('/api/upload-url', async (req, res) => {
@@ -157,9 +270,10 @@ app.post('/api/upload-url', async (req, res) => {
       Bucket: process.env.AWS_BUCKET_NAME,
       Key: `uploads/${fileName}`,
       ContentType: fileType,
+     
     });
 
-    const url = await getSignedUrl(s3, command, { expiresIn: 800 }); // 1 minute expiry
+    const url = await getSignedUrl(s3, command, { expiresIn: 300 }); // 1 minute expiry
     return res.json({ url });
   } catch (error) {
     console.error('Presigned URL error:', error);

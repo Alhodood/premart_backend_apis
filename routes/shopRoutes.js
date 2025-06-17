@@ -6,11 +6,11 @@ const shopController = require('../controllers/shopController');
 
 router.post('/', shopController.createShop);
 
-router.get('/', shopController.getAllShops);
+router.get('/getAllShop', shopController.getAllShops);
 
 router.get('/:shopId', shopController.getShopById);
 
-router.put('/:id', shopController.updateShop);
+router.put('/update/:id', shopController.updateShop);
 
 router.delete('/:shopId', shopController.deleteShop);
 
@@ -18,5 +18,7 @@ router.delete('/:shopId', shopController.deleteShop);
 router.get('/search', shopController.searchShopsForSuperAdmin);
 
 router.patch('/shop-mark-order-ready/:orderId', shopController.shopConfirmReady);
+
+router.delete('/delete/:shopId', shopController.deleteShopById);
 
 module.exports = router;

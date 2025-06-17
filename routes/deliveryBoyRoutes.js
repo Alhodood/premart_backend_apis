@@ -4,6 +4,9 @@ const deliveryBoyController = require('../controllers/deliveryBoyController');
 const { toggleAvailability } = require('../controllers/deliveryBoyController');
 const orderController = require('../controllers/orderController');
 
+router.post('/register', deliveryBoyController.registerDeliveryBoy);
+
+
 router.post('/send-otp', deliveryBoyController.sendOtpToDeliveryBoy);
 
 router.post('/verify-otp', deliveryBoyController.verifyOtpForDeliveryBoy);
@@ -12,10 +15,11 @@ router.post('/resend-otp', deliveryBoyController.resendOtpToDeliveryBoy);
 
 router.put('/update/:deliveryBoyId', deliveryBoyController.updateDeliveryBoy);
 
+router.delete('/delete/:deliveryBoyId', deliveryBoyController.deleteDeliveryBoy);
+
 // View, search, filter all delivery boys
 router.get('/all', deliveryBoyController.getAllDeliveryBoys);
 
-router.delete('/delete/:deliveryBoyId', deliveryBoyController.deleteDeliveryBoy);
 
 router.put('/update-location/:deliveryBoyId', deliveryBoyController.updateLiveLocation);
 
@@ -42,6 +46,8 @@ router.patch('/toggle-availability/:deliveryBoyId', toggleAvailability);
 
 
 router.get('/nearby-top-areas/:deliveryBoyId', deliveryBoyController.getNearbyTopOrderAreas);
+
+router.get('/pending-orders-nearby/:deliveryBoyId', deliveryBoyController.getNearbyPendingOrders);
 
 // Earnings history route
 router.get('/earnings/:deliveryBoyId', deliveryBoyController.getDeliveryEarningsHistory);

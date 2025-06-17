@@ -16,6 +16,7 @@ const agencyDetailsSchema = new mongoose.Schema({
   agencyLicenseNumber: { type: String, required: true },
   agencyLicenseExpiry: { type: String, required: true },
   emiratesId: { type: String, required: true },
+   emiratesIdImage: { type: String, required: true },
   agencyLocation: { type: String },
   agencyLicenseImage: { type: String },
   termsAndCondition: { type: String },
@@ -25,8 +26,20 @@ const agencyDetailsSchema = new mongoose.Schema({
   agencyBankDetails: agencyBankDetailsSchema
 }, { timestamps: true });
 
+
+
+const agencyPaymentSchema = new mongoose.Schema({
+  amount: { type: Number, required: true },
+  month: { type: String, required: true }, // e.g., "May 2025" — one record per month, multiple allowed
+  paymentDate: { type: Date, default: Date.now },
+  transactionId: { type: String },
+  paymentMethod: { type: String, enum: ['Bank Transfer', 'Cash', 'Other'], default: 'Bank Transfer' },
+  status: { type: String, enum: ['Paid', 'Pending', 'Failed'], default: 'Paid' }
+}, { timestamps: true });
+
 const deliveryAgencySchema = new mongoose.Schema({
-  agencyDetails: agencyDetailsSchema
+  agencyDetails: agencyDetailsSchema,
+  paymentRecords: [agencyPaymentSchema]
 }, { timestamps: true });
 
 const DeliveryAgency = mongoose.model('DeliveryAgency', deliveryAgencySchema);
