@@ -270,7 +270,7 @@ app.post('/api/upload-url', async (req, res) => {
       Bucket: process.env.AWS_BUCKET_NAME,
       Key: `uploads/${fileName}`,
       ContentType: fileType,
-      ACL: 'public-read'
+     
     });
 
     const url = await getSignedUrl(s3, command, { expiresIn: 300 }); // 1 minute expiry
