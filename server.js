@@ -9,7 +9,7 @@ const authRoutes = require('./routes/authRoutes');
 const productRoutes = require('./routes/productRoutes.js');
 const shopRoutes = require('./routes/shopRoutes.js');
 const customerAddress= require("./routes/customerAddressRoutes.js")
-// const customerCard= require("./routes/customerCardRoutes.js")
+const vinData= require("./routes/vinDataRoutes.js")
 const banner = require("./routes/bannerRoutes.js")
 const ExcelJS = require('exceljs');
 
@@ -32,7 +32,7 @@ const dashboard = require('./routes/dashboardRoutes.js')
 const reports = require('./routes/reportRoutes.js')
 const { S3Client, PutObjectCommand } = require("@aws-sdk/client-s3");
 const { getSignedUrl } = require("@aws-sdk/s3-request-presigner");
-
+// const stripe = Stripe(process.env.STRIPE_SECRET_KEY);
 const connectDB =require("./config/db.js")
 const app = express();
 
@@ -98,7 +98,7 @@ app.use('/api/superNotification',superNotification);
 app.use('/api/offer-Coupon',offerCoupon);
 app.use('/api/dashboard',dashboard);
 app.use('/api/report',reports);
-
+app.use('/api/vinData',vinData);
 
 
 // Basic route
@@ -280,6 +280,27 @@ app.post('/api/upload-url', async (req, res) => {
     return res.status(500).json({ message: 'Failed to generate URL', error: error.message });
   }
 });
+
+
+
+app.post("/create-payment-intent", async (req, res) => {
+  const { amount, currency } = req.body;
+
+  try {
+    const paymentIntent = await Stripe(process.env.STRIPE_SECRET_KEY).paymentIntents.create({
+      amount, // in cents
+      currency,
+      payment_method_types: ['card'],
+    });
+
+    res.send({
+      clientSecret: paymentIntent.client_secret,
+    });
+  } catch (err) {
+    res.status(500).send({ error: err.message });
+  }
+});
+
 const PORT = process.env.PORT || 3002;
 const HOST = process.env.HOST || '0.0.0.0';
 
