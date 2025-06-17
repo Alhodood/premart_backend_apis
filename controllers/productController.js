@@ -311,6 +311,7 @@ exports.addProduct = async (req, res) => {
   }
 };
 
+
 // Bulk product upload using Excel
 const XLSX = require('xlsx');
 const path = require('path');
@@ -355,6 +356,8 @@ exports.bulkUploadProducts = async (req, res) => {
         description,
         imageUrl,
         notes,
+        madeIn,
+        skuNumber,
         stockStatus
       } = row;
 
@@ -367,7 +370,9 @@ exports.bulkUploadProducts = async (req, res) => {
         description,
         imageUrl: imageUrl ? imageUrl.split(',') : [],
         notes,
-        stockStatus: stockStatus || 'in_stock'
+        stockStatus: stockStatus || 'in_stock',
+        madeIn,
+        skuNumber
       };
 
       const subCategory = {
@@ -416,22 +421,173 @@ exports.bulkUploadProducts = async (req, res) => {
   }
 };
 
+// Bulk upload products for a specific shop
+exports.bulkUploadProductsForShop = async (req, res) => {
+  try {
+    const { shopId } = req.params;
 
-// Get all products for a shop
+    if (!req.file) {
+      return res.status(400).json({ message: 'No file uploaded', success: false });
+    }
+
+    const shop = await Shop.findById(shopId);
+    if (!shop) {
+      return res.status(404).json({ message: 'Shop not found', success: false });
+    }
+
+    const filePath = path.join(__dirname, '..', 'uploads', req.file.filename);
+    const workbook = XLSX.readFile(filePath);
+    const sheetName = workbook.SheetNames[0];
+    const worksheet = XLSX.utils.sheet_to_json(workbook.Sheets[sheetName]);
+
+    const createdProducts = [];
+
+    for (const row of worksheet) {
+      const {
+        brand,
+        year,
+        model,
+        frameCode,
+        region,
+        engineCode,
+        transmission,
+        categoryTab,
+        categoryTabImageUrl,
+        subCategoryTab,
+        subCategoryTabImageUrl,
+        partNumber,
+        partName,
+        quantity,
+        price,
+        discountedPrice,
+        description,
+        imageUrl,
+        notes,
+        madeIn,
+        skuNumber,
+        stockStatus
+      } = row;
+
+      const part = {
+        partNumber,
+        partName,
+        quantity,
+        price,
+        discountedPrice,
+        description,
+        imageUrl: imageUrl ? imageUrl.split(',') : [],
+        notes,
+        stockStatus: stockStatus || 'in_stock',
+        madeIn,
+        skuNumber
+      };
+
+      const subCategory = {
+        categoryTab,
+        categoryTabImageUrl: categoryTabImageUrl ? categoryTabImageUrl.split(',') : [],
+        subCategoryTab,
+        subCategoryTabImageUrl: subCategoryTabImageUrl ? subCategoryTabImageUrl.split(',') : [],
+        parts: [part]
+      };
+
+      const product = new Product({
+        brand,
+        year,
+        model,
+        frameCode,
+        region,
+        engineCode,
+        transmission,
+        shopId,
+        subCategories: [subCategory],
+        ratings: {
+          average: 0,
+          totalReviews: 0
+        }
+      });
+
+      await product.save();
+      createdProducts.push(product);
+
+      await Shop.findByIdAndUpdate(shopId, { $push: { products: product._id } });
+    }
+
+    fs.unlinkSync(filePath); // Delete file after processing
+
+    return res.status(201).json({
+      message: 'Bulk products uploaded successfully for the shop',
+      success: true,
+      data: createdProducts
+    });
+
+  } catch (error) {
+    console.error('Bulk Upload for Shop Error:', error);
+    return res.status(500).json({
+      message: 'Failed to upload bulk products for shop',
+      success: false,
+      error: error.message
+    });
+  }
+};
+
+
+
+
+// Get all products for a shop with simplified fields
 exports.getProductsByShop = async (req, res) => {
   try {
     const shopId = req.params.shopId || req.query.shopId;
     console.log('Looking for shopId:', shopId);
-    const productEntry = await Product.find({ shopId });
+    const products = await Product.find({ shopId }).lean();
 
-
-    if (!productEntry) {
-      return res.status(404).json({ message: 'Shop not found', data: [],success:false });
+    if (!products || products.length === 0) {
+      return res.status(404).json({ message: 'No products found for this shop', data: [], success: false });
     }
 
-    return res.status(200).json({ message: 'Products retrieved', data: productEntry, success:true });
+    const simplified = products.map(product => {
+      const {
+        _id, brand, year, model, frameCode, region, engineCode, transmission,
+        productionStart, productionEnd, shopId, createdAt, ratings = {}
+      } = product;
+
+      const firstSubCategory = (product.subCategories && product.subCategories.length > 0)
+        ? product.subCategories[0]
+        : {};
+
+      const {
+        categoryTab,
+        categoryTabImageUrl = [],
+        subCategoryTab,
+        subCategoryTabImageUrl = [],
+        parts = []
+      } = firstSubCategory;
+
+      return {
+        _id,
+        brand,
+        year,
+        model,
+        frameCode,
+        region,
+        engineCode,
+        transmission,
+        productionStart,
+        productionEnd,
+        shopId,
+        createdAt,
+        ratings: ratings.average,
+        totalReviews: ratings.totalReviews,
+        categoryTab,
+        categoryTabImageUrl,
+        subCategoryTab,
+        subCategoryTabImageUrl,
+        parts
+      };
+    });
+
+    return res.status(200).json({ message: 'Products retrieved', data: simplified, success: true });
   } catch (error) {
-    return res.status(500).json({ message: 'Failed to fetch products', data: error.message,success:false });
+    return res.status(500).json({ message: 'Failed to fetch products', data: error.message, success: false });
   }
 };
 
@@ -464,40 +620,93 @@ exports.getProductById = async (req, res) => {
   }
 };
 
-// Update a product
-// Update a product
+
 exports.updateProduct = async (req, res) => {
   try {
-    const shopId = req.params.shopId;
-    const productId = req.params.productId;
+    const { shopId, productId } = req.params;
     const updates = req.body;
 
-    // Find the shop by shopId
-    const productEntry = await Product.findOne({ shopId });
-    if (!productEntry) {
-      return res.status(404).json({ message: 'Shop not found', data: [], success: false });
+    // If updating top-level product fields
+    const topLevelFields = ['brand', 'year', 'model', 'frameCode', 'region', 'engineCode', 'transmission'];
+    const isTopLevelUpdate = Object.keys(updates).some(key => topLevelFields.includes(key));
+
+    if (isTopLevelUpdate) {
+      const product = await Product.findOneAndUpdate(
+        { _id: productId, shopId },
+        { $set: updates },
+        { new: true }
+      );
+
+      if (!product) {
+        return res.status(404).json({
+          message: 'Product not found for this shop',
+          success: false
+        });
+      }
+
+      return res.status(200).json({
+        message: 'Top-level product updated successfully',
+        success: true,
+        data: product
+      });
     }
 
-    // Find the product by productId within the products array
-    const product = productEntry.products.id(productId);
+    // If updating nested part data (expects partId and subCategoryTab)
+    const { partId, subCategoryTab } = updates;
+    if (!partId || !subCategoryTab) {
+      return res.status(400).json({
+        message: 'Missing partId or subCategoryTab for nested update',
+        success: false
+      });
+    }
+
+    const updateFields = updates.fieldsToUpdate || {}; // Object with fields like { price: 123, quantity: 10 }
+
+    const product = await Product.findOneAndUpdate(
+      {
+        _id: productId,
+        shopId,
+        'subCategories.subCategoryTab': subCategoryTab,
+        'subCategories.parts._id': partId
+      },
+      {
+        $set: Object.fromEntries(
+          Object.entries(updateFields).map(([key, value]) => [
+            `subCategories.$[sub].parts.$[part].${key}`, value
+          ])
+        )
+      },
+      {
+        new: true,
+        arrayFilters: [
+          { 'sub.subCategoryTab': subCategoryTab },
+          { 'part._id': partId }
+        ]
+      }
+    );
+
     if (!product) {
-      return res.status(404).json({ message: 'Product not found', data: [], success: false });
+      return res.status(404).json({
+        message: 'Nested part update failed - product or part not found',
+        success: false
+      });
     }
 
-    // Update the product with new data
-    Object.assign(product, updates);
-
-    // Save the updated shop
-    await productEntry.save();
-
-    return res.status(200).json({ message: 'Product updated', data: product, success: true });
+    return res.status(200).json({
+      message: 'Nested part updated successfully',
+      success: true,
+      data: product
+    });
   } catch (error) {
-    return res.status(500).json({ message: 'Failed to update product', error: error.message, data: [], success: false });
+    return res.status(500).json({
+      message: 'Failed to update product',
+      success: false,
+      error: error.message
+    });
   }
 };
 
 
-// Delete a product
 // Delete a product
 exports.deleteProduct = async (req, res) => {
   try {
@@ -629,5 +838,131 @@ exports.getAllProductRatings = async (req, res) => {
     });
   } catch (error) {
     return res.status(500).json({ success: false, message: 'Failed to fetch ratings', error: error.message });
+  }
+};
+// Update price and discountedPrice of one or multiple parts inside a product document
+exports.updatePartPrices = async (req, res) => {
+  try {
+    const { updates } = req.body;
+
+    if (!Array.isArray(updates) || updates.length === 0) {
+      return res.status(400).json({
+        message: 'Updates must be a non-empty array',
+        success: false
+      });
+    }
+
+    let updatedParts = [];
+
+    for (const update of updates) {
+      const { partId, price, discountedPrice } = update;
+      const product = await Product.findOne({
+        'subCategories.parts._id': partId
+      });
+
+      if (!product) {
+        continue;
+      }
+
+      let updated = false;
+
+      for (const subCategory of product.subCategories) {
+        const part = subCategory.parts.id(partId);
+        if (part) {
+          if (typeof price === 'number') part.price = price;
+          if (typeof discountedPrice === 'number') part.discountedPrice = discountedPrice;
+          updatedParts.push({ partId, price: part.price, discountedPrice: part.discountedPrice });
+          updated = true;
+        }
+      }
+
+      if (updated) await product.save();
+    }
+
+    return res.status(200).json({
+      message: 'Parts price(s) updated successfully',
+      success: true,
+      data: updatedParts
+    });
+
+  } catch (error) {
+    console.error('Update Part Prices Error:', error);
+    return res.status(500).json({
+      message: 'Failed to update part prices',
+      success: false,
+      error: error.message
+    });
+  }
+};
+// Create a product for a specific shop by shopId
+exports.createProductForShop = async (req, res) => {
+  try {
+    const { shopId } = req.params;
+    const productData = req.body;
+
+    if (!shopId || !productData) {
+      return res.status(400).json({ message: 'Missing shopId or productData', success: false });
+    }
+
+    const shop = await Shop.findById(shopId);
+    if (!shop) {
+      return res.status(404).json({ message: 'Shop not found', success: false });
+    }
+
+    const newProduct = new Product({ ...productData, shopId });
+    await newProduct.save();
+
+    await Shop.findByIdAndUpdate(shopId, { $push: { products: newProduct._id } });
+
+    return res.status(201).json({
+      message: 'Product created successfully for the specified shop',
+      success: true,
+      data: newProduct
+    });
+  } catch (error) {
+    console.error('Create Product for Shop Error:', error);
+    return res.status(500).json({
+      message: 'Failed to create product for the shop',
+      success: false,
+      error: error.message
+    });
+  }
+};
+// Update product fields across all shops for a matching product _id (admin only)
+exports.updateProductForAllShops = async (req, res) => {
+  try {
+    const { productId } = req.params;
+    const updates = req.body;
+
+    if (!mongoose.Types.ObjectId.isValid(productId)) {
+      return res.status(400).json({ success: false, message: 'Invalid product ID format' });
+    }
+
+    const products = await Product.find({ _id: productId });
+
+    if (!products || products.length === 0) {
+      return res.status(404).json({ success: false, message: 'No products found with given ID across shops' });
+    }
+
+    const updatedProducts = [];
+
+    for (const product of products) {
+      Object.assign(product, updates);
+      await product.save();
+      updatedProducts.push(product);
+    }
+
+    return res.status(200).json({
+      message: 'Product updated successfully across all shops',
+      success: true,
+      data: updatedProducts
+    });
+  } catch (error) {
+    console.error('Update Product Across All Shops Error:', error);
+    return res.status(500).json({
+      message: 'Failed to update product across all shops',
+      success: false,
+      error: error.message
+    });
   }
 };

@@ -9,6 +9,8 @@ const PartSchema = new mongoose.Schema({
   description: String,
   imageUrl: [],           // URL to the part's image
   notes: String,
+  madeIn: String,     
+  skuNumber:String,   // e.g., "Japan", "USA"
   stockStatus: {
     type: String,
     enum: ['in_stock', 'low_stock', 'out_of_stock'],

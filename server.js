@@ -270,9 +270,10 @@ app.post('/api/upload-url', async (req, res) => {
       Bucket: process.env.AWS_BUCKET_NAME,
       Key: `uploads/${fileName}`,
       ContentType: fileType,
+     
     });
 
-    const url = await getSignedUrl(s3, command, { expiresIn: 800 }); // 1 minute expiry
+    const url = await getSignedUrl(s3, command, { expiresIn: 300 }); // 1 minute expiry
     return res.json({ url });
   } catch (error) {
     console.error('Presigned URL error:', error);
