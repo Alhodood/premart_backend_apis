@@ -301,7 +301,7 @@ app.post("/create-payment-intent", async (req, res) => {
   }
 });
 
-const PORT = process.env.PORT || 3004;
+const PORT = process.env.PORT || 3005;
 const HOST = process.env.HOST || '0.0.0.0';
 
 // Start server
