@@ -59,12 +59,13 @@ connectDB();
 app.use(cors({
   origin: [
     "http://localhost:5000",
-    'http://autopartsnow.uk',       // dev
-    'https://autopartsnow.uk',      // production
-    'http://www.autopartsnow.uk'   // if you support www
+    "http://autopartsnow.uk",
+    "https://autopartsnow.uk",
+    "http://www.autopartsnow.uk"
   ],
-  methods: ['GET','POST','PUT','DELETE','OPTIONS'],
-    allowedHeaders: ['Content-Type','Authorization'],
+  methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
+  allowedHeaders: ['Content-Type', 'Authorization'],
+  exposedHeaders: ['Access-Control-Allow-Origin'],
   credentials: true
 }));
 // Database connection (replace <connection_string> with your MongoDB URI)
@@ -204,7 +205,7 @@ app.get('/api/export-products', async (req, res) => {
     if (filters.model) query.model = filters.model;
     // Add more filters as needed
 
-    const products = await Product.find(query).lean();
+    const products = await Product.find(query).sort({ createdAt: -1 }).lean();
 
     // 2. Create workbook
     const workbook = new ExcelJS.Workbook();
@@ -286,5 +287,3 @@ const HOST = process.env.HOST || '0.0.0.0';
 // Start server
 // const PORT =process.env.HOST || process.env.PORT || 6000;
 server.listen(PORT,HOST,() =>   console.log(`Server listening on http://${HOST}:${PORT}`));
-
-
