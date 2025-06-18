@@ -1,4 +1,5 @@
 const Category = require('../models/Categories');
+const Product = require('../models/Product');
 
 // Create a new category
 exports.createCategory = async (req, res) => {
@@ -7,7 +8,7 @@ exports.createCategory = async (req, res) => {
     await newCategory.save();
     res.status(201).json({ message: 'Category created successfully', data: newCategory,success:true });
   } catch (error) {
-    res.status(500).json({ message: 'Error creating category', error: error.message,success:false });
+    res.status(500).json({ message: 'Error creating category', data: error.message,success:false });
   }
 };
 
@@ -17,7 +18,7 @@ exports.getAllCategories = async (req, res) => {
     const categories = await Category.find();
     res.status(200).json({ data: categories ,message:"list of categories",success:true});
   } catch (error) {
-    res.status(500).json({ message: 'Error fetching categories', error: error.message ,success:false});
+    res.status(500).json({ message: 'Error fetching categories', data: error.message ,success:false});
   }
 };
 
@@ -30,7 +31,7 @@ exports.getCategoryById = async (req, res) => {
     }
     res.status(200).json({ data: category ,success:true,message: "category by id"});
   } catch (error) {
-    res.status(500).json({ message: 'Error fetching category', error: error.message,success:false });
+    res.status(500).json({ message: 'Error fetching category', data: error.message,success:false });
   }
 };
 
@@ -47,7 +48,7 @@ exports.updateCategory = async (req, res) => {
     }
     res.status(200).json({ message: 'Category updated successfully', data: updatedCategory,success:true });
   } catch (error) {
-    res.status(500).json({ message: 'Error updating category', error: error.message,success:false });
+    res.status(500).json({ message: 'Error updating category', data: error.message,success:false });
   }
 };
 
@@ -62,6 +63,70 @@ exports.deleteCategory = async (req, res) => {
     }
     res.status(200).json({ message: 'Category deleted successfully', data:deletedCategory,success:true });
   } catch (error) {
-    res.status(500).json({ message: 'Error deleting category', error: error.message,success:false });
+    res.status(500).json({ message: 'Error deleting category', data: error.message,success:false });
+  }
+};
+
+
+
+
+// Get all products by category
+exports.getProductsByCategory = async (req, res) => {
+  const category = req.params.categoryTab;
+  if (!category) {
+      return res.status(400).json({ message: 'Category parameter is required', success: false });
+  }
+  try {
+    const products = await Product.find({
+      'subCategories.categoryTab': { $regex: new RegExp(category.trim(), 'i') }
+    });
+    res.status(200).json({
+      message: 'Products by category',
+      success: true,
+      data: products
+    });
+  } catch (error) {
+    res.status(500).json({
+      message: 'Error fetching products by category',
+      success: false,
+      data: error.message
+    });
+  }
+};
+
+// Get all parts by category
+exports.getPartsByCategory = async (req, res) => {
+  const category = req.params.categoryTab;
+  if (!category) {
+    return res.status(400).json({ message: 'Category parameter is required', success: false });
+  }
+
+  try {
+    const products = await Product.find({
+      'subCategories.categoryTab': { $regex: new RegExp(category.trim(), 'i') }
+    });
+
+    const parts = [];
+    const normalizedCategory = category.toLowerCase().trim();
+
+    products.forEach(product => {
+      product.subCategories.forEach(subCat => {
+        if (subCat.categoryTab && subCat.categoryTab.toLowerCase().trim() === normalizedCategory) {
+          parts.push(...subCat.parts);
+        }
+      });
+    });
+
+    res.status(200).json({
+      message: 'Parts by category',
+      success: true,
+      data: parts
+    });
+  } catch (error) {
+    res.status(500).json({
+      message: 'Error fetching parts by category',
+      success: false,
+      data: error.message
+    });
   }
 };

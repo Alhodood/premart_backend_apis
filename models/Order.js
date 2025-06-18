@@ -1,33 +1,74 @@
 const mongoose = require('mongoose');
 
-const { CustomerAddress, CustomerAddressDetailed } = require('../models/CustomerAddress');
+const deliveryAddressSchema = new mongoose.Schema({
+  name: { type: String, required: true },
+  email: { type: String },
+  flatNumber: { type: String },
+  contact: { type: String, required: true },
+  address: { type: String, required: true },
+  area: { type: String, required: true },
+  place: { type: String, required: true },
+  default: { type: Boolean, required: true },
+  addressType: { type: String, required: true },
+  latitude: Number,
+  longitude: Number
+}, { _id: false });
+
+const refundRequestSchema = new mongoose.Schema({
+  requested: { type: Boolean, default: false },
+  reason: { type: String },
+  status: { type: String, default: 'Pending' }
+}, { _id: false });
+
+const refundDetailsSchema = new mongoose.Schema({
+  refundAmount: String,
+  refundReason: String
+}, { _id: false });
+
+const statusTimestampsSchema = new mongoose.Schema({
+  accepted: Date,
+  reachedPickup: Date,
+  reachedDrop: Date,
+  delivered: Date
+}, { _id: false });
 
 const orderDetailsSchema = new mongoose.Schema({
-    productId: [],
-    deliveryAddress: CustomerAddressDetailed,
-    availableCoupon: { type: String, required: true },
-    offers: { type: String, required: true },
-    totalAmount: { type: String, required: true },
-    discount: { type: String, required: true },
-    deliverycharge: { type: Boolean, required: true },
-    addressType: { type: String, required: true }
+  userId: { type: String, required: true },
+  masterOrderId: { type: mongoose.Schema.Types.ObjectId, ref: 'MasterOrder' },
+  productId: [{
+    productId: { type: String, required: true },
+    quantity: { type: Number, required: true, default: 1 }
+  }],
+  shopId: { type: String, required: true },
 
+  deliveryAddress: deliveryAddressSchema,
 
+  couponCode: String,
+  appliedCoupon: Object,
+products: {
+  type: [mongoose.Schema.Types.Mixed],
+  default: []
+},
+  totalAmount: { type: String, required: true },
+  finalPayable: { type: String, required: true },
+  
+  deliverycharge: { type: Boolean, required: true, default: false },
+
+  deliveryDistance: { type: Number, default: 0 }, // ✅ distance between pickup and drop
+  deliveryEarning: { type: Number, default: 0 }, // ✅ earned amount per order
+
+  assignedDeliveryBoy: { type: mongoose.Schema.Types.ObjectId, ref: 'DeliveryBoy' },
+paymentType: { type: String },
+ transactionId: { type: String },
+  cancelReason: { type: String },
+  refundRequest: refundRequestSchema,
+  additionalcharges: { type: Number, default: 0 },
+
+  //items: { type: Number, default: 0 }, // ✅ number of items in the order (can be auto-calculated from productId.length if needed)
+
+  orderStatus: { type: String, default: "Pending" },
+  statusTimestamps: statusTimestampsSchema // ✅ tracking delivery steps
 
 }, { timestamps: true });
-// const custoerOrderSchema = new mongoose.Schema({
-//     userId: { type: String, required: true },
-//     customerAddress: ,
-//     orderItems: [orderDetailsSchema]
-// });
 
-// module.exports.mongoose.model('CustomerAddress', customerAddressDetailsSchema);
-
-// const orderListSchema= new mongoose.Schema({
-//     userId: {type:String, required: true },
-//     orderList: [{type:String}]
-// },{timestamps: true });
-// module.exports.mongoose.model('WishList',orderListSchema);
-
-
-
+module.exports = mongoose.model('Order', orderDetailsSchema);

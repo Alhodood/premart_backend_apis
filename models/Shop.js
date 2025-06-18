@@ -1,42 +1,48 @@
 const mongoose = require('mongoose');
 
-const bankDetailsSchema= new mongoose.Schema({
-    bankName: {type:String, required: true },
-    accountNumber: {type:String, required: true },
-    ibanNuber: {type:String, required: true }, 
-    branch: {type:String, required: true },
-    swiftCode:String
-});
+const bankDetailsSchema = new mongoose.Schema({
+    bankName: { type: String },
+    accountNumber: { type: String },
+    ibanNuber: { type: String },
+    branch: { type: String },
+    swiftCode: { type: String }
+},{ timestamps: true });
 
 
-const shopDetailsSchema=new mongoose.Schema({
-    shopName: {type:String, required: true },
-    shopAddress:  {type:String, required: true },
-    shopMail: {type:String, required: true },
-    shopContact: {type:String, required: true },
-    shopLicenseNumber: {type:String, required: true },
-    shopLicenseExpiry: {type:String, required: true },
-    shopBankDetails: bankDetailsSchema,  
-    shopLicenseImage: {type:String },
-    EmiratesId: {type:String, required: true },
-    shopLocation: {type:String},
+const shopDetailsSchema = new mongoose.Schema({
+    shopName: { type: String },
+    shopAddress: { type: String },
+    shopMail: { type: String },
+    shopContact: { type: String },
+    shopLicenseNumber: { type: String },
+    shopLicenseExpiry: { type: String },
+    EmiratesId: { type: String },
+     EmiratesIdImage: { type: String },
+    shopLocation: { type: String },
+    shopLicenseImage: { type: String },
+    taxRegistrationNumber: { type: String },
+    termsAndCondition: { type: String },
+    supportMail: { type: String },
+    supportNumber: { type: String },
+    password: { type: String },
+    shopBankDetails: bankDetailsSchema
 
 
-    
-    termsAndCondition: String,
-    supportMail: String,
-    supportNumber: String,
+}, { timestamps: true });
 
 
-},{timestamps: true });
+const shopSchema = new mongoose.Schema({
+    shopeDetails: shopDetailsSchema,
+    products: { type: Array, default: [] },
+    orders: [
+        {
+            orderId: { type: mongoose.Schema.Types.ObjectId, ref: 'Order' },
+
+        }
+    ]
+},{ timestamps: true });
 
 
-const shopSchema= new mongoose.Schema({shopId:String,
-    shopeDetails:shopDetailsSchema});
+const Shop = mongoose.model('Shop', shopSchema);
 
-
-const BankDetails= mongoose.model('BankDetails',bankDetailsSchema);
-const ShopeDetails= mongoose.model('ShopeDetails',shopDetailsSchema);
-const Shop= mongoose.model('Shop',shopSchema);
-
-module.exports={BankDetails,ShopeDetails,Shop};
+module.exports = { Shop };

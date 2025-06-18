@@ -1,30 +1,44 @@
+const Model = require('../models/Model');
 const Brand = require('../models/Brand');
+const Product = require('../models/Product');
 
 // Create a new brand
 exports.createBrand = async (req, res) => {
-  console.log("hi")
   try {
+    const { brandName, brandImage, visibility } = req.body;
 
-    const { brandName } = req.body;
+    if (!brandName) {
+      return res.status(400).json({ message: 'Brand name is required' });
+    }
+
     const newBrand = new Brand({
       brandName,
-      brandImage,
-      visibility: true
+      visibility: visibility !== undefined ? visibility : true,
+      ...(brandImage && { brandImage }), // Only add brandImage if provided
     });
+
     await newBrand.save();
-    res.status(201).json({ message: 'Brand created successfully', data: newBrand });
+
+    res.status(201).json({
+      message: 'Brand created successfully',
+      success: true,
+      data: newBrand,
+    });
   } catch (error) {
-    res.status(500).json({ message: 'Error creating brand', error: error.message });
+    res.status(500).json({
+      message: 'Error creating brand',
+      success: false,
+      error: error.message,
+    });
   }
 };
-
 // Get all brands
 exports.getAllBrands = async (req, res) => {
   try {
     const brands = await Brand.find();
-    res.status(200).json({ data: brands });
+    res.status(200).json({ data: brands ,success:true, message:"brand featched"});
   } catch (error) {
-    res.status(500).json({ message: 'Error fetching brands', error: error.message });
+    res.status(500).json({ message: 'Error fetching brands', data: error.message, success:false });
   }
 };
 
@@ -33,11 +47,11 @@ exports.getBrandById = async (req, res) => {
   try {
     const brand = await Brand.findById(req.params.id);
     if (!brand) {
-      return res.status(404).json({ message: 'Brand not found' });
+      return res.status(404).json({ message: 'Brand not found',success:false ,data:[]});
     }
-    res.status(200).json({ data: brand });
+    res.status(200).json({ data: brand, success:true,message: "brand featched" });
   } catch (error) {
-    res.status(500).json({ message: 'Error fetching brand', error: error.message });
+    res.status(500).json({ message: 'Error fetching brand', data: error.message,success:false });
   }
 };
 
@@ -49,11 +63,11 @@ exports.updateBrand = async (req, res) => {
       runValidators: true,
     });
     if (!updatedBrand) {
-      return res.status(404).json({ message: 'Brand not found' });
+      return res.status(404).json({ message: 'Brand not found' ,success:false});
     }
-    res.status(200).json({ message: 'Brand updated successfully', data: updatedBrand });
+    res.status(200).json({ message: 'Brand updated successfully', data: updatedBrand ,success:true});
   } catch (error) {
-    res.status(500).json({ message: 'Error updating brand', error: error.message });
+    res.status(500).json({ message: 'Error updating brand', data: error.message, success:false });
   }
 };
 
@@ -62,10 +76,76 @@ exports.deleteBrand = async (req, res) => {
   try {
     const deletedBrand = await Brand.findByIdAndDelete(req.params.id);
     if (!deletedBrand) {
-      return res.status(404).json({ message: 'Brand not found' });
+      return res.status(404).json({ message: 'Brand not found',success:false , data:[]});
     }
-    res.status(200).json({ message: 'Brand deleted successfully' });
+    res.status(200).json({ message: 'Brand deleted successfully', success:true ,data:this.deleteBrand});
   } catch (error) {
-    res.status(500).json({ message: 'Error deleting brand', error: error.message });
+    res.status(500).json({ message: 'Error deleting brand', data: error.message, success:false });
+  }
+};
+
+// Get all products for a specific brand
+exports.getProductsByBrand = async (req, res) => {
+  const { brandName } = req.params;
+
+  if (!brandName) {
+    return res.status(400).json({ message: 'Brand name is required', success: false });
+  }
+
+  try {
+    const products = await Product.find({ brand: brandName });
+
+    res.status(200).json({
+      message: 'Products fetched successfully',
+      success: true,
+      data: products
+    });
+  } catch (error) {
+    res.status(500).json({
+      message: 'Error fetching products by brand',
+      success: false,
+      error: error.message
+    });
+  }
+};
+
+// Get all models for a specific brand
+exports.getModelsByBrand = async (req, res) => {
+  const { brandName } = req.params;
+
+  if (!brandName) {
+    return res.status(400).json({ message: 'Brand name is required', success: false });
+  }
+
+  try {
+    let models = await Model.find({
+      brandName: { $regex: `^${brandName.trim()}$`, $options: 'i' },
+      visibility: true
+    });
+
+    // Fallback to extracting models from Product if none found in Model collection
+    if (!models.length) {
+      const productModels = await Product.find({ brand: { $regex: `^${brandName.trim()}$`, $options: 'i' } })
+        .lean();
+      const modelMap = new Map();
+      productModels.forEach(p => {
+        if (!modelMap.has(p.model)) {
+          modelMap.set(p.model, p);
+        }
+      });
+      models = Array.from(modelMap.values());
+    }
+
+    res.status(200).json({
+      message: 'Models fetched successfully',
+      success: true,
+      data: models
+    });
+  } catch (error) {
+    res.status(500).json({
+      message: 'Error fetching models by brand',
+      success: false,
+      error: error.message
+    });
   }
 };

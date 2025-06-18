@@ -2,10 +2,14 @@ const express = require('express');
 const router = express.Router();
 const bannerController = require('../controllers/bannerController');
 
-router.post('/', bannerController.addBanner);
+// All banners (admin/global access)
 router.get('/', bannerController.getAllBanners);
-router.get('/:id', bannerController.getBannerById);
+
+// Shop-specific banner routes
+router.post('/', bannerController.addBanner);
+router.get('/shop', bannerController.getAllBanners);  // Uses same method for shop context
+router.get('/:shopId', bannerController.getBannerByShopId);
 router.put('/:id', bannerController.updateBanner);
-router.delete('/:id', bannerController.deleteBanner);
+router.delete('/:shopId/:id', bannerController.deleteBanner);
 
 module.exports = router;
