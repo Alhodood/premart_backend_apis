@@ -26,14 +26,20 @@ exports.createVinEntry= async(req, res)=> {
 }
 
 exports.getVinByKey= async(req, res)=> {
-    console.log(req.params.vinData);
     try {
-      const  {vinNumber}= req.params.vinData;
+      const vinNumber= req.params.vinData;
+      console.log(vinNumber);
 
-      const vinDoc = await VinData.findOne({vinNumber});
+      const vinDoc = await VinData.findOne({vinKey:vinNumber});
+      if(! vinNumber){
+        return res.status(200).json({
+            message: 'serchkey is required',
+            success: false,data:[]
+          });
+      }
   if(vinDoc){
     return res.status(200).json({
-        message: 'Vin data is here',
+        message: 'Vin data featched succesfully',
         success: true,data:vinDoc
       });
   }else{
