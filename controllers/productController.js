@@ -1,4 +1,5 @@
 const Banner = require('../models/Banners');
+const { v4: uuidv4 } = require('uuid');
 const Product = require('../models/Product');
 
 const { Shop } = require('../models/Shop');
@@ -166,7 +167,7 @@ exports.getAllProductsAdmin = async (req, res) => {
     const simplified = products.map(product => {
       const {
         _id, brand, year, model, frameCode, region, engineCode, transmission,
-        productionStart, productionEnd, shopId, createdAt, ratings = {}
+        productionStart, productionEnd, shopId, createdAt, ratings = {}, commonProductId
       } = product;
 
       const firstSubCategory = (product.subCategories && product.subCategories.length > 0)
@@ -203,7 +204,8 @@ exports.getAllProductsAdmin = async (req, res) => {
         categoryTabImageUrl,
         subCategoryTab,
         subCategoryTabImageUrl,
-        parts
+        parts,
+        commonProductId,
       };
     });
     res.status(200).json({
@@ -286,9 +288,11 @@ exports.addProduct = async (req, res) => {
 
     const createdProducts = [];
 
+    const commonProductId = uuidv4();
+
     for (const shop of shops) {
       const shopId = shop._id;
-      const newProduct = new Product({ ...productData, shopId });
+      const newProduct = new Product({ ...productData, shopId, commonProductId });
       await newProduct.save();
       createdProducts.push(newProduct);
 
@@ -335,7 +339,18 @@ exports.bulkUploadProducts = async (req, res) => {
 
     const createdProducts = [];
 
+    // Use dynamic commonProductId based on product details
+    let lastKey = '';
+    let currentCommonId = uuidv4();
+
     for (const row of worksheet) {
+      // Generate a key based on product details
+      const rowKey = `${row.brand}_${row.model}_${row.year}_${row.frameCode}_${row.engineCode}_${row.transmission}_${row.categoryTab}_${row.subCategoryTab}`;
+      if (rowKey !== lastKey) {
+        currentCommonId = uuidv4();
+        lastKey = rowKey;
+      }
+
       const {
         brand,
         year,
@@ -397,7 +412,8 @@ exports.bulkUploadProducts = async (req, res) => {
           ratings: {
             average: 0,
             totalReviews: 0
-          }
+          },
+          commonProductId: currentCommonId // use the generated commonProductId per group
         });
 
         await product.save();
@@ -442,7 +458,18 @@ exports.bulkUploadProductsForShop = async (req, res) => {
 
     const createdProducts = [];
 
+    // Use dynamic commonProductId based on product details
+    let lastKey = '';
+    let currentCommonId = uuidv4();
+
     for (const row of worksheet) {
+      // Generate a key based on product details
+      const rowKey = `${row.brand}_${row.model}_${row.year}_${row.frameCode}_${row.engineCode}_${row.transmission}_${row.categoryTab}_${row.subCategoryTab}`;
+      if (rowKey !== lastKey) {
+        currentCommonId = uuidv4();
+        lastKey = rowKey;
+      }
+
       const {
         brand,
         year,
@@ -503,7 +530,8 @@ exports.bulkUploadProductsForShop = async (req, res) => {
         ratings: {
           average: 0,
           totalReviews: 0
-        }
+        },
+        commonProductId: currentCommonId // use the generated commonProductId per group
       });
 
       await product.save();
@@ -547,7 +575,7 @@ exports.getProductsByShop = async (req, res) => {
     const simplified = products.map(product => {
       const {
         _id, brand, year, model, frameCode, region, engineCode, transmission,
-        productionStart, productionEnd, shopId, createdAt, ratings = {}
+        productionStart, productionEnd, shopId, createdAt, ratings = {}, commonProductId
       } = product;
 
       const firstSubCategory = (product.subCategories && product.subCategories.length > 0)
@@ -581,7 +609,8 @@ exports.getProductsByShop = async (req, res) => {
         categoryTabImageUrl,
         subCategoryTab,
         subCategoryTabImageUrl,
-        parts
+        parts,
+        commonProductId
       };
     });
 
@@ -623,79 +652,60 @@ exports.getProductById = async (req, res) => {
 
 exports.updateProduct = async (req, res) => {
   try {
-    const { shopId, productId } = req.params;
+    const { commonProductId, shopId } = req.params;
     const updates = req.body;
 
-    // If updating top-level product fields
+    if (!commonProductId || !shopId) {
+      return res.status(400).json({
+        message: 'Missing commonProductId or shopId',
+        success: false
+      });
+    }
+
+    const products = await Product.find({ commonProductId, shopId });
+
+    if (!products || products.length === 0) {
+      return res.status(404).json({
+        message: 'No products found with given commonProductId and shopId',
+        success: false
+      });
+    }
+
     const topLevelFields = ['brand', 'year', 'model', 'frameCode', 'region', 'engineCode', 'transmission'];
     const isTopLevelUpdate = Object.keys(updates).some(key => topLevelFields.includes(key));
+    const updatedProducts = [];
 
-    if (isTopLevelUpdate) {
-      const product = await Product.findOneAndUpdate(
-        { _id: productId, shopId },
-        { $set: updates },
-        { new: true }
-      );
+    for (const product of products) {
+      if (isTopLevelUpdate) {
+        Object.assign(product, updates);
+      } else {
+        const { partId, subCategoryTab, fieldsToUpdate = {} } = updates;
+        if (!partId || !subCategoryTab) {
+          return res.status(400).json({
+            message: 'Missing partId or subCategoryTab for nested update',
+            success: false
+          });
+        }
 
-      if (!product) {
-        return res.status(404).json({
-          message: 'Product not found for this shop',
-          success: false
-        });
+        for (const subCategory of product.subCategories) {
+          if (subCategory.subCategoryTab === subCategoryTab) {
+            const part = subCategory.parts.id(partId);
+            if (part) {
+              Object.entries(fieldsToUpdate).forEach(([key, value]) => {
+                part[key] = value;
+              });
+            }
+          }
+        }
       }
-
-      return res.status(200).json({
-        message: 'Top-level product updated successfully',
-        success: true,
-        data: product
-      });
-    }
-
-    // If updating nested part data (expects partId and subCategoryTab)
-    const { partId, subCategoryTab } = updates;
-    if (!partId || !subCategoryTab) {
-      return res.status(400).json({
-        message: 'Missing partId or subCategoryTab for nested update',
-        success: false
-      });
-    }
-
-    const updateFields = updates.fieldsToUpdate || {}; // Object with fields like { price: 123, quantity: 10 }
-
-    const product = await Product.findOneAndUpdate(
-      {
-        _id: productId,
-        shopId,
-        'subCategories.subCategoryTab': subCategoryTab,
-        'subCategories.parts._id': partId
-      },
-      {
-        $set: Object.fromEntries(
-          Object.entries(updateFields).map(([key, value]) => [
-            `subCategories.$[sub].parts.$[part].${key}`, value
-          ])
-        )
-      },
-      {
-        new: true,
-        arrayFilters: [
-          { 'sub.subCategoryTab': subCategoryTab },
-          { 'part._id': partId }
-        ]
-      }
-    );
-
-    if (!product) {
-      return res.status(404).json({
-        message: 'Nested part update failed - product or part not found',
-        success: false
-      });
+      await product.save();
+      updatedProducts.push(product);
     }
 
     return res.status(200).json({
-      message: 'Nested part updated successfully',
+      message: 'Product(s) updated successfully',
       success: true,
-      data: product
+      data: updatedProducts
     });
   } catch (error) {
     return res.status(500).json({
@@ -736,28 +746,28 @@ exports.deleteProduct = async (req, res) => {
 };
 
 // Delete a product directly by its ID
-exports.deleteProductById = async (req, res) => {
+exports.deleteProductByCommonProductId = async (req, res) => {
   try {
-    const { productId } = req.params;
+    const { commonProductId } = req.params;
 
-    if (!mongoose.Types.ObjectId.isValid(productId)) {
-      return res.status(400).json({ success: false, message: 'Invalid product ID format' });
+    if (!commonProductId) {
+      return res.status(400).json({ success: false, message: 'commonProductId is required' });
     }
 
-    const deletedProduct = await Product.findByIdAndDelete(productId);
+    const deletedProducts = await Product.deleteMany({ commonProductId });
 
-    if (!deletedProduct) {
-      return res.status(404).json({ success: false, message: 'Product not found' });
+    if (deletedProducts.deletedCount === 0) {
+      return res.status(404).json({ success: false, message: 'No products found with given commonProductId' });
     }
 
     return res.status(200).json({
       success: true,
-      message: 'Product deleted successfully',
-      data: deletedProduct
+      message: 'Products deleted successfully across all shops',
+      data: deletedProducts
     });
   } catch (error) {
-    console.error('Delete Product Error:', error);
-    return res.status(500).json({ success: false, message: 'Failed to delete product', error: error.message });
+    console.error('Delete Products by CommonProductId Error:', error);
+    return res.status(500).json({ success: false, message: 'Failed to delete products', error: error.message });
   }
 };
 
@@ -900,6 +910,9 @@ exports.createProductForShop = async (req, res) => {
     const { shopId } = req.params;
     const productData = req.body;
 
+    // ensure a commonProductId is set (generate new if not provided)
+    const commonProductId = productData.commonProductId || uuidv4();
+
     if (!shopId || !productData) {
       return res.status(400).json({ message: 'Missing shopId or productData', success: false });
     }
@@ -909,7 +922,7 @@ exports.createProductForShop = async (req, res) => {
       return res.status(404).json({ message: 'Shop not found', success: false });
     }
 
-    const newProduct = new Product({ ...productData, shopId });
+    const newProduct = new Product({ ...productData, shopId, commonProductId });
     await newProduct.save();
 
     await Shop.findByIdAndUpdate(shopId, { $push: { products: newProduct._id } });
@@ -928,20 +941,20 @@ exports.createProductForShop = async (req, res) => {
     });
   }
 };
-// Update product fields across all shops for a matching product _id (admin only)
+// Update product fields across all shops for a matching commonProductId (admin only)
 exports.updateProductForAllShops = async (req, res) => {
   try {
-    const { productId } = req.params;
+    const { commonProductId } = req.params;
     const updates = req.body;
 
-    if (!mongoose.Types.ObjectId.isValid(productId)) {
-      return res.status(400).json({ success: false, message: 'Invalid product ID format' });
+    if (!commonProductId) {
+      return res.status(400).json({ success: false, message: 'commonProductId is required' });
     }
 
-    const products = await Product.find({ _id: productId });
+    const products = await Product.find({ commonProductId });
 
     if (!products || products.length === 0) {
-      return res.status(404).json({ success: false, message: 'No products found with given ID across shops' });
+      return res.status(404).json({ success: false, message: 'No products found with given commonProductId across shops' });
     }
 
     const updatedProducts = [];

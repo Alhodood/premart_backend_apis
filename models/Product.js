@@ -35,15 +35,16 @@ const ProductSchema = new mongoose.Schema({
   engineCode: String,                                 // e.g., 1GRFE
   transmission: String,                               // e.g., 5FC
 
+  commonProductId: { type: String, required: true },  // Shared across shops
 
   shopId: { type: mongoose.Schema.Types.ObjectId, ref: 'Shop', required: true },
 
   subCategories: [SubCategorySchema],
   
   ratings: {
-  average: { type: Number, default: 0 },
-  totalReviews: { type: Number, default: 0 }
-},// Each tab with image + parts,
+    average: { type: Number, default: 0 },
+    totalReviews: { type: Number, default: 0 }
+  },
 
   vinMetadata: {
     wmi: String,
