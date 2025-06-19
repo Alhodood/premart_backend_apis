@@ -33,14 +33,16 @@ router.post('/product/create/:shopId', productController.createProductForShop);
 router.get('/getAllProducts', productController.getAllProducts);
 router.get('/product/:shopId', productController.getProductsByShop);
 router.get('/getProductById/:productId', productController.getProductById);
-router.put('/product/:productId/:shopId', productController.updateProduct);
-router.put('/update-product-all-shops/:productId', productController.updateProductForAllShops);
+router.put('/product/update/:commonProductId/:shopId', productController.updateProduct);
+router.get('/getAllProductsAdmin', productController.getAllProductsAdmin);
+router.put('/update-product-all-shops/:commonProductId', productController.updateProductForAllShops);
 
-router.delete('/product/delete/:productId', productController.deleteProductById);
+
+router.delete('/product/delete-by-common/:commonProductId', productController.deleteProductByCommonProductId);
 router.get('/products-by-part-number/:partNumber', productController.getProductsByPartNumber);
 router.get('/parts-by-part-number/:partNumber', productController.getPartsByPartNumber);
 router.get('/similar-products', productController.getSimilarProducts);//similar-products?brand=Nissan&model=Patrol&categoryTab=Fuel Injection
-router.get('/getAllProductsAdmin', productController.getAllProductsAdmin);
+
 router.post('/update-part-prices', productController.updatePartPrices);
 
 // Brand Routes
