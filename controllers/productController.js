@@ -910,6 +910,9 @@ exports.createProductForShop = async (req, res) => {
     const { shopId } = req.params;
     const productData = req.body;
 
+    // ensure a commonProductId is set (generate new if not provided)
+    const commonProductId = productData.commonProductId || uuidv4();
+
     if (!shopId || !productData) {
       return res.status(400).json({ message: 'Missing shopId or productData', success: false });
     }
@@ -919,7 +922,7 @@ exports.createProductForShop = async (req, res) => {
       return res.status(404).json({ message: 'Shop not found', success: false });
     }
 
-    const newProduct = new Product({ ...productData, shopId });
+    const newProduct = new Product({ ...productData, shopId, commonProductId });
     await newProduct.save();
 
     await Shop.findByIdAndUpdate(shopId, { $push: { products: newProduct._id } });
