@@ -52,7 +52,7 @@ router.get('/brand/:id', brandController.getBrandById);
 router.put('/brand/:id', brandController.updateBrand);
 router.delete('/brand/delete/:id', brandController.deleteBrand);
 router.get('/brand-products/:brandName', brandController.getProductsByBrand);
-router.get('/brand/models/:brandName', brandController.getModelsByBrand);
+router.get('/brand/models/:brandId', brandController.getModelsByBrand);
 
 // CATEGORY ROUTES
 router.post('/category', categoryController.createCategory);
@@ -67,8 +67,12 @@ router.get('/parts-by-category/:categoryTab', categoryController.getPartsByCateg
 // SUBCATEGORY ROUTES  
 router.post('/subCategory', subCategoriesController.addSubCategory);
 router.get('/subCategory', subCategoriesController.getAllSubCategories);
-router.put('/update/subCategory/:id', subCategoriesController.updateSubCategory);
-router.delete('/delete/subCategory/:id',subCategoriesController.deleteSubCategory);
+router.get(
+  '/subCategory/category/:categoryId',
+  subCategoriesController.getSubCategoriesByCategory
+);
+router.put('/subCategory/:id', subCategoriesController.updateSubCategory);
+router.delete('/subCategory/:id', subCategoriesController.deleteSubCategory);
 
 
 

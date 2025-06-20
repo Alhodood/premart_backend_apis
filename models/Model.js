@@ -1,7 +1,11 @@
 const mongoose = require('mongoose');
 const modelSchema = new mongoose.Schema({
     modelName: String,
-    brandName:String,
+    brand: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: 'Brand',
+      required: true
+    },
 
     visibility:{ type: Boolean, default: true }
 },
