@@ -86,14 +86,18 @@ exports.deleteBrand = async (req, res) => {
 
 // Get all products for a specific brand
 exports.getProductsByBrand = async (req, res) => {
-  const { brandName } = req.params;
+  const { brandId } = req.params;
 
-  if (!brandName) {
-    return res.status(400).json({ message: 'Brand name is required', success: false });
+  if (!brandId) {
+    return res.status(400).json({ message: 'Brand ID is required', success: false });
   }
 
   try {
-    const products = await Product.find({ brand: brandName });
+    const existing = await Brand.findById(brandId);
+    if (!existing) {
+      return res.status(404).json({ message: 'Brand not found', success: false });
+    }
+    const products = await Product.find({ brand: brandId });
 
     res.status(200).json({
       message: 'Products fetched successfully',
@@ -109,32 +113,21 @@ exports.getProductsByBrand = async (req, res) => {
   }
 };
 
-// Get all models for a specific brand
+// Get all models for a specific brand name
 exports.getModelsByBrand = async (req, res) => {
-  const { brandName } = req.params;
-
-  if (!brandName) {
-    return res.status(400).json({ message: 'Brand name is required', success: false });
+  const { brandId } = req.params;
+  if (!brandId) {
+    return res.status(400).json({ message: 'Brand ID is required', success: false });
   }
 
   try {
-    let models = await Model.find({
-      brandName: { $regex: `^${brandName.trim()}$`, $options: 'i' },
-      visibility: true
-    });
-
-    // Fallback to extracting models from Product if none found in Model collection
-    if (!models.length) {
-      const productModels = await Product.find({ brand: { $regex: `^${brandName.trim()}$`, $options: 'i' } })
-        .lean();
-      const modelMap = new Map();
-      productModels.forEach(p => {
-        if (!modelMap.has(p.model)) {
-          modelMap.set(p.model, p);
-        }
-      });
-      models = Array.from(modelMap.values());
+    // Optional: verify brand exists
+    const existing = await Brand.findById(brandId);
+    if (!existing) {
+      return res.status(404).json({ message: 'Brand not found', success: false });
     }
+
+    const models = await Model.find({ brand: brandId, visibility: true });
 
     res.status(200).json({
       message: 'Models fetched successfully',

@@ -16,8 +16,20 @@ exports.createModel = async (req, res) => {
 // Get all models
 exports.getAllModels = async (req, res) => {
   try {
-    const models = await Model.find();
-    res.status(200).json({ data: models, success:true , message:"featched on models"});
+    const models = await Model.find()
+      .populate({ path: 'brand', select: 'brandName brandImage' })
+      .lean()
+      .exec();
+    // Flatten brand into top-level fields
+    const data = models.map(m => ({
+      _id: m._id,
+      modelName: m.modelName,
+      brandId: m.brand._id,
+      brandName: m.brand.brandName,
+      brandImage: m.brand.brandImage
+    }));
+    console.log('Populated models:', models);
+    res.status(200).json({ data, success: true, message: "featched on models" });
   } catch (error) {
     res.status(500).json({ message: 'Error fetching models', error: error.message, success:false });
   }
@@ -67,20 +79,39 @@ exports.deleteModel = async (req, res) => {
 
 
 
-// Get products by model name
+// Get products by model ID
 exports.getProductsByModel = async (req, res) => {
-  const { modelName } = req.params;
+  const { id: modelId } = req.params;
   try {
-    const products = await Product.find({ model: modelName });
+    const products = await Product.find({ model: modelId });
     res.status(200).json({
       success: true,
-      message: `Fetched products for model: ${modelName}`,
+      message: `Fetched products for model ID: ${modelId}`,
       data: products,
     });
   } catch (error) {
     res.status(500).json({
       success: false,
       message: 'Error fetching products by model',
+      error: error.message,
+    });
+  }
+};
+
+// Get all models for a given brand ID
+exports.getModelsByBrand = async (req, res) => {
+  const { brandId } = req.params;
+  try {
+    const models = await Model.find({ brand: brandId });
+    res.status(200).json({
+      success: true,
+      message: `Fetched models for brand ID: ${brandId}`,
+      data: models,
+    });
+  } catch (error) {
+    res.status(500).json({
+      success: false,
+      message: 'Error fetching models by brand',
       error: error.message,
     });
   }
