@@ -69,7 +69,15 @@ exports.applyCoupon = async (req, res) => {
     const coupon = await Coupon.findOne({ code: code.toUpperCase(), isActive: true });
 
     if (!coupon) {
-      return res.status(404).json({ message: 'Invalid or inactive coupon code', success: false });
+      return res.status(200).json({ message: 'Invalid or inactive coupon code', success: false,data:[] });
+    }
+
+    // ✅ Check if coupon has valid discount fields
+    if (!coupon.discountType || coupon.discountValue === undefined) {
+      return res.status(200).json({
+        message: 'Coupon data is invalid. Missing discountType or discountValue',
+        success: false
+      });
     }
 
     // ✅ Check if coupon has valid discount fields
@@ -83,7 +91,7 @@ exports.applyCoupon = async (req, res) => {
     // ✅ Check expiry
     const now = new Date();
     if (coupon.expiryDate && coupon.expiryDate < now) {
-      return res.status(400).json({ message: 'Coupon has expired', success: false });
+      return res.status(200).json({ message: 'Coupon has expired', success: false,data:[] });
     }
 
     // ✅ Check if already used
@@ -101,7 +109,7 @@ exports.applyCoupon = async (req, res) => {
 
     // ✅ Check usage limit
     if (coupon.usageLimit && coupon.usedCount >= coupon.usageLimit) {
-      return res.status(400).json({ message: 'Coupon usage limit reached', success: false });
+      return res.status(200).json({ message: 'Coupon usage limit reached', success: false ,data:[]});
     }
 
     // ✅ Calculate discount
@@ -128,7 +136,7 @@ exports.applyCoupon = async (req, res) => {
 
   } catch (err) {
     console.error('Coupon Error:', err);
-    return res.status(500).json({ message: 'Error applying coupon', success: false, error: err.message });
+    return res.status(500).json({ message: 'Error applying coupon', success: false, error: err.message ,data:[]});
   }
 };
 
@@ -270,9 +278,9 @@ exports.checkOfferValidity = async (req, res) => {
   const { productId, userId } = req.body;
 
   if (!productId || !userId) {
-    return res.status(400).json({
+    return res.status(200).json({
       message: 'productId and userId are required',
-      success: false
+      success: false,data:[]
     });
   }
 
@@ -288,9 +296,9 @@ exports.checkOfferValidity = async (req, res) => {
     });
 
     if (offers.length === 0) {
-      return res.status(404).json({
+      return res.status(200).json({
         message: 'No valid offers available for this product',
-        success: false
+        success: false,data: []
       });
     }
 
@@ -300,9 +308,10 @@ exports.checkOfferValidity = async (req, res) => {
     });
 
     if (!applicableOffer) {
-      return res.status(403).json({
+      return res.status(200).json({
         message: 'User has already used available offers for this product',
-        success: false
+        success: false,
+        data:[]
       });
     }
 
