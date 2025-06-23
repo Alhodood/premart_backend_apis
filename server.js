@@ -30,6 +30,7 @@ const superNotification = require('./routes/superNotificationRoute.js')
 const offerCoupon = require('./routes/offerCouponRoutes.js')
 const dashboard = require('./routes/dashboardRoutes.js')
 const reports = require('./routes/reportRoutes.js')
+const catalog = require('./routes/catalogImageRoutes.js')
 const { S3Client, PutObjectCommand } = require("@aws-sdk/client-s3");
 const { getSignedUrl } = require("@aws-sdk/s3-request-presigner");
 // const stripe = Stripe(process.env.STRIPE_SECRET_KEY);
@@ -101,6 +102,7 @@ app.use('/api/offer-Coupon',offerCoupon);
 app.use('/api/dashboard',dashboard);
 app.use('/api/report',reports);
 app.use('/api/vinData',vinData);
+app.use('/api/catalog',catalog);
 
 
 // Basic route
