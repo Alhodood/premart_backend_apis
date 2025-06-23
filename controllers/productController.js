@@ -136,6 +136,79 @@ exports.getPartsByPartNumber = async (req, res) => {
   }
 };
 
+// Get parts by brand, model, categoryTab, and subCategoryTab
+exports.getPartsByFilters = async (req, res) => {
+  try {
+    const { brand, model, categoryTab, subCategoryTab } = req.query;
+    // Validate required query parameters
+    if (!brand || !model || !categoryTab || !subCategoryTab) {
+      return res.status(400).json({
+        message: 'brand, model, categoryTab, and subCategoryTab query parameters are required',
+        success: false
+      });
+    }
+    // Find products matching brand and model, and having a matching subcategory
+    const products = await Product.find({
+      brand: brand,
+      model: model,
+      subCategories: {
+        $elemMatch: {
+          categoryTab: categoryTab,
+          subCategoryTab: subCategoryTab
+        }
+      }
+    }).lean();
+    // Collect matching parts
+    const matchedParts = [];
+    for (const product of products) {
+      const { _id: productId, year, region, engineCode, transmission } = product;
+      for (const subCat of product.subCategories || []) {
+        if (
+          subCat.categoryTab === categoryTab &&
+          subCat.subCategoryTab === subCategoryTab
+        ) {
+          for (const part of subCat.parts || []) {
+            matchedParts.push({
+              productId,
+              brand: product.brand,
+              model: product.model,
+              year,
+              region,
+              engineCode,
+              transmission,
+              categoryTab: subCat.categoryTab,
+              subCategoryTab: subCat.subCategoryTab,
+              partNumber: part.partNumber,
+              partName: part.partName,
+              quantity: part.quantity,
+              price: part.price,
+              discountedPrice: part.discountedPrice,
+              description: part.description,
+              imageUrl: part.imageUrl,
+              notes: part.notes,
+              madeIn: part.madeIn,
+              skuNumber: part.skuNumber,
+              stockStatus: part.stockStatus
+            });
+          }
+        }
+      }
+    }
+    return res.status(200).json({
+      message: 'Filtered parts retrieved successfully',
+      success: true,
+      data: matchedParts
+    });
+  } catch (error) {
+    console.error('Get Parts By Filters Error:', error);
+    return res.status(500).json({
+      message: 'Failed to retrieve parts by filters',
+      success: false,
+      error: error.message
+    });
+  }
+};
+
 // Get all products
 exports.getAllProducts = async (req, res) => {
   try {
@@ -941,7 +1014,6 @@ exports.createProductForShop = async (req, res) => {
     });
   }
 };
-// Update product fields across all shops for a matching commonProductId (admin only)
 exports.updateProductForAllShops = async (req, res) => {
   try {
     const { commonProductId } = req.params;
@@ -974,6 +1046,108 @@ exports.updateProductForAllShops = async (req, res) => {
     console.error('Update Product Across All Shops Error:', error);
     return res.status(500).json({
       message: 'Failed to update product across all shops',
+      success: false,
+      error: error.message
+    });
+  }
+};
+
+// Get list of shops selling products matching brand, model, categoryTab, and subCategoryTab
+exports.getShopsSellingSimilarProduct = async (req, res) => {
+  try {
+    const { brand, model, categoryTab, subCategoryTab } = req.query;
+    if (!brand || !model || !categoryTab || !subCategoryTab) {
+      return res.status(400).json({
+        message: 'brand, model, categoryTab, and subCategoryTab query parameters are required',
+        success: false
+      });
+    }
+    // Find matching products across all shops
+    const products = await Product.find({
+      brand: brand,
+      model: model,
+      subCategories: {
+        $elemMatch: {
+          categoryTab: categoryTab,
+          subCategoryTab: subCategoryTab
+        }
+      }
+    }).lean();
+
+    // Group products by shopId
+    const productsByShop = {};
+    for (const product of products) {
+      const shopIdStr = product.shopId?.toString();
+      if (!shopIdStr) continue;
+      if (!productsByShop[shopIdStr]) {
+        productsByShop[shopIdStr] = [];
+      }
+      // Extract matching parts from this product
+      for (const subCat of product.subCategories || []) {
+        if (
+          subCat.categoryTab === categoryTab &&
+          subCat.subCategoryTab === subCategoryTab
+        ) {
+          for (const part of subCat.parts || []) {
+            productsByShop[shopIdStr].push({
+              productId: product._id,
+              year: product.year,
+              region: product.region,
+              engineCode: product.engineCode,
+              transmission: product.transmission,
+              partNumber: part.partNumber,
+              partName: part.partName,
+              quantity: part.quantity,
+              price: part.price,
+              discountedPrice: part.discountedPrice,
+              description: part.description,
+              imageUrl: part.imageUrl,
+              notes: part.notes,
+              madeIn: part.madeIn,
+              skuNumber: part.skuNumber,
+              stockStatus: part.stockStatus
+            });
+          }
+        }
+      }
+    }
+
+    // If no matching products, return empty data
+    const shopIds = Object.keys(productsByShop);
+    if (shopIds.length === 0) {
+      return res.status(200).json({
+        message: 'No shops found selling matching products',
+        success: true,
+        data: []
+      });
+    }
+
+    // Fetch shop details for those shopIds
+    const shops = await Shop.find({ _id: { $in: shopIds } }).lean();
+
+    // Build response array
+    const responseData = shops.map(shop => {
+      const shopDetails = shop.shopeDetails || {};
+      return {
+        _id: shop._id,
+        shopName: shopDetails.shopName,
+        shopAddress: shopDetails.shopAddress,
+        shopLicenseNumber: shopDetails.shopLicenseNumber,
+        EmiratesId: shopDetails.EmiratesId,
+        createdAt: shop.createdAt,
+        parts: productsByShop[shop._id.toString()] || []
+      };
+    });
+
+    return res.status(200).json({
+      message: 'Shops selling similar products retrieved successfully',
+      success: true,
+      data: responseData
+    });
+  } catch (error) {
+    console.error('Get Shops Selling Similar Product Error:', error);
+    return res.status(500).json({
+      message: 'Failed to retrieve shops selling similar products',
       success: false,
       error: error.message
     });
