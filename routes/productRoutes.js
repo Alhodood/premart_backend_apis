@@ -41,7 +41,9 @@ router.put('/update-product-all-shops/:commonProductId', productController.updat
 router.delete('/product/delete-by-common/:commonProductId', productController.deleteProductByCommonProductId);
 router.get('/products-by-part-number/:partNumber', productController.getProductsByPartNumber);
 router.get('/parts-by-part-number/:partNumber', productController.getPartsByPartNumber);
+router.get('/products/parts', productController.getPartsByFilters);
 router.get('/similar-products', productController.getSimilarProducts);//similar-products?brand=Nissan&model=Patrol&categoryTab=Fuel Injection
+router.get('/products/shops/similar', productController.getShopsSellingSimilarProduct);
 
 router.post('/update-part-prices', productController.updatePartPrices);
 
