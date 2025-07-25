@@ -1052,13 +1052,19 @@ exports.updateProductForAllShops = async (req, res) => {
   }
 };
 
-// Get list of shops selling products matching brand, model, categoryTab, and subCategoryTab
+// Get list of shops selling products matching brand, model, categoryTab, subCategoryTab, and partNumber
 exports.getShopsSellingSimilarProduct = async (req, res) => {
   try {
-    const { brand, model, categoryTab, subCategoryTab } = req.query;
+    const { brand, model, categoryTab, subCategoryTab, partNumber } = req.query;
     if (!brand || !model || !categoryTab || !subCategoryTab) {
       return res.status(400).json({
         message: 'brand, model, categoryTab, and subCategoryTab query parameters are required',
+        success: false
+      });
+    }
+    if (!partNumber) {
+      return res.status(400).json({
+        message: 'partNumber query parameter is required',
         success: false
       });
     }
@@ -1069,7 +1075,8 @@ exports.getShopsSellingSimilarProduct = async (req, res) => {
       subCategories: {
         $elemMatch: {
           categoryTab: categoryTab,
-          subCategoryTab: subCategoryTab
+          subCategoryTab: subCategoryTab,
+          parts: { $elemMatch: { partNumber: partNumber } }
         }
       }
     }).lean();
@@ -1089,24 +1096,26 @@ exports.getShopsSellingSimilarProduct = async (req, res) => {
           subCat.subCategoryTab === subCategoryTab
         ) {
           for (const part of subCat.parts || []) {
-            productsByShop[shopIdStr].push({
-              productId: product._id,
-              year: product.year,
-              region: product.region,
-              engineCode: product.engineCode,
-              transmission: product.transmission,
-              partNumber: part.partNumber,
-              partName: part.partName,
-              quantity: part.quantity,
-              price: part.price,
-              discountedPrice: part.discountedPrice,
-              description: part.description,
-              imageUrl: part.imageUrl,
-              notes: part.notes,
-              madeIn: part.madeIn,
-              skuNumber: part.skuNumber,
-              stockStatus: part.stockStatus
-            });
+            if (part.partNumber === partNumber) {
+              productsByShop[shopIdStr].push({
+                productId: product._id,
+                year: product.year,
+                region: product.region,
+                engineCode: product.engineCode,
+                transmission: product.transmission,
+                partNumber: part.partNumber,
+                partName: part.partName,
+                quantity: part.quantity,
+                price: part.price,
+                discountedPrice: part.discountedPrice,
+                description: part.description,
+                imageUrl: part.imageUrl,
+                notes: part.notes,
+                madeIn: part.madeIn,
+                skuNumber: part.skuNumber,
+                stockStatus: part.stockStatus
+              });
+            }
           }
         }
       }
@@ -1149,6 +1158,41 @@ exports.getShopsSellingSimilarProduct = async (req, res) => {
     return res.status(500).json({
       message: 'Failed to retrieve shops selling similar products',
       success: false,
+      error: error.message
+    });
+  }
+};
+
+// Get product details along with its shop details
+
+exports.getProductWithShopDetails = async (req, res) => {
+  try {
+    const { productId, shopId } = req.params;
+    // Validate IDs
+    if (!mongoose.Types.ObjectId.isValid(productId) || !mongoose.Types.ObjectId.isValid(shopId)) {
+      return res.status(400).json({ success: false, message: 'Invalid productId or shopId' });
+    }
+    // Fetch the product for the given shop
+    const product = await Product.findOne({ _id: productId, shopId }).lean();
+    if (!product) {
+      return res.status(404).json({ success: false, message: 'Product not found for this shop' });
+    }
+    // Fetch shop details
+    const shop = await Shop.findById(shopId).lean();
+    if (!shop) {
+      return res.status(404).json({ success: false, message: 'Shop not found' });
+    }
+    // Respond with both product and shop data
+    return res.status(200).json({
+      success: true,
+      message: 'Product and shop details retrieved successfully',
+      data: { product, shop }
+    });
+  } catch (error) {
+    console.error('Get Product With Shop Details Error:', error);
+    return res.status(500).json({
+      success: false,
+      message: 'Failed to retrieve product and shop details',
       error: error.message
     });
   }
