@@ -1,0 +1,3 @@
+brand,year,model,frameCode,region,engineCode,transmission,categoryTab,categoryTabImageUrl,subCategoryTab,subCategoryTabImageUrl,partNumber,partName,quantity,price,discountedPrice,description,imageUrl,notes,madeIn,skuNumber,stockStatus
+AutoCo,2020,X1,FC-001,Dubai,EC-100,Manual,Filters,http://img.foo/filter.png,AirFilter,http://img.foo/air.png,AF-123,Air Filter A,10,50,45,High-efficiency,http://img.foo/af123.png,Standard fit,Japan,SKU-AF123,in_stock
+AutoCo,2020,X1,FC-001,Dubai,EC-100,Manual,Filters,http://img.foo/filter.png,OilFilter,http://img.foo/oil.png,OF-456,Oil Filter B,20,30,28,Long-life oil,http://img.foo/of456.png,OEM spec,UAE,SKU-OF456,in_stock
