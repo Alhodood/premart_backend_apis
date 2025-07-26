@@ -1,7 +1,7 @@
 const Coupon = require('../models/Coupon');
 const Offer = require('../models/Offers');
 const mongoose = require('mongoose');
-const { ProductDetails } = require('../models/Product');
+const { Product } = require('../models/Product');
 
 exports.createCoupon = async (req, res) => {
   try {
@@ -101,7 +101,7 @@ exports.applyCoupon = async (req, res) => {
 
     // ✅ Check minimum order amount
     if (coupon.minOrderAmount && orderAmount < coupon.minOrderAmount) {
-      return res.status(400).json({
+      return res.status(200).json({
         message: `Minimum order amount is ${coupon.minOrderAmount}`,
         success: false
       });
@@ -235,17 +235,13 @@ exports.getAllOffers = async (req, res) => {
 
     const offersWithDetails = await Promise.all(
       offers.map(async (offer) => {
-        const productDetails = await ProductDetails.find({
-          _id: { $in: offer.productIds.map(id => new mongoose.Types.ObjectId(id)) }
-        });
         const now = new Date();
         const offerObj = offer.toObject();
         const isCurrentlyActive = offerObj.startDate <= now && offerObj.endDate >= now;
         return {
           ...offerObj,
           isActive: isCurrentlyActive,
-          status: isCurrentlyActive ? 'Active' : 'Inactive',
-          fullProductDetails: productDetails
+          status: isCurrentlyActive ? 'Active' : 'Inactive'
         };
       })
     );

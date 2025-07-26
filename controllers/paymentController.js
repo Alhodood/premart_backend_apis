@@ -3,9 +3,9 @@ const Order = require('../models/Order');
 
 exports.createPayment = async (req, res) => {
   try {
-    const { orderId, userId, shopId, amount, paymentMethod, transactionId } = req.body;
+    const { orderId, userId, shopId, amount, paymentMethod, transactionId, paymentStatus } = req.body;
 
-    if (!orderId || !userId || !amount || !paymentMethod) {
+    if (!orderId || !userId || !amount || !paymentMethod || !paymentStatus) {
       return res.status(400).json({
         message: 'Required fields missing',
         success: false,
@@ -20,7 +20,7 @@ exports.createPayment = async (req, res) => {
       amount,
       paymentMethod,
       transactionId,
-      paymentStatus: 'Paid'
+      paymentStatus: paymentStatus
     });
 
     await payment.save();
