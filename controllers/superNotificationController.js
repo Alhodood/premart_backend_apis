@@ -13,19 +13,14 @@ exports.createNotification = async (req, res) => {
       image
     } = req.body;
 
-    // Determine the target timestamp
-    const targetDate = isScheduled && scheduledAt
-      ? new Date(scheduledAt)
-      : new Date();
-
     const notification = new Notification({
       title,
       message,
       role,
       recipientIds,
       isScheduled,
-      scheduledAt: targetDate,
-      sentAt: targetDate,
+      scheduledAt: isScheduled && scheduledAt ? new Date(scheduledAt) : null,
+      sentAt: isScheduled && scheduledAt ? new Date(scheduledAt) : new Date(),
       createdBy: req.params.creatorId,
       image
     });
@@ -230,8 +225,17 @@ exports.updateNotification = async (req, res) => {
     const { id } = req.params;
     const notification = await Notification.findById(id);
 
-    if (!notification || notification.sentAt) {
-      return res.status(400).json({ message: 'Only pending/scheduled notifications can be updated', success: false });
+    const now = new Date();
+    if (
+      !notification ||
+      !notification.isScheduled ||
+      !(notification.scheduledAt instanceof Date) ||
+      notification.scheduledAt <= now
+    ) {
+      return res.status(400).json({
+        message: 'Only future scheduled notifications can be updated',
+        success: false
+      });
     }
 
     const updates = req.body;

@@ -194,10 +194,18 @@ exports.getPartsByFilters = async (req, res) => {
         }
       }
     }
+    // Deduplicate parts by partNumber so we return a single entry per part
+    const uniquePartsMap = new Map();
+    for (const part of matchedParts) {
+      if (!uniquePartsMap.has(part.partNumber)) {
+        uniquePartsMap.set(part.partNumber, part);
+      }
+    }
+    const uniqueParts = Array.from(uniquePartsMap.values());
     return res.status(200).json({
       message: 'Filtered parts retrieved successfully',
       success: true,
-      data: matchedParts
+      data: uniqueParts
     });
   } catch (error) {
     console.error('Get Parts By Filters Error:', error);
