@@ -46,13 +46,21 @@ exports.addToCart = async (req, res) => {
 
     for (let product of productDocs) {
       const strId = product._id.toString();
-      const existingIndex = cart.cartProduct.findIndex(p => p.productId === strId);
+      const existingIndex = cart.cartProduct.findIndex(cp =>
+        cp.productId.toString() === strId
+      );
+
       if (existingIndex === -1) {
-        cart.cartProduct.push({ productId: strId, quantity: quantityMap[strId] || 1 });
+        // Toggle ON: add new item with requested quantity (default 1)
+        cart.cartProduct.push({
+          productId: strId,
+          quantity: quantityMap[strId] || 1
+        });
         addedProducts.push(product);
       } else {
-        cart.cartProduct[existingIndex].quantity = quantityMap[strId] || 1;
-        addedProducts.push(product);
+        // Toggle OFF: remove existing item
+        cart.cartProduct.splice(existingIndex, 1);
+        removedProducts.push(product);
       }
     }
 
@@ -69,7 +77,10 @@ exports.addToCart = async (req, res) => {
     if (addedProducts.length && !removedProducts.length) {
       message = 'Products added to cart';
     } else if (!addedProducts.length && removedProducts.length) {
-      message = 'Products removed from cart';
+      // Use singular or plural based on count
+      message = removedProducts.length === 1
+        ? 'Product removed from cart'
+        : 'Products removed from cart';
     } else if (addedProducts.length && removedProducts.length) {
       message = 'Products added and removed from cart';
     }
@@ -106,22 +117,24 @@ exports.getCart = async (req, res) => {
       });
     }
 
-    const productDocs = await Product.find().lean();
-    const allParts = productDocs.flatMap(doc =>
-      (doc.subCategories || []).flatMap(sub =>
-        (sub.parts || []).map(part => ({
-          ...part,
-          shopId: doc.shopId
-        }))
-      )
-    );
+    const cartProductIds = cart.cartProduct.map(cp => cp.productId);
+    const products = await Product.find({ _id: { $in: cartProductIds } }).lean();
 
-    const filteredCart = allParts.filter(p => cart.cartProduct.some(cp => cp.productId === p._id.toString()));
+    // Attach quantities to each product
+    const data = products.map(prod => {
+      const item = cart.cartProduct.find(cp =>
+        cp.productId.toString() === prod._id.toString()
+      );
+      return {
+        ...prod,
+        quantity: item?.quantity || 0
+      };
+    });
 
     return res.status(200).json({
       message: 'Cart founded with products',
       success: true,
-      data: filteredCart
+      data
     });
 
   } catch (e) {
