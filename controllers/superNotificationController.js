@@ -125,6 +125,8 @@ exports.getAllNotificationsAdmin = async (req, res) => {
       title: n.title,
       message: n.message,
       type: n.type,
+      isScheduled: n.isScheduled,
+      scheduledAt: n.scheduledAt,
       dateSent: n.sentAt,
       createdAt: n.createdAt
     }));
