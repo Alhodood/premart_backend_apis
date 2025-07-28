@@ -1,5 +1,6 @@
+const mongoose = require('mongoose');
 const WishList = require('../models/WishList');
-const { Product, ProductDetails } = require('../models/Product');
+const Product = require('../models/Product');
 
 exports.addToWishList = async (req, res) => {
   try {
@@ -19,10 +20,10 @@ exports.addToWishList = async (req, res) => {
 
     let wishList = await WishList.findOne({ userId });
 
-    const productDocs = await Product.find().lean();
-    const productDetails = productDocs.flatMap(doc =>
-      (doc.products || []).map(product => ({ ...product }))
-    );
+    // Load product documents for the given IDs
+    const productDetails = await Product.find({
+      _id: { $in: productIDs.map(id => new mongoose.Types.ObjectId(id)) }
+    }).lean();
 
     if (!wishList) {
       const newCart = new WishList({
@@ -31,15 +32,11 @@ exports.addToWishList = async (req, res) => {
       });
       await newCart.save();
 
-      const filtered = productDetails.filter(product =>
-        productIDs.includes(product._id.toString())
-      );
-
       return res.status(201).json({
         message: 'New wishlist created with products',
         success: true,
         action: 'added',
-        data: filtered
+        data: productDetails
       });
     }
 
@@ -62,12 +59,15 @@ exports.addToWishList = async (req, res) => {
 
     await wishList.save();
 
-    const fullList = productDetails.filter(product =>
-      wishList.wishListProduct.includes(product._id.toString())
-    );
-
-    const addedProducts = productDetails.filter(p => added.includes(p._id.toString()));
-    const removedProducts = productDetails.filter(p => removed.includes(p._id.toString()));
+    const fullList = await Product.find({
+      _id: { $in: wishList.wishListProduct.map(id => new mongoose.Types.ObjectId(id)) }
+    }).lean();
+    const addedProducts = await Product.find({
+      _id: { $in: added.map(id => new mongoose.Types.ObjectId(id)) }
+    }).lean();
+    const removedProducts = await Product.find({
+      _id: { $in: removed.map(id => new mongoose.Types.ObjectId(id)) }
+    }).lean();
 
     // Dynamic message
     let message = 'Wishlist updated successfully';
@@ -102,44 +102,24 @@ exports.addToWishList = async (req, res) => {
 exports.getWishList = async (req, res) => {
   try {
     const userId = req.params.userId;
-    const cart = await WishList.findOne({ userId });
+    const wishList = await WishList.findOne({ userId });
 
-    if (!cart) {
+    if (!wishList) {
       return res.status(200).json({
         message: 'User not found',
         success: true,
         data: []
       });
     }
-let filterdCart=[];
-    const productDocs = await Product.find().lean();
-    const productDetails = productDocs.flatMap(doc =>
-      (doc.products || []).map(product => ({
-        ...product,
-        // shopId: doc.shopId
-      }))
-    );
 
-
-    const tempCartList = cart.wishListProduct.map(id => id.toString());
-for(let i =0;i<tempCartList.length;i++){
-console.log("element in car", tempCartList[i])
-  for(let j =0;j<productDetails.length;j++){
-    console.log("element in product", productDetails[j]._id.toString())
-
-  if(tempCartList[i].toString()==productDetails[j]._id.toString()){
-    console.log(i);
-    filterdCart.push(productDetails[j]);
-  }
-  
-  }
-}
-
+    // Load products directly by IDs in the wishlist
+    const productIds = wishList.wishListProduct.map(id => new mongoose.Types.ObjectId(id));
+    const products = await Product.find({ _id: { $in: productIds } }).lean();
 
     return res.status(200).json({
-      message: 'Wishlist founded with products',
+      message: 'Wishlist found with products',
       success: true,
-      data: filterdCart
+      data: products
     });
 
   } catch (e) {

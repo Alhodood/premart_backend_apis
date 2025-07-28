@@ -33,6 +33,11 @@ router.post('/product/create/:shopId', productController.createProductForShop);
 router.get('/getAllProducts', productController.getAllProducts);
 router.get('/product/:shopId', productController.getProductsByShop);
 router.get('/getProductById/:productId', productController.getProductById);
+// Get product details with shop details
+router.get(
+  '/getProductWithShop/:productId/:shopId',
+  productController.getProductWithShopDetails
+);
 router.put('/product/update/:commonProductId/:shopId', productController.updateProduct);
 router.get('/getAllProductsAdmin', productController.getAllProductsAdmin);
 router.put('/update-product-all-shops/:commonProductId', productController.updateProductForAllShops);

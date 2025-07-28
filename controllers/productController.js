@@ -389,185 +389,190 @@ exports.addProduct = async (req, res) => {
 };
 
 
-// Bulk product upload using Excel
 const XLSX = require('xlsx');
 const path = require('path');
 const fs = require('fs');
+
+
 
 exports.bulkUploadProducts = async (req, res) => {
   try {
     if (!req.file) {
       return res.status(400).json({ message: 'No file uploaded', success: false });
     }
-
     const filePath = path.join(__dirname, '..', 'uploads', req.file.filename);
     const workbook = XLSX.readFile(filePath);
-    const sheetName = workbook.SheetNames[0];
-    const worksheet = XLSX.utils.sheet_to_json(workbook.Sheets[sheetName]);
+    const worksheet = XLSX.utils.sheet_to_json(workbook.Sheets[workbook.SheetNames[0]]);
 
     const shops = await Shop.find().lean();
-    if (!shops || shops.length === 0) {
+    if (!shops.length) {
+      fs.unlinkSync(filePath);
       return res.status(404).json({ message: 'No shops found', success: false });
     }
 
-    const createdProducts = [];
-
-    // Use dynamic commonProductId based on product details
-    let lastKey = '';
-    let currentCommonId = uuidv4();
-
+    const operations = [];
     for (const row of worksheet) {
-      // Generate a key based on product details
-      const rowKey = `${row.brand}_${row.model}_${row.year}_${row.frameCode}_${row.engineCode}_${row.transmission}_${row.categoryTab}_${row.subCategoryTab}`;
-      if (rowKey !== lastKey) {
-        currentCommonId = uuidv4();
-        lastKey = rowKey;
-      }
-
       const {
-        brand,
-        year,
-        model,
-        frameCode,
-        region,
-        engineCode,
-        transmission,
-        categoryTab,
-        categoryTabImageUrl,
-        subCategoryTab,
-        subCategoryTabImageUrl,
-        partNumber,
-        partName,
-        quantity,
-        price,
-        discountedPrice,
-        description,
-        imageUrl,
-        notes,
-        madeIn,
-        skuNumber,
-        stockStatus
+        brand, year, model, frameCode, region,
+        engineCode, transmission,
+        categoryTab, categoryTabImageUrl = '',
+        subCategoryTab, subCategoryTabImageUrl = '',
+        partNumber, partName, quantity, price,
+        discountedPrice, description, imageUrl = '',
+        notes, madeIn, skuNumber, stockStatus
       } = row;
 
+      const commonProductId = `${brand}_${model}_${year}_${frameCode}_${engineCode}_${transmission}_${categoryTab}_${subCategoryTab}`;
       const part = {
-        partNumber,
-        partName,
-        quantity,
-        price,
-        discountedPrice,
+        partNumber, partName, quantity, price, discountedPrice,
         description,
         imageUrl: imageUrl ? imageUrl.split(',') : [],
-        notes,
-        stockStatus: stockStatus || 'in_stock',
-        madeIn,
-        skuNumber
-      };
-
-      const subCategory = {
-        categoryTab,
-        categoryTabImageUrl: categoryTabImageUrl ? categoryTabImageUrl.split(',') : [],
-        subCategoryTab,
-        subCategoryTabImageUrl: subCategoryTabImageUrl ? subCategoryTabImageUrl.split(',') : [],
-        parts: [part]
+        notes, madeIn, skuNumber,
+        stockStatus: stockStatus || 'in_stock'
       };
 
       for (const shop of shops) {
-        const product = new Product({
-          brand,
-          year,
-          model,
-          frameCode,
-          region,
-          engineCode,
-          transmission,
-          shopId: shop._id,
-          subCategories: [subCategory],
-          ratings: {
-            average: 0,
-            totalReviews: 0
-          },
-          commonProductId: currentCommonId // use the generated commonProductId per group
+        // Phase 1: ensure product + subcategory exist
+        operations.push({
+          updateOne: {
+            filter: { shopId: shop._id, commonProductId },
+            update: {
+              $setOnInsert: {
+                brand, year, model, frameCode, region,
+                engineCode, transmission,
+                shopId: shop._id,
+                commonProductId,
+                ratings: { average: 0, totalReviews: 0 },
+                subCategories: [{
+                  categoryTab,
+                  categoryTabImageUrl: categoryTabImageUrl ? categoryTabImageUrl.split(',') : [],
+                  subCategoryTab,
+                  subCategoryTabImageUrl: subCategoryTabImageUrl ? subCategoryTabImageUrl.split(',') : [],
+                  parts: [part]
+                }]
+              }
+            },
+            upsert: true
+          }
         });
-
-        await product.save();
-        createdProducts.push(product);
-
-        await Shop.findByIdAndUpdate(shop._id, { $push: { products: product._id } });
+        // Phase 2: update existing part if found
+        operations.push({
+          updateOne: {
+            filter: {
+              shopId: shop._id,
+              commonProductId,
+              'subCategories.categoryTab': categoryTab,
+              'subCategories.subCategoryTab': subCategoryTab,
+              'subCategories.parts.partNumber': partNumber
+            },
+            update: {
+              $set: {
+                'subCategories.$[sc].parts.$[p].quantity': quantity,
+                'subCategories.$[sc].parts.$[p].price': price,
+                'subCategories.$[sc].parts.$[p].discountedPrice': discountedPrice,
+                'subCategories.$[sc].parts.$[p].description': description,
+                'subCategories.$[sc].parts.$[p].imageUrl': part.imageUrl,
+                'subCategories.$[sc].parts.$[p].notes': notes,
+                'subCategories.$[sc].parts.$[p].madeIn': madeIn,
+                'subCategories.$[sc].parts.$[p].skuNumber': skuNumber,
+                'subCategories.$[sc].parts.$[p].stockStatus': stockStatus || 'in_stock'
+              }
+            },
+            arrayFilters: [
+              { 'sc.categoryTab': categoryTab, 'sc.subCategoryTab': subCategoryTab },
+              { 'p.partNumber': partNumber }
+            ],
+            upsert: false
+          }
+        });
+        // Phase 3: push new part if missing
+        operations.push({
+          updateOne: {
+            filter: {
+              shopId: shop._id,
+              commonProductId,
+              'subCategories.categoryTab': categoryTab,
+              'subCategories.subCategoryTab': subCategoryTab,
+              'subCategories.parts.partNumber': { $ne: partNumber }
+            },
+            update: {
+              $push: { 'subCategories.$[sc].parts': part }
+            },
+            arrayFilters: [
+              { 'sc.categoryTab': categoryTab, 'sc.subCategoryTab': subCategoryTab }
+            ],
+            upsert: false
+          }
+        });
       }
     }
 
-    fs.unlinkSync(filePath); // Delete file after processing
-
-    return res.status(201).json({
-      message: 'Bulk products uploaded successfully',
+    const result = await Product.bulkWrite(operations, { ordered: false });
+    fs.unlinkSync(filePath);
+    return res.status(200).json({
+      message: 'Bulk upload processed (upsert completed)',
       success: true,
-      data: createdProducts
+      result: {
+        inserted: result.upsertedCount,
+        modified: result.modifiedCount
+      }
     });
-
   } catch (error) {
     console.error('Bulk Upload Error:', error);
-    return res.status(500).json({ message: 'Failed to upload bulk products', success: false, error: error.message });
+    return res.status(500).json({
+      message: 'Failed to process bulk upload',
+      success: false,
+      error: error.message
+    });
   }
 };
 
-// Bulk upload products for a specific shop
+// Bulk upload products for a specific shop (bulkWrite upsert logic)
 exports.bulkUploadProductsForShop = async (req, res) => {
   try {
     const { shopId } = req.params;
-
     if (!req.file) {
       return res.status(400).json({ message: 'No file uploaded', success: false });
     }
-
-    const shop = await Shop.findById(shopId);
+    const shop = await Shop.findById(shopId).lean();
     if (!shop) {
       return res.status(404).json({ message: 'Shop not found', success: false });
     }
 
+    // Read Excel file
     const filePath = path.join(__dirname, '..', 'uploads', req.file.filename);
     const workbook = XLSX.readFile(filePath);
-    const sheetName = workbook.SheetNames[0];
-    const worksheet = XLSX.utils.sheet_to_json(workbook.Sheets[sheetName]);
+    const worksheet = XLSX.utils.sheet_to_json(workbook.Sheets[workbook.SheetNames[0]]);
 
-    const createdProducts = [];
-
-    // Use dynamic commonProductId based on product details
+    // Prepare bulk operations
+    const operations = [];
     let lastKey = '';
     let currentCommonId = uuidv4();
 
     for (const row of worksheet) {
-      // Generate a key based on product details
-      const rowKey = `${row.brand}_${row.model}_${row.year}_${row.frameCode}_${row.engineCode}_${row.transmission}_${row.categoryTab}_${row.subCategoryTab}`;
+      // Generate a new commonProductId when grouping fields change
+      const rowKey = [
+        row.brand, row.model, row.year, row.frameCode,
+        row.engineCode, row.transmission,
+        row.categoryTab, row.subCategoryTab
+      ].join('_');
       if (rowKey !== lastKey) {
         currentCommonId = uuidv4();
         lastKey = rowKey;
       }
 
+      // Destructure row values
       const {
-        brand,
-        year,
-        model,
-        frameCode,
-        region,
-        engineCode,
-        transmission,
-        categoryTab,
-        categoryTabImageUrl,
-        subCategoryTab,
-        subCategoryTabImageUrl,
-        partNumber,
-        partName,
-        quantity,
-        price,
-        discountedPrice,
-        description,
-        imageUrl,
-        notes,
-        madeIn,
-        skuNumber,
-        stockStatus
+        brand, year, model, frameCode, region,
+        engineCode, transmission,
+        categoryTab, categoryTabImageUrl = '',
+        subCategoryTab, subCategoryTabImageUrl = '',
+        partNumber, partName, quantity, price,
+        discountedPrice, description, imageUrl = '',
+        notes, madeIn, skuNumber, stockStatus
       } = row;
 
+      // Build part object
       const part = {
         partNumber,
         partName,
@@ -577,50 +582,102 @@ exports.bulkUploadProductsForShop = async (req, res) => {
         description,
         imageUrl: imageUrl ? imageUrl.split(',') : [],
         notes,
-        stockStatus: stockStatus || 'in_stock',
         madeIn,
-        skuNumber
+        skuNumber,
+        stockStatus: stockStatus || 'in_stock'
       };
 
-      const subCategory = {
-        categoryTab,
-        categoryTabImageUrl: categoryTabImageUrl ? categoryTabImageUrl.split(',') : [],
-        subCategoryTab,
-        subCategoryTabImageUrl: subCategoryTabImageUrl ? subCategoryTabImageUrl.split(',') : [],
-        parts: [part]
-      };
-
-      const product = new Product({
-        brand,
-        year,
-        model,
-        frameCode,
-        region,
-        engineCode,
-        transmission,
-        shopId,
-        subCategories: [subCategory],
-        ratings: {
-          average: 0,
-          totalReviews: 0
-        },
-        commonProductId: currentCommonId // use the generated commonProductId per group
+      // Phase 1: ensure product + subcategory exists
+      operations.push({
+        updateOne: {
+          filter: { shopId: shop._id, commonProductId: currentCommonId },
+          update: {
+            $setOnInsert: {
+              brand,
+              year,
+              model,
+              frameCode,
+              region,
+              engineCode,
+              transmission,
+              shopId: shop._id,
+              commonProductId: currentCommonId,
+              ratings: { average: 0, totalReviews: 0 },
+              subCategories: [{
+                categoryTab,
+                categoryTabImageUrl: categoryTabImageUrl ? categoryTabImageUrl.split(',') : [],
+                subCategoryTab,
+                subCategoryTabImageUrl: subCategoryTabImageUrl ? subCategoryTabImageUrl.split(',') : [],
+                parts: [part]
+              }]
+            }
+          },
+          upsert: true
+        }
       });
 
-      await product.save();
-      createdProducts.push(product);
+      // Phase 2: update existing part
+      operations.push({
+        updateOne: {
+          filter: {
+            shopId: shop._id,
+            commonProductId: currentCommonId,
+            'subCategories.categoryTab': categoryTab,
+            'subCategories.subCategoryTab': subCategoryTab,
+            'subCategories.parts.partNumber': partNumber
+          },
+          update: {
+            $set: {
+              'subCategories.$[sc].parts.$[p].quantity': quantity,
+              'subCategories.$[sc].parts.$[p].price': price,
+              'subCategories.$[sc].parts.$[p].discountedPrice': discountedPrice,
+              'subCategories.$[sc].parts.$[p].description': description,
+              'subCategories.$[sc].parts.$[p].imageUrl': part.imageUrl,
+              'subCategories.$[sc].parts.$[p].notes': notes,
+              'subCategories.$[sc].parts.$[p].madeIn': madeIn,
+              'subCategories.$[sc].parts.$[p].skuNumber': skuNumber,
+              'subCategories.$[sc].parts.$[p].stockStatus': stockStatus || 'in_stock'
+            }
+          },
+          arrayFilters: [
+            { 'sc.categoryTab': categoryTab, 'sc.subCategoryTab': subCategoryTab },
+            { 'p.partNumber': partNumber }
+          ],
+          upsert: false
+        }
+      });
 
-      await Shop.findByIdAndUpdate(shopId, { $push: { products: product._id } });
+      // Phase 3: push new part if missing
+      operations.push({
+        updateOne: {
+          filter: {
+            shopId: shop._id,
+            commonProductId: currentCommonId,
+            'subCategories.categoryTab': categoryTab,
+            'subCategories.subCategoryTab': subCategoryTab,
+            'subCategories.parts.partNumber': { $ne: partNumber }
+          },
+          update: { $push: { 'subCategories.$[sc].parts': part } },
+          arrayFilters: [
+            { 'sc.categoryTab': categoryTab, 'sc.subCategoryTab': subCategoryTab }
+          ],
+          upsert: false
+        }
+      });
     }
 
-    fs.unlinkSync(filePath); // Delete file after processing
+    // Execute the bulk operations
+    const result = await Product.bulkWrite(operations, { ordered: false });
+    fs.unlinkSync(filePath);
 
-    return res.status(201).json({
-      message: 'Bulk products uploaded successfully for the shop',
+    return res.status(200).json({
+      message: 'Bulk upload processed for shop (upsert completed)',
       success: true,
-      data: createdProducts
+      result: {
+        inserted: result.upsertedCount,
+        modified: result.modifiedCount
+      }
     });
-
   } catch (error) {
     console.error('Bulk Upload for Shop Error:', error);
     return res.status(500).json({
@@ -1052,13 +1109,19 @@ exports.updateProductForAllShops = async (req, res) => {
   }
 };
 
-// Get list of shops selling products matching brand, model, categoryTab, and subCategoryTab
+// Get list of shops selling products matching brand, model, categoryTab, subCategoryTab, and partNumber
 exports.getShopsSellingSimilarProduct = async (req, res) => {
   try {
-    const { brand, model, categoryTab, subCategoryTab } = req.query;
+    const { brand, model, categoryTab, subCategoryTab, partNumber } = req.query;
     if (!brand || !model || !categoryTab || !subCategoryTab) {
       return res.status(400).json({
         message: 'brand, model, categoryTab, and subCategoryTab query parameters are required',
+        success: false
+      });
+    }
+    if (!partNumber) {
+      return res.status(400).json({
+        message: 'partNumber query parameter is required',
         success: false
       });
     }
@@ -1069,7 +1132,8 @@ exports.getShopsSellingSimilarProduct = async (req, res) => {
       subCategories: {
         $elemMatch: {
           categoryTab: categoryTab,
-          subCategoryTab: subCategoryTab
+          subCategoryTab: subCategoryTab,
+          parts: { $elemMatch: { partNumber: partNumber } }
         }
       }
     }).lean();
@@ -1089,24 +1153,26 @@ exports.getShopsSellingSimilarProduct = async (req, res) => {
           subCat.subCategoryTab === subCategoryTab
         ) {
           for (const part of subCat.parts || []) {
-            productsByShop[shopIdStr].push({
-              productId: product._id,
-              year: product.year,
-              region: product.region,
-              engineCode: product.engineCode,
-              transmission: product.transmission,
-              partNumber: part.partNumber,
-              partName: part.partName,
-              quantity: part.quantity,
-              price: part.price,
-              discountedPrice: part.discountedPrice,
-              description: part.description,
-              imageUrl: part.imageUrl,
-              notes: part.notes,
-              madeIn: part.madeIn,
-              skuNumber: part.skuNumber,
-              stockStatus: part.stockStatus
-            });
+            if (part.partNumber === partNumber) {
+              productsByShop[shopIdStr].push({
+                productId: product._id,
+                year: product.year,
+                region: product.region,
+                engineCode: product.engineCode,
+                transmission: product.transmission,
+                partNumber: part.partNumber,
+                partName: part.partName,
+                quantity: part.quantity,
+                price: part.price,
+                discountedPrice: part.discountedPrice,
+                description: part.description,
+                imageUrl: part.imageUrl,
+                notes: part.notes,
+                madeIn: part.madeIn,
+                skuNumber: part.skuNumber,
+                stockStatus: part.stockStatus
+              });
+            }
           }
         }
       }
@@ -1149,6 +1215,41 @@ exports.getShopsSellingSimilarProduct = async (req, res) => {
     return res.status(500).json({
       message: 'Failed to retrieve shops selling similar products',
       success: false,
+      error: error.message
+    });
+  }
+};
+
+// Get product details along with its shop details
+
+exports.getProductWithShopDetails = async (req, res) => {
+  try {
+    const { productId, shopId } = req.params;
+    // Validate IDs
+    if (!mongoose.Types.ObjectId.isValid(productId) || !mongoose.Types.ObjectId.isValid(shopId)) {
+      return res.status(400).json({ success: false, message: 'Invalid productId or shopId' });
+    }
+    // Fetch the product for the given shop
+    const product = await Product.findOne({ _id: productId, shopId }).lean();
+    if (!product) {
+      return res.status(404).json({ success: false, message: 'Product not found for this shop' });
+    }
+    // Fetch shop details
+    const shop = await Shop.findById(shopId).lean();
+    if (!shop) {
+      return res.status(404).json({ success: false, message: 'Shop not found' });
+    }
+    // Respond with both product and shop data
+    return res.status(200).json({
+      success: true,
+      message: 'Product and shop details retrieved successfully',
+      data: { product, shop }
+    });
+  } catch (error) {
+    console.error('Get Product With Shop Details Error:', error);
+    return res.status(500).json({
+      success: false,
+      message: 'Failed to retrieve product and shop details',
       error: error.message
     });
   }

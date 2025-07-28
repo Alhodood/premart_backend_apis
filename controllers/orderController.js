@@ -6,7 +6,6 @@ const DeliveryBoy = require('../models/DeliveryBoy');
 const mongoose = require('mongoose');
 const Stock = require('../models/Stock');
 const axios = require('axios');
-const CustomerAddress = require('../models/CustomerAddress');
 const geolib = require('geolib');
 
 const { Shop } = require('../models/Shop');
@@ -392,19 +391,23 @@ exports.createOrder = async (req, res) => {
 exports.createOrderFromDirectBuy = async (req, res) => {
   try {
     // Accept productId, quantity, transactionId, paymentType from req.body
-    const { productId, quantity = 1, transactionId, paymentType, couponCode } = req.body;
+    const { productId, quantity = 1, transactionId = null, paymentType, couponCode } = req.body;
+    // Accept delivery address from request body
+    const { deliveryAddress } = req.body;
+    if (!deliveryAddress || !deliveryAddress.name || !deliveryAddress.address) {
+      return res.status(400).json({ message: 'Delivery address is required in body', success: false });
+    }
+    // Ensure required fields for deliveryAddress schema
+    deliveryAddress.default = deliveryAddress.default !== undefined ? deliveryAddress.default : false;
+    deliveryAddress.addressType = deliveryAddress.addressType || 'Home';
+    // Make latitude & longitude optional
+    deliveryAddress.latitude  = deliveryAddress.latitude  !== undefined ? deliveryAddress.latitude  : null;
+    deliveryAddress.longitude = deliveryAddress.longitude !== undefined ? deliveryAddress.longitude : null;
     // Accept userId from params or req.user
     const userId = req.params.userId || req.user?._id;
     if (!userId || !productId) {
       return res.status(400).json({ message: 'Missing userId or productId', success: false });
     }
-    // Find user and address
-    const user = await require('../models/User').findById(userId);
-    if (!user || !user.address || user.address.length === 0) {
-      return res.status(400).json({ message: 'No delivery address found', success: false });
-    }
-    let deliveryAddress = user.address.find(a => a.default) || user.address[0];
-    deliveryAddress = deliveryAddress?.toObject?.() || deliveryAddress;
     // Fetch product
     const product = await Product.findById(productId);
     if (!product) {

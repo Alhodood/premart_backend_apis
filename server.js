@@ -38,6 +38,15 @@ const connectDB =require("./config/db.js")
 const app = express();
 
 app.use(express.json({ limit: '10mb' }));
+// Handle invalid JSON payloads by resetting body and continuing
+app.use((err, req, res, next) => {
+  if (err instanceof SyntaxError && err.status === 400 && 'body' in err) {
+    console.error('Invalid JSON received, resetting body:', err.message);
+    req.body = {};
+    return next();
+  }
+  next(err);
+});
 app.use(express.urlencoded({ extended: true, limit: '10mb' }));
 // Middleware
 
@@ -87,7 +96,7 @@ app.use('/api/customerAddress', customerAddress);
 app.use('/api/banner',banner);
 app.use('/api/notification',notification);
 app.use('/api/cart',cart);
-app.use('/api/whislist',wishlist);
+app.use('/api/wishlist',wishlist);
 app.use('/api/order',order);
 app.use('/api/deliveryBoy',deliveryBoy);
 app.use('/api/sales',sales);
@@ -305,7 +314,7 @@ app.post("/create-payment-intent", async (req, res) => {
   }
 });
 
-const PORT = process.env.PORT || 3005;
+const PORT = process.env.PORT || 3000;
 const HOST = process.env.HOST || '0.0.0.0';
 
 // Start server
