@@ -1,6 +1,6 @@
 const express = require('express');
 const router = express.Router();
-const catalogImageController = require('../controllers/catalogImageController');
+const catalogImageController = require('../controllers/catalogImagesController');
 
 // Upload catalog image
 router.post('/upload', catalogImageController.uploadCatalogImage);
