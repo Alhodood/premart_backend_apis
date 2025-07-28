@@ -13,14 +13,19 @@ exports.createNotification = async (req, res) => {
       image
     } = req.body;
 
+    // Determine the target timestamp
+    const targetDate = isScheduled && scheduledAt
+      ? new Date(scheduledAt)
+      : new Date();
+
     const notification = new Notification({
       title,
       message,
       role,
       recipientIds,
       isScheduled,
-      scheduledAt: isScheduled ? scheduledAt : null,
-      sentAt: isScheduled ? null : new Date(),
+      scheduledAt: targetDate,
+      sentAt: targetDate,
       createdBy: req.params.creatorId,
       image
     });
