@@ -1,4 +1,3 @@
-
 const express = require('express');
 const router = express.Router();
 const {
@@ -6,10 +5,10 @@ const {
   createOffer, getAllOffers, deleteOffer,updateCoupon,updateOffer,applyCoupon,checkOfferValidity
 } = require('../controllers/offerCouponController');
 router.post('/coupon/check', applyCoupon);
-router.post('/coupon/:creatorId', createCoupon);
+router.post('/coupon/create', createCoupon);
 router.get('/coupon', getAllCoupons);
-router.delete('/coupon/:creatorId/:id', deleteCoupon);
-router.put('/coupon/:id', updateCoupon);
+router.delete('/coupon/delete/:id', deleteCoupon);
+router.put('/coupon/update/:id', updateCoupon);
 
 
 //------------------------------

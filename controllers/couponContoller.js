@@ -3,26 +3,19 @@ const Coupon = require('../models/Coupon');
 // Create a new coupon under a shop
 exports.createCoupon = async (req, res) => {
   try {
-    const shopeId= req.shopId;
-    const  couponData = req.body;
+    // Extract startDate (if provided) and default to current time
+    const { startDate, ...couponData } = req.body;
+    couponData.startDate = startDate
+      ? new Date(startDate)
+      : new Date();
 
-    let shopCoupon = await Coupon.findOne({ shopeId });
+    // Create and save a standalone Coupon document
+    const newCoupon = new Coupon(couponData);
+    const saved = await newCoupon.save();
 
-    if (!shopCoupon) {
-      // Create a new document if none exists
-      shopCoupon = new Coupon({
-        shopeId,
-        cartProduct: [couponData]
-      });
-    } else {
-      // Push to existing cartProduct array
-      shopCoupon.cartProduct.push(couponData);
-    }
-
-    const saved = await shopCoupon.save();
-    res.status(201).json({data:saved,success:true, message: "coupon featched succcessfuly" });
+    res.status(201).json({ data: saved, success: true, message: "coupon created successfully" });
   } catch (err) {
-    res.status(400).json({ data:[],success:false, message:  err.message });
+    res.status(400).json({ data: [], success: false, message: err.message });
   }
 };
 
@@ -36,54 +29,45 @@ exports.getAllCoupons = async (req, res) => {
   }
 };
 
-// Get all coupons by shop
-exports.getCouponsByShop = async (req, res) => {
+exports.getCouponById = async (req, res) => {
   try {
-    const { shopeId } = req.params;
-    const coupons = await Coupon.findOne({ shopeId });
-
-    if (!coupons) return res.status(404).json({ message: 'No coupons found for this shop' });
-
-    res.status(200).json({message: err.message, success: true,data:coupons});
+    const couponId = req.params.id;
+    const coupon = await Coupon.findById(couponId);
+    if (!coupon) {
+      return res.status(404).json({ message: 'Coupon not found', success: false, data: [] });
+    }
+    res.status(200).json({ message: 'Coupon fetched successfully', success: true, data: coupon });
   } catch (err) {
-    res.status(500).json({  message: err.message, success: false,data:[] });
+    res.status(500).json({ message: err.message, success: false, data: [] });
   }
 };
 
-// Update a specific coupon by shopId and couponId
 exports.updateCoupon = async (req, res) => {
   try {
-    const { shopeId, couponId } = req.params;
-
-    const updated = await Coupon.findOneAndUpdate(
-      { shopeId, 'cartProduct._id': couponId },
-      { $set: { 'cartProduct.$': req.body } },
-      { new: true }
+    const couponId = req.params.id;
+    const updated = await Coupon.findByIdAndUpdate(
+      couponId,
+      req.body,
+      { new: true, runValidators: true }
     );
-
-    if (!updated) return res.status(404).json({ message: 'Coupon not found', success: false,data:[] });
-
-    res.status(200).json({message: "cart featched successfuly", success: true,data:updated});
+    if (!updated) {
+      return res.status(404).json({ message: 'Coupon not found', success: false, data: [] });
+    }
+    res.status(200).json({ message: 'Coupon updated successfully', success: true, data: updated });
   } catch (err) {
-    res.status(400).json({ message: err.message, success: false,data:[] });
+    res.status(400).json({ message: err.message, success: false, data: [] });
   }
 };
 
-// Delete a specific coupon by shopId and couponId
 exports.deleteCoupon = async (req, res) => {
   try {
-    const { shopeId, couponId } = req.params;
-
-    const updated = await Coupon.findOneAndUpdate(
-      { shopeId },
-      { $pull: { cartProduct: { _id: couponId } } },
-      { new: true }
-    );
-
-    if (!updated) return res.status(404).json({ message: 'Coupon not found', success: false,data:[] });
-
-    res.status(200).json({message: err.message, success: true,data:updated});
+    const couponId = req.params.id;
+    const deleted = await Coupon.findByIdAndDelete(couponId);
+    if (!deleted) {
+      return res.status(404).json({ message: 'Coupon not found', success: false, data: [] });
+    }
+    res.status(200).json({ message: 'Coupon deleted successfully', success: true, data: deleted });
   } catch (err) {
-    res.status(400).json({  message: err.message, success: false,data:[]});
+    res.status(400).json({ message: err.message, success: false, data: [] });
   }
 };
