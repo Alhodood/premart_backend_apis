@@ -224,30 +224,25 @@ exports.markAsRead = async (req, res) => {
 
 exports.updateNotification = async (req, res) => {
   try {
-    const { id } = req.params;
-    const notification = await Notification.findById(id);
-
-    const now = new Date();
-    if (
-      !notification ||
-      !notification.isScheduled ||
-      !(notification.scheduledAt instanceof Date) ||
-      notification.scheduledAt <= now
-    ) {
-      return res.status(400).json({
-        message: 'Only future scheduled notifications can be updated',
-        success: false
-      });
+    const notificationId = req.params.id;
+    // Ensure notification exists and is scheduled
+    const notification = await Notification.findById(notificationId);
+    if (!notification) {
+      return res.status(404).json({ message: 'Notification not found', success: false });
+    }
+    if (!notification.isScheduled) {
+      return res.status(400).json({ message: 'Only scheduled notifications can be updated', success: false });
     }
 
-    const updates = req.body;
-    Object.assign(notification, updates);
-    await notification.save();
-
-    res.status(200).json({ message: 'Notification updated', success: true, data: notification });
-
+    // Perform update and return the new document
+    const updated = await Notification.findByIdAndUpdate(
+      notificationId,
+      req.body,
+      { new: true, runValidators: true }
+    );
+    return res.status(200).json({ message: 'Notification updated', success: true, data: updated });
   } catch (err) {
-    res.status(500).json({ message: 'Update failed', success: false, data: err.message });
+    return res.status(500).json({ message: 'Update failed', success: false, data: err.message });
   }
 };
 

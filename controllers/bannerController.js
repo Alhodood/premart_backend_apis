@@ -13,7 +13,8 @@ exports.addBanner = async (req, res) => {
       isActive,
     });
 
-    await newBanner.save();
+    // Skip schema validation (so shopId is not required)
+    await newBanner.save({ validateBeforeSave: false });
     res.status(201).json({ message: 'Banner added successfully', data: newBanner });
   } catch (error) {
     res.status(500).json({ message: 'Failed to add banner', error: error.message });
