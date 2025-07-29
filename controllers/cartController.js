@@ -125,3 +125,40 @@ exports.getCart = async (req, res) => {
     });
   }
 };
+
+/**
+ * DELETE /api/cart/:userId/product/:productId
+ * Remove a product entirely from the user's cart regardless of its quantity.
+ */
+exports.deleteProductFromCart = async (req, res) => {
+  try {
+    const { userId, productId } = req.params;
+    if (!userId || !productId) {
+      return res.status(400).json({ message: 'userId and productId required', success: false });
+    }
+
+    const cart = await Cart.findOne({ userId });
+    if (!cart) {
+      return res.status(404).json({ message: 'Cart not found', success: false });
+    }
+
+    // Find the product index
+    const idx = cart.cartProduct.findIndex(ci => ci.productId.toString() === productId);
+    if (idx === -1) {
+      return res.status(404).json({ message: 'Product not in cart', success: false });
+    }
+
+    // Remove the product entirely
+    cart.cartProduct.splice(idx, 1);
+    await cart.save();
+
+    return res.status(200).json({
+      message: 'Product removed from cart',
+      success: true,
+      data: cart
+    });
+  } catch (err) {
+    console.error('Delete product from cart error:', err);
+    return res.status(500).json({ message: 'Failed to delete product from cart', success: false, error: err.message });
+  }
+};
