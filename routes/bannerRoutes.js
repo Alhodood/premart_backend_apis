@@ -10,6 +10,6 @@ router.post('/addBanner', bannerController.addBanner);
 router.get('/shop', bannerController.getAllBanners);  // Uses same method for shop context
 router.get('/:shopId', bannerController.getBannerByShopId);
 router.put('/:id', bannerController.updateBanner);
-router.delete('/:shopId/:id', bannerController.deleteBanner);
+router.delete('/delete/:id', bannerController.deleteBanner);
 
 module.exports = router;
