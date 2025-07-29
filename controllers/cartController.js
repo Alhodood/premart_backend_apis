@@ -1,105 +1,85 @@
 const Cart = require('../models/Cart');
 const Product = require('../models/Product');
 
+/**
+ * POST /api/cart/:userId/add
+ * Increment the cart quantity for a single product (default +1).
+ */
 exports.addToCart = async (req, res) => {
   try {
-    console.log("Request body received:", req.body);
     const userId = req.params.userId;
-    const { productItems } = req.body;
-
-    if (!userId || !Array.isArray(productItems) || productItems.length === 0) {
-      return res.status(400).json({
-        message: 'UserId and productItems array are required',
-        success: false,
-        data: []
-      });
+    const { productId } = req.body;
+    if (!userId || !productId) {
+      return res.status(400).json({ message: 'userId and productId required', success: false });
     }
 
-    const productIds = productItems.map(p => p.productId);
-    const quantityMap = {};
-    productItems.forEach(p => {
-      quantityMap[p.productId] = p.quantity || 1;
-    });
-
+    // Find or create cart
     let cart = await Cart.findOne({ userId });
-
-    const productDocs = await Product.find({ _id: { $in: productIds } }).lean();
-
     if (!cart) {
-      const newCart = new Cart({
-        userId,
-        cartProduct: productDocs.map(p => ({ productId: p._id.toString(), quantity: quantityMap[p._id.toString()] || 1 }))
-      });
-      await newCart.save();
-
-      return res.status(201).json({
-        message: 'Products added to new cart',
-        success: true,
-        added: productDocs,
-        removed: [],
-        cart: productDocs.map(p => ({ ...p, quantity: quantityMap[p._id.toString()] || 1 }))
-      });
+      cart = new Cart({ userId, cartProduct: [] });
     }
 
-    const addedProducts = [];
-    const removedProducts = [];
-
-    for (let product of productDocs) {
-      const strId = product._id.toString();
-      const existingIndex = cart.cartProduct.findIndex(cp =>
-        cp.productId.toString() === strId
-      );
-
-      if (existingIndex === -1) {
-        // Toggle ON: add new item with requested quantity (default 1)
-        cart.cartProduct.push({
-          productId: strId,
-          quantity: quantityMap[strId] || 1
-        });
-        addedProducts.push(product);
-      } else {
-        // Toggle OFF: remove existing item
-        cart.cartProduct.splice(existingIndex, 1);
-        removedProducts.push(product);
-      }
+    // Find existing item
+    const idx = cart.cartProduct.findIndex(ci => ci.productId.toString() === productId);
+    if (idx === -1) {
+      // Add new with quantity 1
+      cart.cartProduct.push({ productId, quantity: 1 });
+    } else {
+      // Increment existing quantity
+      cart.cartProduct[idx].quantity += 1;
     }
 
     await cart.save();
 
-    const updatedCart = await Product.find({ _id: { $in: cart.cartProduct.map(p => p.productId) } }).lean();
-
-    const cartWithQuantities = updatedCart.map(product => {
-      const cartItem = cart.cartProduct.find(p => p.productId === product._id.toString());
-      return { ...product, quantity: cartItem?.quantity || 1 };
+    return res.status(200).json({
+      message: 'Product added to cart',
+      success: true,
+      data: cart
     });
+  } catch (err) {
+    console.error('Add to cart error:', err);
+    return res.status(500).json({ message: 'Failed to add to cart', success: false, error: err.message });
+  }
+};
 
-    let message = 'Cart updated successfully';
-    if (addedProducts.length && !removedProducts.length) {
-      message = 'Products added to cart';
-    } else if (!addedProducts.length && removedProducts.length) {
-      // Use singular or plural based on count
-      message = removedProducts.length === 1
-        ? 'Product removed from cart'
-        : 'Products removed from cart';
-    } else if (addedProducts.length && removedProducts.length) {
-      message = 'Products added and removed from cart';
+/**
+ * POST /api/cart/:userId/remove
+ * Decrement the cart quantity for a single product (default -1), removing if quantity reaches 0.
+ */
+exports.removeFromCart = async (req, res) => {
+  try {
+    const userId = req.params.userId;
+    const { productId } = req.body;
+    if (!userId || !productId) {
+      return res.status(400).json({ message: 'userId and productId required', success: false });
     }
 
-    return res.status(200).json({
-      message,
-      success: true,
-      added: addedProducts,
-      removed: removedProducts,
-      cart: cartWithQuantities
-    });
+    const cart = await Cart.findOne({ userId });
+    if (!cart) {
+      return res.status(404).json({ message: 'Cart not found', success: false });
+    }
 
-  } catch (error) {
-    console.error('Cart Error:', error);
-    res.status(500).json({
-      message: 'Cart operation failed',
-      success: false,
-      data: error.message
+    const idx = cart.cartProduct.findIndex(ci => ci.productId.toString() === productId);
+    if (idx === -1) {
+      return res.status(404).json({ message: 'Product not in cart', success: false });
+    }
+
+    // Decrement or remove
+    cart.cartProduct[idx].quantity -= 1;
+    if (cart.cartProduct[idx].quantity <= 0) {
+      cart.cartProduct.splice(idx, 1);
+    }
+
+    await cart.save();
+
+    return res.status(200).json({
+      message: 'Product removed from cart',
+      success: true,
+      data: cart
     });
+  } catch (err) {
+    console.error('Remove from cart error:', err);
+    return res.status(500).json({ message: 'Failed to remove from cart', success: false, error: err.message });
   }
 };
 
