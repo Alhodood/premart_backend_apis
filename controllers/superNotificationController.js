@@ -19,8 +19,8 @@ exports.createNotification = async (req, res) => {
       role,
       recipientIds,
       isScheduled,
-      scheduledAt: isScheduled ? scheduledAt : null,
-      sentAt: isScheduled ? null : new Date(),
+      scheduledAt: isScheduled && scheduledAt ? new Date(scheduledAt) : null,
+      sentAt: isScheduled && scheduledAt ? new Date(scheduledAt) : new Date(),
       createdBy: req.params.creatorId,
       image
     });
@@ -125,6 +125,8 @@ exports.getAllNotificationsAdmin = async (req, res) => {
       title: n.title,
       message: n.message,
       type: n.type,
+      isScheduled: n.isScheduled,
+      scheduledAt: n.scheduledAt,
       dateSent: n.sentAt,
       createdAt: n.createdAt
     }));
@@ -225,8 +227,17 @@ exports.updateNotification = async (req, res) => {
     const { id } = req.params;
     const notification = await Notification.findById(id);
 
-    if (!notification || notification.sentAt) {
-      return res.status(400).json({ message: 'Only pending/scheduled notifications can be updated', success: false });
+    const now = new Date();
+    if (
+      !notification ||
+      !notification.isScheduled ||
+      !(notification.scheduledAt instanceof Date) ||
+      notification.scheduledAt <= now
+    ) {
+      return res.status(400).json({
+        message: 'Only future scheduled notifications can be updated',
+        success: false
+      });
     }
 
     const updates = req.body;
