@@ -73,7 +73,7 @@ exports.getSimilarProducts = async (req, res) => {
   }
 };
 
-// Get products by part number
+// Get products by part number with shop details using aggregation
 exports.getProductsByPartNumber = async (req, res) => {
   try {
     const partNumber = req.params.partNumber?.trim();
@@ -81,12 +81,53 @@ exports.getProductsByPartNumber = async (req, res) => {
       return res.status(400).json({ message: 'Part number is required', success: false });
     }
 
-    const products = await Product.find({
-      'subCategories.parts.partNumber': partNumber
-    }).lean();
+    const products = await Product.aggregate([
+      {
+        $match: {
+          "subCategories.parts.partNumber": partNumber
+        }
+      },
+      {
+        $lookup: {
+          from: "shops",
+          localField: "shopId",
+          foreignField: "_id",
+          as: "shopDetails"
+        }
+      },
+      {
+        $unwind: "$shopDetails"
+      },
+      {
+        $project: {
+          _id: 1,
+          brand: 1,
+          year: 1,
+          model: 1,
+          frameCode: 1,
+          region: 1,
+          engineCode: 1,
+          transmission: 1,
+          commonProductId: 1,
+          shopId: 1,
+          subCategories: 1,
+          ratings: 1,
+          createdAt: 1,
+          updatedAt: 1,
+          __v: 1,
+          shopDetails: {
+            _id: "$shopDetails._id",
+            shopeDetails: "$shopDetails.shopeDetails",
+            createdAt: "$shopDetails.createdAt",
+            updatedAt: "$shopDetails.updatedAt",
+            __v: "$shopDetails.__v"
+          }
+        }
+      }
+    ]);
 
     return res.status(200).json({
-      message: 'Products by part number',
+      message: "Products retrieved by part number",
       success: true,
       data: products
     });
@@ -96,7 +137,7 @@ exports.getProductsByPartNumber = async (req, res) => {
   }
 };
 
-// Get parts by part number
+// Get parts by part number using aggregation and shop details
 exports.getPartsByPartNumber = async (req, res) => {
   try {
     const partNumber = req.params.partNumber?.trim();
@@ -104,31 +145,48 @@ exports.getPartsByPartNumber = async (req, res) => {
       return res.status(400).json({ message: 'Part number is required', success: false });
     }
 
-    const products = await Product.find({
-      'subCategories.parts.partNumber': partNumber
-    }).lean();
+    // Find all products containing the partNumber in subCategories.parts
+    const products = await Product.find({ 'subCategories.parts.partNumber': partNumber }).lean();
+    if (!products || products.length === 0) {
+      return res.status(404).json({ message: "Part not found" });
+    }
 
-    const matchedParts = [];
-
+    // Flatten all matching parts and include shop details
+    const partsWithShopDetails = [];
     for (const product of products) {
+      // Get shop details for this product
+      const shop = product.shopId
+        ? await Shop.findById(product.shopId).lean()
+        : null;
       for (const subCategory of product.subCategories || []) {
         for (const part of subCategory.parts || []) {
           if (part.partNumber === partNumber) {
-            matchedParts.push({
+            partsWithShopDetails.push({
+              ...part,
               productId: product._id,
-              productModel: product.model,
+              brand: product.brand,
+              model: product.model,
+              year: product.year,
+              region: product.region,
+              engineCode: product.engineCode,
+              transmission: product.transmission,
               categoryTab: subCategory.categoryTab,
-              ...part
+              subCategoryTab: subCategory.subCategoryTab,
+              shopId: product.shopId,
+              shopDetails: shop || {}
             });
           }
         }
       }
     }
 
-    return res.status(200).json({
-      message: 'Parts by part number',
-      success: true,
-      data: matchedParts
+    if (partsWithShopDetails.length === 0) {
+      return res.status(404).json({ message: "Part not found" });
+    }
+
+    res.status(200).json({
+      message: "Part(s) retrieved successfully",
+      data: partsWithShopDetails,
     });
   } catch (error) {
     console.error('Get Parts by Part Number Error:', error);
