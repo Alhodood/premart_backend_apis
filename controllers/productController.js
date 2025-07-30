@@ -302,8 +302,16 @@ exports.getAllProductsAdmin = async (req, res) => {
     // if (search) { ... }
     // if (filter) { ... }
     const products = await Product.find().lean();
+    // Deduplicate by commonProductId
+    const uniqueProductsMap = new Map();
+    for (const product of products) {
+      if (!uniqueProductsMap.has(product.commonProductId)) {
+        uniqueProductsMap.set(product.commonProductId, product);
+      }
+    }
+    const uniqueProducts = Array.from(uniqueProductsMap.values());
     // Flatten and map products to only required fields
-    const simplified = products.map(product => {
+    const simplified = uniqueProducts.map(product => {
       const {
         _id, brand, year, model, frameCode, region, engineCode, transmission,
         productionStart, productionEnd, shopId, createdAt, ratings = {}, commonProductId
@@ -456,8 +464,8 @@ exports.addProduct = async (req, res) => {
 
 
 const XLSX = require('xlsx');
-const path = require('path');
-const fs = require('fs');
+const { PutObjectCommand } = require('@aws-sdk/client-s3');
+const { s3 } = require('../server');
 
 
 
@@ -466,13 +474,18 @@ exports.bulkUploadProducts = async (req, res) => {
     if (!req.file) {
       return res.status(400).json({ message: 'No file uploaded', success: false });
     }
-    const filePath = path.join(__dirname, '..', 'uploads', req.file.filename);
-    const workbook = XLSX.readFile(filePath);
+    // Upload Excel file to S3
+    await s3.send(new PutObjectCommand({
+      Bucket: process.env.AWS_BUCKET,
+      Key: req.file.originalname,
+      Body: req.file.buffer
+    }));
+    // Read Excel directly from memory buffer
+    const workbook = XLSX.read(req.file.buffer, { type: 'buffer' });
     const worksheet = XLSX.utils.sheet_to_json(workbook.Sheets[workbook.SheetNames[0]]);
 
     const shops = await Shop.find().lean();
     if (!shops.length) {
-      fs.unlinkSync(filePath);
       return res.status(404).json({ message: 'No shops found', success: false });
     }
 
@@ -574,7 +587,6 @@ exports.bulkUploadProducts = async (req, res) => {
     }
 
     const result = await Product.bulkWrite(operations, { ordered: false });
-    fs.unlinkSync(filePath);
     return res.status(200).json({
       message: 'Bulk upload processed (upsert completed)',
       success: true,
@@ -600,14 +612,19 @@ exports.bulkUploadProductsForShop = async (req, res) => {
     if (!req.file) {
       return res.status(400).json({ message: 'No file uploaded', success: false });
     }
+    // Upload Excel file to S3
+    await s3.send(new PutObjectCommand({
+      Bucket: process.env.AWS_BUCKET_NAME,
+      Key: req.file.originalname,
+      Body: req.file.buffer
+    }));
     const shop = await Shop.findById(shopId).lean();
     if (!shop) {
       return res.status(404).json({ message: 'Shop not found', success: false });
     }
 
-    // Read Excel file
-    const filePath = path.join(__dirname, '..', 'uploads', req.file.filename);
-    const workbook = XLSX.readFile(filePath);
+    // Read Excel directly from memory buffer
+    const workbook = XLSX.read(req.file.buffer, { type: 'buffer' });
     const worksheet = XLSX.utils.sheet_to_json(workbook.Sheets[workbook.SheetNames[0]]);
 
     // Prepare bulk operations
@@ -734,7 +751,6 @@ exports.bulkUploadProductsForShop = async (req, res) => {
 
     // Execute the bulk operations
     const result = await Product.bulkWrite(operations, { ordered: false });
-    fs.unlinkSync(filePath);
 
     return res.status(200).json({
       message: 'Bulk upload processed for shop (upsert completed)',

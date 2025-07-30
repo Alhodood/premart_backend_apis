@@ -31,7 +31,7 @@ const offerCoupon = require('./routes/offerCouponRoutes.js')
 const dashboard = require('./routes/dashboardRoutes.js')
 const reports = require('./routes/reportRoutes.js')
 const catalog = require('./routes/catalogImageRoutes.js')
-const { S3Client, PutObjectCommand } = require("@aws-sdk/client-s3");
+const { S3Client, PutObjectCommand, GetObjectCommand } = require("@aws-sdk/client-s3");
 const { getSignedUrl } = require("@aws-sdk/s3-request-presigner");
 // const stripe = Stripe(process.env.STRIPE_SECRET_KEY);
 const connectDB =require("./config/db.js")
@@ -141,6 +141,25 @@ app.get('/generatePresignedUrl', async (req, res) => {
   } catch (error) {
     console.error('Error generating signed URL:', error);
     res.status(500).send('Error generating signed URL');
+  }
+});
+// Generate pre-signed S3 GET URL (download)
+app.get('/generatePresignedDownloadUrl', async (req, res) => {
+  try {
+    const filename = req.query.filename;
+    if (!filename) {
+      return res.status(400).send('Filename is required');
+    }
+    const params = {
+      Bucket: 'premart',
+      Key: filename,
+    };
+    const command = new GetObjectCommand(params);
+    const signedUrl = await getSignedUrl(s3, command, { expiresIn: 300 });
+    res.json({ url: signedUrl });
+  } catch (error) {
+    console.error('Error generating download URL:', error);
+    res.status(500).send('Error generating download URL');
   }
 });
 
