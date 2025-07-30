@@ -73,7 +73,7 @@ exports.getSimilarProducts = async (req, res) => {
   }
 };
 
-// Get products by part number
+// Get products by part number with shop details using aggregation
 exports.getProductsByPartNumber = async (req, res) => {
   try {
     const partNumber = req.params.partNumber?.trim();
@@ -81,12 +81,53 @@ exports.getProductsByPartNumber = async (req, res) => {
       return res.status(400).json({ message: 'Part number is required', success: false });
     }
 
-    const products = await Product.find({
-      'subCategories.parts.partNumber': partNumber
-    }).lean();
+    const products = await Product.aggregate([
+      {
+        $match: {
+          "subCategories.parts.partNumber": partNumber
+        }
+      },
+      {
+        $lookup: {
+          from: "shops",
+          localField: "shopId",
+          foreignField: "_id",
+          as: "shopDetails"
+        }
+      },
+      {
+        $unwind: "$shopDetails"
+      },
+      {
+        $project: {
+          _id: 1,
+          brand: 1,
+          year: 1,
+          model: 1,
+          frameCode: 1,
+          region: 1,
+          engineCode: 1,
+          transmission: 1,
+          commonProductId: 1,
+          shopId: 1,
+          subCategories: 1,
+          ratings: 1,
+          createdAt: 1,
+          updatedAt: 1,
+          __v: 1,
+          shopDetails: {
+            _id: "$shopDetails._id",
+            shopeDetails: "$shopDetails.shopeDetails",
+            createdAt: "$shopDetails.createdAt",
+            updatedAt: "$shopDetails.updatedAt",
+            __v: "$shopDetails.__v"
+          }
+        }
+      }
+    ]);
 
     return res.status(200).json({
-      message: 'Products by part number',
+      message: "Products retrieved by part number",
       success: true,
       data: products
     });
@@ -96,7 +137,7 @@ exports.getProductsByPartNumber = async (req, res) => {
   }
 };
 
-// Get parts by part number
+// Get parts by part number using aggregation and shop details
 exports.getPartsByPartNumber = async (req, res) => {
   try {
     const partNumber = req.params.partNumber?.trim();
@@ -104,31 +145,48 @@ exports.getPartsByPartNumber = async (req, res) => {
       return res.status(400).json({ message: 'Part number is required', success: false });
     }
 
-    const products = await Product.find({
-      'subCategories.parts.partNumber': partNumber
-    }).lean();
+    // Find all products containing the partNumber in subCategories.parts
+    const products = await Product.find({ 'subCategories.parts.partNumber': partNumber }).lean();
+    if (!products || products.length === 0) {
+      return res.status(404).json({ message: "Part not found" });
+    }
 
-    const matchedParts = [];
-
+    // Flatten all matching parts and include shop details
+    const partsWithShopDetails = [];
     for (const product of products) {
+      // Get shop details for this product
+      const shop = product.shopId
+        ? await Shop.findById(product.shopId).lean()
+        : null;
       for (const subCategory of product.subCategories || []) {
         for (const part of subCategory.parts || []) {
           if (part.partNumber === partNumber) {
-            matchedParts.push({
+            partsWithShopDetails.push({
+              ...part,
               productId: product._id,
-              productModel: product.model,
+              brand: product.brand,
+              model: product.model,
+              year: product.year,
+              region: product.region,
+              engineCode: product.engineCode,
+              transmission: product.transmission,
               categoryTab: subCategory.categoryTab,
-              ...part
+              subCategoryTab: subCategory.subCategoryTab,
+              shopId: product.shopId,
+              shopDetails: shop || {}
             });
           }
         }
       }
     }
 
-    return res.status(200).json({
-      message: 'Parts by part number',
-      success: true,
-      data: matchedParts
+    if (partsWithShopDetails.length === 0) {
+      return res.status(404).json({ message: "Part not found" });
+    }
+
+    res.status(200).json({
+      message: "Part(s) retrieved successfully",
+      data: partsWithShopDetails,
     });
   } catch (error) {
     console.error('Get Parts by Part Number Error:', error);
@@ -244,8 +302,16 @@ exports.getAllProductsAdmin = async (req, res) => {
     // if (search) { ... }
     // if (filter) { ... }
     const products = await Product.find().lean();
+    // Deduplicate by commonProductId
+    const uniqueProductsMap = new Map();
+    for (const product of products) {
+      if (!uniqueProductsMap.has(product.commonProductId)) {
+        uniqueProductsMap.set(product.commonProductId, product);
+      }
+    }
+    const uniqueProducts = Array.from(uniqueProductsMap.values());
     // Flatten and map products to only required fields
-    const simplified = products.map(product => {
+    const simplified = uniqueProducts.map(product => {
       const {
         _id, brand, year, model, frameCode, region, engineCode, transmission,
         productionStart, productionEnd, shopId, createdAt, ratings = {}, commonProductId
@@ -398,8 +464,8 @@ exports.addProduct = async (req, res) => {
 
 
 const XLSX = require('xlsx');
-const path = require('path');
-const fs = require('fs');
+const { PutObjectCommand } = require('@aws-sdk/client-s3');
+const { s3 } = require('../server');
 
 
 
@@ -408,13 +474,18 @@ exports.bulkUploadProducts = async (req, res) => {
     if (!req.file) {
       return res.status(400).json({ message: 'No file uploaded', success: false });
     }
-    const filePath = path.join(__dirname, '..', 'uploads', req.file.filename);
-    const workbook = XLSX.readFile(filePath);
+    // Upload Excel file to S3
+    await s3.send(new PutObjectCommand({
+      Bucket: process.env.AWS_BUCKET,
+      Key: req.file.originalname,
+      Body: req.file.buffer
+    }));
+    // Read Excel directly from memory buffer
+    const workbook = XLSX.read(req.file.buffer, { type: 'buffer' });
     const worksheet = XLSX.utils.sheet_to_json(workbook.Sheets[workbook.SheetNames[0]]);
 
     const shops = await Shop.find().lean();
     if (!shops.length) {
-      fs.unlinkSync(filePath);
       return res.status(404).json({ message: 'No shops found', success: false });
     }
 
@@ -516,7 +587,6 @@ exports.bulkUploadProducts = async (req, res) => {
     }
 
     const result = await Product.bulkWrite(operations, { ordered: false });
-    fs.unlinkSync(filePath);
     return res.status(200).json({
       message: 'Bulk upload processed (upsert completed)',
       success: true,
@@ -542,14 +612,19 @@ exports.bulkUploadProductsForShop = async (req, res) => {
     if (!req.file) {
       return res.status(400).json({ message: 'No file uploaded', success: false });
     }
+    // Upload Excel file to S3
+    await s3.send(new PutObjectCommand({
+      Bucket: process.env.AWS_BUCKET_NAME,
+      Key: req.file.originalname,
+      Body: req.file.buffer
+    }));
     const shop = await Shop.findById(shopId).lean();
     if (!shop) {
       return res.status(404).json({ message: 'Shop not found', success: false });
     }
 
-    // Read Excel file
-    const filePath = path.join(__dirname, '..', 'uploads', req.file.filename);
-    const workbook = XLSX.readFile(filePath);
+    // Read Excel directly from memory buffer
+    const workbook = XLSX.read(req.file.buffer, { type: 'buffer' });
     const worksheet = XLSX.utils.sheet_to_json(workbook.Sheets[workbook.SheetNames[0]]);
 
     // Prepare bulk operations
@@ -676,7 +751,6 @@ exports.bulkUploadProductsForShop = async (req, res) => {
 
     // Execute the bulk operations
     const result = await Product.bulkWrite(operations, { ordered: false });
-    fs.unlinkSync(filePath);
 
     return res.status(200).json({
       message: 'Bulk upload processed for shop (upsert completed)',

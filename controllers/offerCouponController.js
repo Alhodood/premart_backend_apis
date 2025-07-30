@@ -5,8 +5,8 @@ const { Product } = require('../models/Product');
 
 exports.createCoupon = async (req, res) => {
   try {
-    const { creatorId, ...rest } = req.body;
-    const coupon = new Coupon({ ...rest, creatorId });
+    const rest = req.body;
+    const coupon = new Coupon(rest);
     await coupon.save();
     res.status(201).json({ message: 'Coupon created', success: true, data: coupon });
   } catch (err) {
@@ -26,6 +26,7 @@ exports.getAllCoupons = async (req, res) => {
       minOrderAmount: coupon.minOrderAmount,
       usageLimit: coupon.usageLimit,
       usedCount: coupon.usedCount,
+      startDate: coupon.startDate,
       expiryDate: coupon.expiryDate,
       isActive: coupon.isActive,
       createdAt: coupon.createdAt

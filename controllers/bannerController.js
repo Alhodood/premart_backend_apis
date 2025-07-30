@@ -90,7 +90,7 @@ exports.updateBanner = async (req, res) => {
 // Delete banner
 exports.deleteBanner = async (req, res) => {
   try {
-    const deletedBanner = await Banner.findOneAndDelete({ _id: req.params.id, shopId: req.params.shopId });
+    const deletedBanner = await Banner.findByIdAndDelete(req.params.id);
     if (!deletedBanner) {
       return res.status(404).json({ message: 'Banner not found' });
     }

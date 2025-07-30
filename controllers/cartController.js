@@ -125,3 +125,54 @@ exports.getCart = async (req, res) => {
     });
   }
 };
+
+/**
+ * DELETE /api/cart/:userId/product/:productId
+ * Remove a product entirely from the user's cart regardless of its quantity.
+ */
+exports.deleteProductFromCart = async (req, res) => {
+  try {
+    const { userId, productId } = req.params;
+    if (!userId || !productId) {
+      return res.status(400).json({ message: 'userId and productId required', success: false });
+    }
+
+    const cart = await Cart.findOne({ userId });
+    if (!cart) {
+      return res.status(404).json({ message: 'Cart not found', success: false });
+    }
+
+    // Find the product index
+    const idx = cart.cartProduct.findIndex(ci => ci.productId.toString() === productId);
+    if (idx === -1) {
+      return res.status(404).json({ message: 'Product not in cart', success: false });
+    }
+
+    // Remove the product entirely
+    cart.cartProduct.splice(idx, 1);
+    await cart.save();
+
+    // Build the updated cart response just like getCart
+    const cartProductIds = cart.cartProduct.map(cp => cp.productId);
+    const products = await Product.find({ _id: { $in: cartProductIds } }).lean();
+
+    const data = products.map(prod => {
+      const item = cart.cartProduct.find(cp =>
+        cp.productId.toString() === prod._id.toString()
+      );
+      return {
+        ...prod,
+        quantity: item?.quantity || 0
+      };
+    });
+
+    return res.status(200).json({
+      message: 'Cart founded with products',
+      success: true,
+      data
+    });
+  } catch (err) {
+    console.error('Delete product from cart error:', err);
+    return res.status(500).json({ message: 'Failed to delete product from cart', success: false, error: err.message });
+  }
+};
