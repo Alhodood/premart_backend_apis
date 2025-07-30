@@ -152,10 +152,24 @@ exports.deleteProductFromCart = async (req, res) => {
     cart.cartProduct.splice(idx, 1);
     await cart.save();
 
+    // Build the updated cart response just like getCart
+    const cartProductIds = cart.cartProduct.map(cp => cp.productId);
+    const products = await Product.find({ _id: { $in: cartProductIds } }).lean();
+
+    const data = products.map(prod => {
+      const item = cart.cartProduct.find(cp =>
+        cp.productId.toString() === prod._id.toString()
+      );
+      return {
+        ...prod,
+        quantity: item?.quantity || 0
+      };
+    });
+
     return res.status(200).json({
-      message: 'Product removed from cart',
+      message: 'Cart founded with products',
       success: true,
-      data: cart
+      data
     });
   } catch (err) {
     console.error('Delete product from cart error:', err);
