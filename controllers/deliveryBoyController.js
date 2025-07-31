@@ -609,7 +609,10 @@ exports.deliveryBoyUpdateOrderStatus = async (req, res) => {
 
     const updatedOrder = await Order.findByIdAndUpdate(
       orderId,
-      { orderStatus: newStatus },
+      {
+        orderStatus: newStatus,
+        $push: { orderStatusList: { status: newStatus, date: new Date() } }
+      },
       { new: true }
     );
 
