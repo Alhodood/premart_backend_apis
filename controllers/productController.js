@@ -464,24 +464,52 @@ exports.addProduct = async (req, res) => {
 
 
 const XLSX = require('xlsx');
-const { PutObjectCommand } = require('@aws-sdk/client-s3');
-const { s3 } = require('../server');
+const fs = require('fs');
+const path = require('path');
+const { Upload } = require('@aws-sdk/lib-storage');
+const { S3Client, PutObjectCommand } = require('@aws-sdk/client-s3');
+// instantiate S3 client directly
+const s3 = new S3Client({
+  region: process.env.AWS_REGION,
+  credentials: {
+    accessKeyId: process.env.AWS_ACCESS_KEY_ID,
+    secretAccessKey: process.env.AWS_SECRET_ACCESS_KEY
+  }
+});
+
 
 
 
 exports.bulkUploadProducts = async (req, res) => {
+  console.log("bulkUploadProducts API hit");
   try {
+    console.log("Received file/payload:", req.file || req.body);
     if (!req.file) {
       return res.status(400).json({ message: 'No file uploaded', success: false });
     }
-    // Upload Excel file to S3
-    await s3.send(new PutObjectCommand({
-      Bucket: process.env.AWS_BUCKET,
-      Key: req.file.originalname,
-      Body: req.file.buffer
-    }));
-    // Read Excel directly from memory buffer
-    const workbook = XLSX.read(req.file.buffer, { type: 'buffer' });
+    // Ensure local upload directory exists and move file there
+    const uploadDir = path.join(__dirname, '..', 'uploads', 'products_excel_file');
+    fs.mkdirSync(uploadDir, { recursive: true });
+    const newFilePath = path.join(uploadDir, req.file.originalname);
+    fs.renameSync(req.file.path, newFilePath);
+
+    // Upload Excel file to S3 using lib-storage Upload
+    // Use bucket name from either AWS_BUCKET_NAME or fallback to AWS_BUCKET
+    const bucketName = process.env.AWS_BUCKET_NAME || process.env.AWS_BUCKET;
+    // upload Excel file stream to S3 using lib-storage Upload
+    const fileStream = fs.createReadStream(newFilePath);
+    const upload = new Upload({
+      client: s3,
+      params: {
+        Bucket: bucketName,
+        Key: `products_excel_file/${req.file.originalname}`,
+        Body: fileStream
+      }
+    });
+    await upload.done();
+    // read Excel directly from disk buffer
+    const fileData = fs.readFileSync(newFilePath);
+    const workbook = XLSX.read(fileData, { type: 'buffer' });
     const worksheet = XLSX.utils.sheet_to_json(workbook.Sheets[workbook.SheetNames[0]]);
 
     const shops = await Shop.find().lean();
@@ -587,6 +615,8 @@ exports.bulkUploadProducts = async (req, res) => {
     }
 
     const result = await Product.bulkWrite(operations, { ordered: false });
+    // Optionally delete the local file after processing
+    fs.unlinkSync(newFilePath);
     return res.status(200).json({
       message: 'Bulk upload processed (upsert completed)',
       success: true,
@@ -595,12 +625,12 @@ exports.bulkUploadProducts = async (req, res) => {
         modified: result.modifiedCount
       }
     });
-  } catch (error) {
-    console.error('Bulk Upload Error:', error);
+  } catch (err) {
+    console.error("Error in bulkUploadProducts:", err);
     return res.status(500).json({
-      message: 'Failed to process bulk upload',
       success: false,
-      error: error.message
+      message: "Failed to upload products",
+      error: err.message
     });
   }
 };
@@ -608,43 +638,48 @@ exports.bulkUploadProducts = async (req, res) => {
 // Bulk upload products for a specific shop (bulkWrite upsert logic)
 exports.bulkUploadProductsForShop = async (req, res) => {
   try {
+    // 1. Validate req.file and shopId
     const { shopId } = req.params;
     if (!req.file) {
       return res.status(400).json({ message: 'No file uploaded', success: false });
     }
-    // Upload Excel file to S3
-    await s3.send(new PutObjectCommand({
-      Bucket: process.env.AWS_BUCKET_NAME,
-      Key: req.file.originalname,
-      Body: req.file.buffer
-    }));
+    if (!shopId) {
+      return res.status(400).json({ message: 'Missing shopId', success: false });
+    }
+
+    // 2. Create local upload directory and move file
+    const uploadDir = path.join(__dirname, '..', 'uploads', 'products_excel_file');
+    fs.mkdirSync(uploadDir, { recursive: true });
+    const newFilePath = path.join(uploadDir, req.file.originalname);
+    fs.renameSync(req.file.path, newFilePath);
+
+    // 3. Upload Excel file to S3 using @aws-sdk/lib-storage's Upload
+    const bucketName = process.env.AWS_BUCKET_NAME || process.env.AWS_BUCKET;
+    const fileStream = fs.createReadStream(newFilePath);
+    const upload = new Upload({
+      client: s3,
+      params: {
+        Bucket: bucketName,
+        Key: `products_excel_file/${req.file.originalname}`,
+        Body: fileStream
+      }
+    });
+    await upload.done();
+
+    // 4. Read file from disk, parse with XLSX, convert to JSON
+    const fileData = fs.readFileSync(newFilePath);
+    const workbook = XLSX.read(fileData, { type: 'buffer' });
+    const worksheet = XLSX.utils.sheet_to_json(workbook.Sheets[workbook.SheetNames[0]]);
+
+    // 5. Build operations array as in bulkUploadProducts, but only for the single shop
     const shop = await Shop.findById(shopId).lean();
     if (!shop) {
+      fs.unlinkSync(newFilePath);
       return res.status(404).json({ message: 'Shop not found', success: false });
     }
 
-    // Read Excel directly from memory buffer
-    const workbook = XLSX.read(req.file.buffer, { type: 'buffer' });
-    const worksheet = XLSX.utils.sheet_to_json(workbook.Sheets[workbook.SheetNames[0]]);
-
-    // Prepare bulk operations
     const operations = [];
-    let lastKey = '';
-    let currentCommonId = uuidv4();
-
     for (const row of worksheet) {
-      // Generate a new commonProductId when grouping fields change
-      const rowKey = [
-        row.brand, row.model, row.year, row.frameCode,
-        row.engineCode, row.transmission,
-        row.categoryTab, row.subCategoryTab
-      ].join('_');
-      if (rowKey !== lastKey) {
-        currentCommonId = uuidv4();
-        lastKey = rowKey;
-      }
-
-      // Destructure row values
       const {
         brand, year, model, frameCode, region,
         engineCode, transmission,
@@ -655,36 +690,25 @@ exports.bulkUploadProductsForShop = async (req, res) => {
         notes, madeIn, skuNumber, stockStatus
       } = row;
 
-      // Build part object
+      const commonProductId = `${brand}_${model}_${year}_${frameCode}_${engineCode}_${transmission}_${categoryTab}_${subCategoryTab}`;
       const part = {
-        partNumber,
-        partName,
-        quantity,
-        price,
-        discountedPrice,
+        partNumber, partName, quantity, price, discountedPrice,
         description,
         imageUrl: imageUrl ? imageUrl.split(',') : [],
-        notes,
-        madeIn,
-        skuNumber,
+        notes, madeIn, skuNumber,
         stockStatus: stockStatus || 'in_stock'
       };
 
       // Phase 1: ensure product + subcategory exists
       operations.push({
         updateOne: {
-          filter: { shopId: shop._id, commonProductId: currentCommonId },
+          filter: { shopId: shop._id, commonProductId },
           update: {
             $setOnInsert: {
-              brand,
-              year,
-              model,
-              frameCode,
-              region,
-              engineCode,
-              transmission,
+              brand, year, model, frameCode, region,
+              engineCode, transmission,
               shopId: shop._id,
-              commonProductId: currentCommonId,
+              commonProductId,
               ratings: { average: 0, totalReviews: 0 },
               subCategories: [{
                 categoryTab,
@@ -698,13 +722,12 @@ exports.bulkUploadProductsForShop = async (req, res) => {
           upsert: true
         }
       });
-
-      // Phase 2: update existing part
+      // Phase 2: update existing part if found
       operations.push({
         updateOne: {
           filter: {
             shopId: shop._id,
-            commonProductId: currentCommonId,
+            commonProductId,
             'subCategories.categoryTab': categoryTab,
             'subCategories.subCategoryTab': subCategoryTab,
             'subCategories.parts.partNumber': partNumber
@@ -729,18 +752,19 @@ exports.bulkUploadProductsForShop = async (req, res) => {
           upsert: false
         }
       });
-
       // Phase 3: push new part if missing
       operations.push({
         updateOne: {
           filter: {
             shopId: shop._id,
-            commonProductId: currentCommonId,
+            commonProductId,
             'subCategories.categoryTab': categoryTab,
             'subCategories.subCategoryTab': subCategoryTab,
             'subCategories.parts.partNumber': { $ne: partNumber }
           },
-          update: { $push: { 'subCategories.$[sc].parts': part } },
+          update: {
+            $push: { 'subCategories.$[sc].parts': part }
+          },
           arrayFilters: [
             { 'sc.categoryTab': categoryTab, 'sc.subCategoryTab': subCategoryTab }
           ],
@@ -749,9 +773,9 @@ exports.bulkUploadProductsForShop = async (req, res) => {
       });
     }
 
-    // Execute the bulk operations
+    // 6. Execute bulkWrite, delete local file, return response
     const result = await Product.bulkWrite(operations, { ordered: false });
-
+    fs.unlinkSync(newFilePath);
     return res.status(200).json({
       message: 'Bulk upload processed for shop (upsert completed)',
       success: true,
@@ -760,12 +784,19 @@ exports.bulkUploadProductsForShop = async (req, res) => {
         modified: result.modifiedCount
       }
     });
-  } catch (error) {
-    console.error('Bulk Upload for Shop Error:', error);
+  } catch (err) {
+    console.error('Bulk Upload for Shop Error:', err);
+    // Remove file if it exists
+    if (req.file && req.file.originalname) {
+      const filePath = path.join(__dirname, '..', 'uploads', 'products_excel_file', req.file.originalname);
+      if (fs.existsSync(filePath)) {
+        try { fs.unlinkSync(filePath); } catch (_) {}
+      }
+    }
     return res.status(500).json({
       message: 'Failed to upload bulk products for shop',
       success: false,
-      error: error.message
+      error: err.message
     });
   }
 };

@@ -1,5 +1,16 @@
 const mongoose = require('mongoose');
 
+// track each status change with timestamp
+const OrderStatusSchema = new mongoose.Schema({
+  status: { 
+    type: String, 
+    required: true,
+    enum: ['Pending','Confirmed','Packed','Shipped','Delivered','Cancelled','Returned'],
+    default: 'Pending'
+  },
+  date: { type: Date, required: true, default: Date.now }
+}, { _id: false });
+
 const deliveryAddressSchema = new mongoose.Schema({
   name: { type: String, required: true },
   email: { type: String },
@@ -25,12 +36,7 @@ const refundDetailsSchema = new mongoose.Schema({
   refundReason: String
 }, { _id: false });
 
-const statusTimestampsSchema = new mongoose.Schema({
-  accepted: Date,
-  reachedPickup: Date,
-  reachedDrop: Date,
-  delivered: Date
-}, { _id: false });
+
 
 const orderDetailsSchema = new mongoose.Schema({
   userId: { type: String, required: true },
@@ -67,7 +73,11 @@ paymentType: { type: String },
   //items: { type: Number, default: 0 }, // ✅ number of items in the order (can be auto-calculated from productId.length if needed)
 
   orderStatus: { type: String, default: "Pending" },
-  statusTimestamps: statusTimestampsSchema // ✅ tracking delivery steps
+  // full history of order status changes
+  orderStatusList: {
+    type: [OrderStatusSchema],
+    default: [{ status: 'Pending', date: Date.now() }]
+  },
 
 }, { timestamps: true });
 
