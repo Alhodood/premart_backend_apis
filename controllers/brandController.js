@@ -1,3 +1,4 @@
+const mongoose = require('mongoose');
 const Model = require('../models/Model');
 const Brand = require('../models/Brand');
 const Product = require('../models/Product');
@@ -97,7 +98,8 @@ exports.getProductsByBrand = async (req, res) => {
     if (!existing) {
       return res.status(404).json({ message: 'Brand not found', success: false });
     }
-    const products = await Product.find({ brand: brandId });
+
+    const products = await Product.find({ brand: existing.brandName });
 
     res.status(200).json({
       message: 'Products fetched successfully',

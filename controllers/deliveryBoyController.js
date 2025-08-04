@@ -495,6 +495,34 @@ exports.getNearbyPendingOrders = async (req, res) => {
     });
   }
 };
+
+exports.getOngoingOrdersForDeliveryBoy = async (req, res) => {
+  try {
+    const { deliveryBoyId } = req.params;
+
+    if (!deliveryBoyId) {
+      return res.status(400).json({ success: false, message: 'Delivery Boy ID is required' });
+    }
+
+    const ongoingOrders = await Order.find({
+      deliveryBoyId,
+      orderStatus: { $nin: ['Delivered', 'Cancelled'] }
+    }).sort({ updatedAt: -1 });
+
+    return res.status(200).json({
+      success: true,
+      message: 'Ongoing orders fetched successfully',
+      data: ongoingOrders,
+    });
+  } catch (err) {
+    console.error(err);
+    return res.status(500).json({
+      success: false,
+      message: 'Server error while fetching ongoing orders',
+      error: err.message,
+    });
+  }
+};
   
   // Helper function
   function calculateDistance(lat1, lon1, lat2, lon2) {
@@ -877,9 +905,12 @@ exports.getNearbyOnlineDeliveryBoys = async (req, res) => {
 exports.toggleAvailability = async (req, res) => {
   try {
     const { deliveryBoyId } = req.params;
+    console.log('Requested Delivery Boy ID:', deliveryBoyId);
 
     const deliveryBoy = await DeliveryBoy.findById(deliveryBoyId);
-    if (!deliveryBoy || deliveryBoy.role !== 'deliveryBoy') {
+    console.log('Fetched Delivery Boy:', deliveryBoy);
+    if (!deliveryBoy || (deliveryBoy.role?.toLowerCase() !== 'deliveryboy')) {
+      console.log('Validation failed - either not found or role mismatch:', deliveryBoy?.role);
       return res.status(404).json({
         success: false,
         message: "Delivery Boy not found"
@@ -911,6 +942,7 @@ exports.toggleAvailability = async (req, res) => {
 
 // Haversine distance function (in km)
 const getDistanceInKm = (lat1, lon1, lat2, lon2) => {
+  console.log(`Calculating distance between (${lat1}, ${lon1}) and (${lat2}, ${lon2})`);
   const R = 6371;
   const dLat = (lat2 - lat1) * Math.PI / 180;
   const dLon = (lon2 - lon1) * Math.PI / 180;
@@ -925,81 +957,67 @@ const getDistanceInKm = (lat1, lon1, lat2, lon2) => {
   return R * c;
 };
 
+// Get top 6 nearby order areas (custom deliveryAddress structure)
 exports.getNearbyTopOrderAreas = async (req, res) => {
   try {
-    const deliveryBoyId = req.params.deliveryBoyId;
-
-    // 1️⃣ Get delivery boy location
-    const deliveryBoy = await DeliveryBoy.findById(deliveryBoyId);
-    if (!deliveryBoy || !deliveryBoy.latitude || !deliveryBoy.longitude) {
-      return res.status(400).json({
-        success: false,
-        message: "Delivery boy location not found"
-      });
-    }
-
-    const { latitude: lat1, longitude: lon1 } = deliveryBoy;
-
-    // 2️⃣ Get ALL delivered orders with valid lat/lng
+    // Fetch all delivered orders with valid deliveryAddress coordinates
     const orders = await Order.find({
-      orderStatus: 'Delivered',
-      'deliveryAddress.latitude': { $ne: null },
-      'deliveryAddress.longitude': { $ne: null }
+      orderStatus: "Delivered",
+      "deliveryAddress.latitude": { $exists: true, $ne: null },
+      "deliveryAddress.longitude": { $exists: true, $ne: null }
     });
 
-    if (orders.length === 0) {
-      return res.status(200).json({
-        success: true,
-        message: "No delivered orders found in system",
-        data: []
-      });
-    }
-
-    // 3️⃣ Build delivery zone frequency map within 10km
+    // Aggregate by area & place, count orders, keep coordinates and a sample delivery address
     const locationMap = {};
-
-    for (const order of orders) {
-      const d = order.deliveryAddress;
-      const { flatNumber, area, place, latitude, longitude } = d;
-      if (!latitude || !longitude) continue;
-
-      const distance = getDistanceInKm(lat1, lon1, latitude, longitude);
-      if (distance > 10) continue;
-
-      const key = `${flatNumber}|${area}|${place}|${latitude}|${longitude}`;
+    orders.forEach(order => {
+      const addr = order.deliveryAddress || {};
+      const key = `${addr.area || ""}|${addr.place || ""}`;
       if (!locationMap[key]) {
         locationMap[key] = {
-          flatNumber, area, place, latitude, longitude,
+          area: addr.area || "",
+          place: addr.place || "",
+          latitude: addr.latitude,
+          longitude: addr.longitude,
+          name: addr.name || "",
+          contact: addr.contact || "",
+          address: addr.address || "",
+          addressType: addr.addressType || "Home",
+          default: addr.default ?? true,
           totalOrders: 1
         };
       } else {
         locationMap[key].totalOrders += 1;
       }
-    }
+    });
 
-    // 4️⃣ Sort and format top 6
+    // Format as required: top 6, use actual delivery address sample from grouped orders
     const ranked = Object.values(locationMap)
       .sort((a, b) => b.totalOrders - a.totalOrders)
       .slice(0, 6)
-      .map((loc, index) => ({
-        rank: index + 1,
-        fullAddress: `${loc.flatNumber}, ${loc.area}, ${loc.place}`,
-        latitude: loc.latitude,
-        longitude: loc.longitude,
-        totalOrders: loc.totalOrders
+      .map((loc) => ({
+        deliveryAddress: {
+          name: loc.name,
+          contact: loc.contact,
+          address: loc.address,
+          area: loc.area,
+          place: loc.place,
+          default: loc.default,
+          addressType: loc.addressType,
+          latitude: loc.latitude,
+          longitude: loc.longitude
+        }
       }));
 
-    res.status(200).json({
-      message: 'Top nearby high-order areas (within 10km)',
+    return res.status(200).json({
       success: true,
+      message: "Nearby top order areas fetched successfully.",
       data: ranked
     });
-
   } catch (error) {
-    console.error('Nearby Order Area Error:', error);
-    res.status(500).json({
-      message: 'Failed to fetch top delivery areas',
+    console.error("Nearby Top Areas Error:", error);
+    return res.status(500).json({
       success: false,
+      message: "Failed to fetch nearby top order areas",
       error: error.message
     });
   }
@@ -1120,6 +1138,13 @@ exports.getDeliveryOrderHistory = async (req, res) => {
 
 exports.updateDeliveryBoyDetails = async (req, res) => {
   try {
+    if (!req.body) {
+      return res.status(400).json({
+        success: false,
+        message: 'Request body is missing',
+      });
+    }
+
     const { deliveryBoyId } = req.params;
     const {
       name,
