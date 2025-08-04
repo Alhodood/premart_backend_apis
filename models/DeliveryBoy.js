@@ -12,6 +12,7 @@ const deliveryBoySchema = new mongoose.Schema(
     accountVerify: { type: Boolean, default: false },
     isOnline: { type: Boolean, default: false},
     assignedOrders: [{ type: mongoose.Schema.Types.ObjectId, ref: 'Order' }],
+        profileImage: { type: String },
     role: { 
       type: String, 
       enum: ['deliveryBoy'], 

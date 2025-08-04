@@ -58,7 +58,7 @@ router.get('/brand', brandController.getAllBrands);
 router.get('/brand/:id', brandController.getBrandById);
 router.put('/brand/:id', brandController.updateBrand);
 router.delete('/brand/delete/:id', brandController.deleteBrand);
-router.get('/brand-products/:brandName', brandController.getProductsByBrand);
+router.get('/brand-products/:brandId', brandController.getProductsByBrand);
 router.get('/brand/models/:brandId', brandController.getModelsByBrand);
 
 // CATEGORY ROUTES

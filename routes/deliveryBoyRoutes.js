@@ -56,4 +56,6 @@ router.get('/order-history/:deliveryBoyId', deliveryBoyController.getDeliveryOrd
 
 router.patch('/update/:deliveryBoyId', deliveryBoyController.updateDeliveryBoyDetails);
 
+router.get('/ongoing/:deliveryBoyId', deliveryBoyController.getOngoingOrdersForDeliveryBoy);
+
 module.exports = router;
