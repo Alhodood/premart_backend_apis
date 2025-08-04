@@ -368,37 +368,38 @@ exports.viewAssignedOrders = async (req, res) => {
         { latitude: customerLat, longitude: customerLng }
       ) / 1000;
 
-      // 🕒 ETA using Google Distance Matrix API with fallback check
+      // 🧮 ETA using Google Distance Matrix API
       let pickupTime = "N/A";
       let dropTime = "N/A";
-      let pickupElement, dropElement;
 
       if (
         boyLat && boyLng &&
         shopLat && shopLng &&
         customerLat && customerLng
       ) {
-        const timeUrl = encodeURI(`https://maps.googleapis.com/maps/api/distancematrix/json?origins=${boyLat},${boyLng}&destinations=${shopLat},${shopLng}&key=${GOOGLE_MAPS_API_KEY}`);
-        const timeResponse = await axios.get(timeUrl);
-        console.log("Pickup API Response:", timeResponse.data);
-        pickupElement = timeResponse.data?.rows?.[0]?.elements?.[0];
-        pickupTime = pickupElement && pickupElement.status === 'OK' && pickupElement.duration
-          ? pickupElement.duration.text
-          : 'N/A';
+        try {
+          // Pickup time calculation
+          const pickupUrl = encodeURI(`https://maps.googleapis.com/maps/api/distancematrix/json?origins=${boyLat},${boyLng}&destinations=${shopLat},${shopLng}&key=${GOOGLE_MAPS_API_KEY}`);
+          const pickupResponse = await axios.get(pickupUrl);
+          console.log("✅ Pickup API Full Response:", pickupResponse.data);
+          pickupElement = pickupResponse.data?.rows?.[0]?.elements?.[0];
+          pickupTime = pickupElement?.status === 'OK' && pickupElement?.duration
+            ? pickupElement.duration.text
+            : 'N/A';
+          console.log("⏱️ pickupTime:", pickupTime);
 
-        const dropTimeUrl = encodeURI(`https://maps.googleapis.com/maps/api/distancematrix/json?origins=${shopLat},${shopLng}&destinations=${customerLat},${customerLng}&key=${GOOGLE_MAPS_API_KEY}`);
-        const dropTimeResponse = await axios.get(dropTimeUrl);
-        console.log("Drop API Response:", dropTimeResponse.data);
-        dropElement = dropTimeResponse.data?.rows?.[0]?.elements?.[0];
-        dropTime = dropElement && dropElement.status === 'OK' && dropElement.duration
-          ? dropElement.duration.text
-          : 'N/A';
-
-        // Debug logging for parsed elements
-        console.log("Pickup Element:", pickupElement);
-        console.log("Drop Element:", dropElement);
-      } else {
-        console.warn("⚠️ Missing coordinates for time calculation.");
+          // Drop time calculation
+          const dropUrl = encodeURI(`https://maps.googleapis.com/maps/api/distancematrix/json?origins=${shopLat},${shopLng}&destinations=${customerLat},${customerLng}&key=${GOOGLE_MAPS_API_KEY}`);
+          const dropResponse = await axios.get(dropUrl);
+          console.log("✅ Drop API Full Response:", dropResponse.data);
+          dropElement = dropResponse.data?.rows?.[0]?.elements?.[0];
+          dropTime = dropElement?.status === 'OK' && dropElement?.duration
+            ? dropElement.duration.text
+            : 'N/A';
+          console.log("⏱️ dropTime:", dropTime);
+        } catch (err) {
+          console.error("❌ Google Maps API Error:", err?.response?.data || err.message);
+        }
       }
 
       const parseTimeToMinutes = (str) => {
@@ -458,8 +459,8 @@ exports.viewAssignedOrders = async (req, res) => {
   }
 };
 
-// Get nearby pending orders for delivery boy (within 10km, orderStatus='Pending for Delivery Assignment')
-exports.getNearbyPendingOrders = async (req, res) => {
+// Get nearby assigned orders for delivery boy (within 20km, orderStatus='Delivery Boy Assigned')
+exports.getNearbyAssignedOrders = async (req, res) => {
   try {
     const deliveryBoyId = req.params.deliveryBoyId;
 
@@ -469,55 +470,138 @@ exports.getNearbyPendingOrders = async (req, res) => {
       return res.status(404).json({
         message: 'Delivery Boy not found or location unavailable',
         success: false,
+        
         data: []
       });
     }
 
     const { latitude: boyLat, longitude: boyLng } = deliveryBoy;
-    const RANGE_KM = 10;
+    const RANGE_KM = 20;
 
-    // 2. Fetch orders within 10km radius and status 'Pending for Delivery Assignment'
-    const pendingOrders = await Order.find({ orderStatus: 'Pending for Delivery Assignment' });
+    // 2. Fetch orders within 20km radius and status 'Delivery Boy Assigned'
+    // Ensure deliveryAddress is populated
+    const assignedOrders = await Order.find({ orderStatus: 'Delivery Boy Assigned' }).populate('deliveryAddress');
 
-    const nearbyOrders = [];
+    const formattedNearbyOrders = [];
 
-    for (const order of pendingOrders) {
+    for (const order of assignedOrders) {
       const shop = await Shop.findById(order.shopId);
       const shopLocation = shop?.shopeDetails?.shopLocation;
       if (!shopLocation) continue;
 
       const [shopLat, shopLng] = shopLocation.split(',').map(Number);
 
-      const distanceKm = geolib.getDistance(
+      const pickupDistance = geolib.getDistance(
         { latitude: boyLat, longitude: boyLng },
         { latitude: shopLat, longitude: shopLng }
       ) / 1000;
 
-      if (distanceKm > RANGE_KM) continue;
+      if (pickupDistance > RANGE_KM) continue;
 
-      // Optional: calculate ETA
-      const timeUrl = `https://maps.googleapis.com/maps/api/distancematrix/json?origins=${boyLat},${boyLng}&destinations=${shopLat},${shopLng}&key=${GOOGLE_MAPS_API_KEY}`;
-      const timeResponse = await axios.get(timeUrl);
-      const pickupTime = timeResponse.data?.rows?.[0]?.elements?.[0]?.duration?.text || 'N/A';
+      // Calculate pickupTime (ETA from delivery boy to shop)
+      let pickupTime = "N/A";
+      try {
+        const pickupUrl = encodeURI(`https://maps.googleapis.com/maps/api/distancematrix/json?origins=${boyLat},${boyLng}&destinations=${shopLat},${shopLng}&key=${GOOGLE_MAPS_API_KEY}`);
+        const pickupResponse = await axios.get(pickupUrl);
+        const pickupElement = pickupResponse.data?.rows?.[0]?.elements?.[0];
+        pickupTime = pickupElement?.status === 'OK' && pickupElement?.duration
+          ? pickupElement.duration.text
+          : 'N/A';
+      } catch (err) {
+        pickupTime = "N/A";
+      }
 
-      nearbyOrders.push({
+      // Calculate dropDistance and dropTime (shop to customer)
+      let dropDistance = 0;
+      let dropTime = "N/A";
+      const customerLat = order?.deliveryAddress?.latitude;
+      const customerLng = order?.deliveryAddress?.longitude;
+      if (shopLat && shopLng && customerLat && customerLng) {
+        dropDistance = geolib.getDistance(
+          { latitude: shopLat, longitude: shopLng },
+          { latitude: customerLat, longitude: customerLng }
+        ) / 1000;
+        try {
+          const dropUrl = encodeURI(`https://maps.googleapis.com/maps/api/distancematrix/json?origins=${shopLat},${shopLng}&destinations=${customerLat},${customerLng}&key=${GOOGLE_MAPS_API_KEY}`);
+          const dropResponse = await axios.get(dropUrl);
+          const dropElement = dropResponse.data?.rows?.[0]?.elements?.[0];
+          dropTime = dropElement?.status === 'OK' && dropElement?.duration
+            ? dropElement.duration.text
+            : 'N/A';
+        } catch (err) {
+          dropTime = "N/A";
+        }
+      }
+
+      // Helper: parse time string to minutes (copied from viewAssignedOrders)
+      const parseTimeToMinutes = (str) => {
+        if (!str || str === 'N/A') return 0;
+        const matches = str.match(/(\d+)\s*hour[s]?|(\d+)\s*min[s]?/g) || [];
+        let total = 0;
+        matches.forEach(part => {
+          if (part.includes('hour')) total += parseInt(part) * 60;
+          else if (part.includes('min')) total += parseInt(part);
+        });
+        return total;
+      };
+
+      // Try to get full product details if populated (if not, fallback to order.products, etc.)
+      let fullProductDetails = [];
+      if (order.products && Array.isArray(order.products)) {
+        // Optionally, populate product info here if needed.
+        fullProductDetails = order.products;
+      }
+
+      // Shop details formatting
+      const shopDetails = {
+        shopName: shop?.shopeDetails?.shopName || '',
+        shopAddress: shop?.shopeDetails?.shopAddress || '',
+        shopContact: shop?.shopeDetails?.shopContact || '',
+      };
+
+      // Delivery details formatting
+      const deliveryDetails = {
+        deliveryBoyId: order.assignedDeliveryBoy || null,
+        orderStatus: order.orderStatus,
+        pickupDistance: `${pickupDistance.toFixed(2)} km`,
+        pickupTime,
+        dropDistance: `${dropDistance ? dropDistance.toFixed(2) : '0.00'} km`,
+        dropTime,
+        deliveryEarnings: order.deliveryEarning || 0,
+      };
+
+      // Delivery address formatting (new key)
+      const deliveryAddress = {
+        name: order?.deliveryAddress?.name || "N/A",
+        address: order?.deliveryAddress?.address || "N/A",
+        contact: order?.deliveryAddress?.contact || "N/A",
+        area: order?.deliveryAddress?.area || "N/A",
+        place: order?.deliveryAddress?.place || "N/A",
+        latitude: order?.deliveryAddress?.latitude || null,
+        longitude: order?.deliveryAddress?.longitude || null
+      };
+
+      formattedNearbyOrders.push({
         orderId: order._id,
-        shopDetails: shop,
-        distanceFromDeliveryBoy: `${distanceKm.toFixed(2)} km`,
-        pickupTime
+        shopDetails,
+        deliveryDetails,
+        deliveryAddress,
+        fullProductDetails,
+        createdAt: order.createdAt,
+        updatedAt: order.updatedAt
       });
     }
 
     return res.status(200).json({
-      message: 'Nearby pending orders fetched successfully',
+      message: "Nearby assigned orders fetched successfully",
       success: true,
-      data: nearbyOrders
+      data: formattedNearbyOrders
     });
 
   } catch (error) {
-    console.error('Get Nearby Pending Orders Error:', error);
+    console.error('Get Nearby Assigned Orders Error:', error);
     return res.status(500).json({
-      message: 'Failed to fetch nearby pending orders',
+      message: 'Failed to fetch nearby assigned orders',
       success: false,
       data: error.message
     });
@@ -570,7 +654,7 @@ exports.getOngoingOrdersForDeliveryBoy = async (req, res) => {
     try {
       const orderId = req.params.orderId;
       const { action, deliveryBoyId } = req.body; // add deliveryBoyId in body
-  
+
       if (!orderId || !action || !deliveryBoyId) {
         return res.status(400).json({
           message: 'OrderId, action and deliveryBoyId are required',
@@ -578,7 +662,7 @@ exports.getOngoingOrdersForDeliveryBoy = async (req, res) => {
           data: []
         });
       }
-  
+
       // Validate delivery boy
       const deliveryBoy = await DeliveryBoy.findById(deliveryBoyId);
       if (!deliveryBoy) {
@@ -588,33 +672,65 @@ exports.getOngoingOrdersForDeliveryBoy = async (req, res) => {
           data: []
         });
       }
-  
-      let updateData = {};
-  
-      if (action === "accept") {
-        updateData.orderStatus = "Accepted by Delivery Boy";
 
-        // ✅ Set assignedDeliveryBoy in case it was reset
-        updateData.assignedDeliveryBoy = deliveryBoyId;
-      
+      if (action === "accept") {
+        // Accept logic: update orderStatus, assignedDeliveryBoy, push status, and update delivery boy's assignedOrders
+        const order = await Order.findById(orderId);
+        if (!order) {
+          return res.status(404).json({
+            message: 'Order not found',
+            success: false,
+            data: []
+          });
+        }
+        order.orderStatus = "Accepted by Delivery Boy";
+        order.assignedDeliveryBoy = deliveryBoyId;
+        // Add status to orderStatusList
+        order.orderStatusList.push({ status: 'Order Accepted By Delivery Boy', date: new Date() });
+        await order.save();
+
         await DeliveryBoy.findByIdAndUpdate(
           deliveryBoyId,
           { $addToSet: { assignedOrders: orderId } },
           { new: true }
         );
-  
+
+        return res.status(200).json({
+          message: `Order accepted successfully`,
+          success: true,
+          data: order
+        });
       } else if (action === "reject") {
-        updateData = {
-          assignedDeliveryBoy: null,
-          orderStatus: "Pending for Delivery Assignment"
-        };
-  
+        // Reject logic: update assignedDeliveryBoy, orderStatus, and remove from delivery boy's assignedOrders
+        const updatedOrder = await Order.findByIdAndUpdate(
+          orderId,
+          {
+            assignedDeliveryBoy: null,
+            orderStatus: "Pending for Delivery Assignment"
+          },
+          { new: true }
+        );
+
         // 🧼 Remove from delivery boy's assignedOrders if rejected
         await DeliveryBoy.findByIdAndUpdate(
           deliveryBoyId,
           { $pull: { assignedOrders: orderId } },
           { new: true }
         );
+
+        if (!updatedOrder) {
+          return res.status(404).json({
+            message: 'Order not found',
+            success: false,
+            data: []
+          });
+        }
+
+        return res.status(200).json({
+          message: `Order rejected successfully`,
+          success: true,
+          data: updatedOrder
+        });
       } else {
         return res.status(400).json({
           message: 'Invalid action, must be accept or reject',
@@ -622,23 +738,7 @@ exports.getOngoingOrdersForDeliveryBoy = async (req, res) => {
           data: []
         });
       }
-  
-      const updatedOrder = await Order.findByIdAndUpdate(orderId, updateData, { new: true });
-  
-      if (!updatedOrder) {
-        return res.status(404).json({
-          message: 'Order not found',
-          success: false,
-          data: []
-        });
-      }
-  
-      return res.status(200).json({
-        message: `Order ${action}ed successfully`,
-        success: true,
-        data: updatedOrder
-      });
-  
+
     } catch (error) {
       console.error('DeliveryBoy Accept/Reject Error:', error);
       res.status(500).json({
@@ -663,15 +763,8 @@ exports.deliveryBoyUpdateOrderStatus = async (req, res) => {
       });
     }
 
-    const updatedOrder = await Order.findByIdAndUpdate(
-      orderId,
-      {
-        orderStatus: newStatus,
-        $push: { orderStatusList: { status: newStatus, date: new Date() } }
-      },
-      { new: true }
-    );
-
+    // Two-step update: fetch, update fields, push to orderStatusList, and save
+    const updatedOrder = await Order.findById(orderId);
     if (!updatedOrder) {
       return res.status(404).json({
         message: 'Order not found',
@@ -679,6 +772,10 @@ exports.deliveryBoyUpdateOrderStatus = async (req, res) => {
         data: []
       });
     }
+
+    updatedOrder.orderStatus = newStatus;
+    updatedOrder.orderStatusList.push({ status: newStatus, date: new Date() });
+    await updatedOrder.save();
 
     // If the status is set to Delivered, add logic for agency payment record
     if (updatedOrder.orderStatus === 'Delivered') {
