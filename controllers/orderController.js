@@ -1132,6 +1132,15 @@ exports.autoAssignDeliveryBoyWithin5km = async (req, res) => {
     // After selecting delivery boys, update order status before emitting events
     order.orderStatus = 'Delivery Boy Assigned';
     await order.save();
+    // Push to orderStatusList: Order Confirmed
+    await Order.findByIdAndUpdate(order._id, {
+      $push: {
+        orderStatusList: {
+          status: "Order Confirmed",
+          date: new Date()
+        }
+      }
+    });
     let io;
     try {
       io = require('../sockets/socket').getIO();
