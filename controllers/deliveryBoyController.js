@@ -352,6 +352,11 @@ exports.viewAssignedOrders = async (req, res) => {
       // 👤 Customer coordinates
       const { latitude: customerLat, longitude: customerLng } = order.deliveryAddress;
 
+      // Log all coordinates
+      console.log("boyLat,boyLng:", boyLat, boyLng);
+      console.log("shopLat,shopLng:", shopLat, shopLng);
+      console.log("customerLat,customerLng:", customerLat, customerLng);
+
       // 🧮 Distance calculations
       const pickupDistanceKm = geolib.getDistance(
         { latitude: boyLat, longitude: boyLng },
@@ -363,15 +368,38 @@ exports.viewAssignedOrders = async (req, res) => {
         { latitude: customerLat, longitude: customerLng }
       ) / 1000;
 
-      // 🕒 ETA using Google Distance Matrix API
-      const timeUrl = `https://maps.googleapis.com/maps/api/distancematrix/json?origins=${boyLat},${boyLng}&destinations=${shopLat},${shopLng}&key=${GOOGLE_MAPS_API_KEY}`;
-      const timeResponse = await axios.get(timeUrl);
-      const pickupTime = timeResponse.data?.rows?.[0]?.elements?.[0]?.duration?.text || 'N/A';
+      // 🕒 ETA using Google Distance Matrix API with fallback check
+      let pickupTime = "N/A";
+      let dropTime = "N/A";
+      let pickupElement, dropElement;
 
-      // 🕒 Estimate drop time using Google Maps API
-      const dropTimeUrl = `https://maps.googleapis.com/maps/api/distancematrix/json?origins=${shopLat},${shopLng}&destinations=${customerLat},${customerLng}&key=${GOOGLE_MAPS_API_KEY}`;
-      const dropTimeResponse = await axios.get(dropTimeUrl);
-      const dropTime = dropTimeResponse.data?.rows?.[0]?.elements?.[0]?.duration?.text || 'N/A';
+      if (
+        boyLat && boyLng &&
+        shopLat && shopLng &&
+        customerLat && customerLng
+      ) {
+        const timeUrl = encodeURI(`https://maps.googleapis.com/maps/api/distancematrix/json?origins=${boyLat},${boyLng}&destinations=${shopLat},${shopLng}&key=${GOOGLE_MAPS_API_KEY}`);
+        const timeResponse = await axios.get(timeUrl);
+        console.log("Pickup API Response:", timeResponse.data);
+        pickupElement = timeResponse.data?.rows?.[0]?.elements?.[0];
+        pickupTime = pickupElement && pickupElement.status === 'OK' && pickupElement.duration
+          ? pickupElement.duration.text
+          : 'N/A';
+
+        const dropTimeUrl = encodeURI(`https://maps.googleapis.com/maps/api/distancematrix/json?origins=${shopLat},${shopLng}&destinations=${customerLat},${customerLng}&key=${GOOGLE_MAPS_API_KEY}`);
+        const dropTimeResponse = await axios.get(dropTimeUrl);
+        console.log("Drop API Response:", dropTimeResponse.data);
+        dropElement = dropTimeResponse.data?.rows?.[0]?.elements?.[0];
+        dropTime = dropElement && dropElement.status === 'OK' && dropElement.duration
+          ? dropElement.duration.text
+          : 'N/A';
+
+        // Debug logging for parsed elements
+        console.log("Pickup Element:", pickupElement);
+        console.log("Drop Element:", dropElement);
+      } else {
+        console.warn("⚠️ Missing coordinates for time calculation.");
+      }
 
       const parseTimeToMinutes = (str) => {
         if (!str || str === 'N/A') return 0;

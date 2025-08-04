@@ -15,7 +15,9 @@ const customerAddressDetailsSchema = new mongoose.Schema({
   area: { type: String },
   place: { type: String },
   default: { type: Boolean, defult:false },
-  addressType: {type: String}
+  addressType: {type: String},
+  latitude: { type: Number },
+  longitude: { type: Number },
 }, { timestamps: true });
 const UserSchema = new mongoose.Schema({
   name: { type: String },

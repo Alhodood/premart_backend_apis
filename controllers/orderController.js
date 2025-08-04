@@ -58,20 +58,21 @@ exports.createOrder = async (req, res) => {
     if (!userId) return res.status(400).json({ message: 'User ID is required', success: false });
     console.log(userId);
 
-    // Step 1: Fetch user address from User model
-    const user = await require('../models/User').findById(userId);
-    if (!user || !user.address || user.address.length === 0) {
+    // Step 1: Fetch user address from User model and set deliveryAddress with fallback lat/lng
+    const User = require('../models/User');
+    const userData = await User.findById(userId);
+    if (!userData || !userData.address || userData.address.length === 0) {
       return res.status(400).json({ message: 'No delivery address found', success: false });
     }
-
-    let deliveryAddress = user.address.find(a => a.default) || user.address[0];
-    deliveryAddress = deliveryAddress?.toObject?.() || deliveryAddress;
-    if (!deliveryAddress.address) {
-      const matchingAddress = user.address.find(a => a._id?.toString() === deliveryAddress._id?.toString());
-      if (matchingAddress && matchingAddress.address) {
-        deliveryAddress.address = matchingAddress.address;
-      }
+    const defaultAddress = userData?.address?.find(addr => addr.default);
+    if (!defaultAddress) {
+      return res.status(400).json({ message: 'No default delivery address found', success: false });
     }
+    const deliveryAddress = {
+      ...defaultAddress.toObject(),
+      latitude: defaultAddress.latitude || userData.latitude,
+      longitude: defaultAddress.longitude || userData.longitude
+    };
 
     // Step 2: Fetch cart and products
     const cart = await Cart.findOne({ userId });
@@ -256,7 +257,7 @@ exports.createOrder = async (req, res) => {
         })),
         products: shopProducts.map(p => p.toObject ? p.toObject() : p),
         shopDetails: shop?.shopeDetails || {},
-        deliveryAddress,
+        deliveryAddress, // uses the new logic above
         totalAmount: shopOriginalTotal,
         finalPayable: (shopOriginalTotal - (totalCouponDiscount || 0)),
         // Delivery charge per order: boolean: true if masterDeliveryCharge > 0, else false
