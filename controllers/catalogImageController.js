@@ -4,6 +4,13 @@ const CatalogImage = require('../models/CatalogImages');
 exports.uploadCatalogImage = async (req, res) => {
   try {
     const { images, brand, model, category, subCategory } = req.body;
+    console.log("🧾 Uploading Catalog Image Payload →", {
+      images,
+      brand,
+      model,
+      category,
+      subCategory
+    });
 
     if (!images || !brand || !model || !category || !subCategory) {
       return res.status(400).json({ success: false, message: 'Missing required fields' });

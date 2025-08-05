@@ -24,9 +24,9 @@ exports.getAllModels = async (req, res) => {
     const data = models.map(m => ({
       _id: m._id,
       modelName: m.modelName,
-      brandId: m.brand._id,
-      brandName: m.brand.brandName,
-      brandImage: m.brand.brandImage
+      brandId: m.brand?._id || null,
+      brandName: m.brand?.brandName || '',
+      brandImage: m.brand?.brandImage || ''
     }));
     console.log('Populated models:', models);
     res.status(200).json({ data, success: true, message: "featched on models" });
