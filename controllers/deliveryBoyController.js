@@ -328,10 +328,20 @@ exports.viewAssignedOrders = async (req, res) => {
     }
 
     // ✅ 3. Fetch assigned orders
+    // Allowed statuses for assigned orders
+    const allowedStatuses = [
+      "Accepted by Delivery Boy",
+      "Order Accepted By Delivery Boy",
+      "Reached Pickup",
+      "Waiting to Pick",
+      "Order Picked",
+      "Reached Drop",
+      
+    ];
     // Use direct ObjectId comparison for assignedDeliveryBoy and $in for orderStatus.
     const assignedOrders = await Order.find({
       assignedDeliveryBoy: new mongoose.Types.ObjectId(deliveryBoyId),
-      orderStatus: { $in: ['Delivery Boy Assigned', 'Accepted by Delivery Boy', 'Picked Up'] }
+      orderStatus: { $in: allowedStatuses }
     }).sort({ createdAt: -1 });
 
     // Log the count and details of fetched assigned orders
@@ -586,7 +596,6 @@ exports.getNearbyAssignedOrders = async (req, res) => {
         shopDetails,
         deliveryDetails,
         deliveryAddress,
-        fullProductDetails,
         createdAt: order.createdAt,
         updatedAt: order.updatedAt
       });
