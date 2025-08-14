@@ -6,6 +6,7 @@ const { registerUser, loginUser, updateProfile,
 const { protect } = require('../middleware/authMiddleware');
 const { allowRoles } = require('../middleware/roleMiddleware');
 const adminAuthController = require('../controllers/adminAuthController');
+const deliveryAgencyAuthController = require('../controllers/deliveryAgencyAuthController');
 
 
 const router = express.Router();
@@ -54,6 +55,18 @@ router.post('/verify-otp', verifyOtpForCustomer);
 router.post('/resend-otp', resendOtpToCustomer);
 //router.post('/sendOtpOnly', sendOtpOnly);
 
+
+// Delivery Agency Auth Routes
+router.post('/delivery-agency/register', deliveryAgencyAuthController.registerAgency);
+router.post('/delivery-agency/login', deliveryAgencyAuthController.loginAgency);
+router.put('/delivery-agency/profile/:agencyId', deliveryAgencyAuthController.updateMyProfile);
+router.get('/delivery-agency/profile/:agencyId', deliveryAgencyAuthController.getMyProfile);
+router.patch('/delivery-agency/password/:agencyId', deliveryAgencyAuthController.changePassword);
+
+router.get('/delivery-agency/payments/:agencyId', deliveryAgencyAuthController.getAgencyPaymentRecords);
+
+// Get Delivery Boys under a specific Delivery Agency
+router.get('/delivery-agency/delivery-boys/:agencyId', deliveryAgencyAuthController.getAgencyDeliveryBoys);
 
 
 

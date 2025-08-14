@@ -1,22 +1,25 @@
 const mongoose = require('mongoose');
 
 const agencyBankDetailsSchema = new mongoose.Schema({
-  bankName: { type: String, required: true },
-  accountNumber: { type: String, required: true },
-  ibanNumber: { type: String, required: true },
-  branch: { type: String, required: true },
+  bankName: { type: String },
+  accountNumber: { type: String },
+  ibanNumber: { type: String },
+  branch: { type: String },
   swiftCode: { type: String }
 }, { timestamps: true });
 
 const agencyDetailsSchema = new mongoose.Schema({
-  agencyName: { type: String, required: true },
-  agencyAddress: { type: String, required: true },
-  agencyMail: { type: String, required: true },
-  agencyContact: { type: String, required: true },
-  agencyLicenseNumber: { type: String, required: true },
-  agencyLicenseExpiry: { type: String, required: true },
-  emiratesId: { type: String, required: true },
-   emiratesIdImage: { type: String, required: true },
+  email: { type: String, unique: true },
+  password: { type: String },
+  agencyName: { type: String },
+  agencyAddress: { type: String },
+  agencyMail: { type: String },
+  agencyContact: { type: String },
+  agencyLicenseNumber: { type: String },
+  agencyLicenseExpiry: { type: String },
+  emiratesId: { type: String },
+  emiratesIdImage: { type: String },
+  profileImage: { type: String },
   agencyLocation: { type: String },
   agencyLicenseImage: { type: String },
   termsAndCondition: { type: String },
@@ -29,8 +32,8 @@ const agencyDetailsSchema = new mongoose.Schema({
 
 
 const agencyPaymentSchema = new mongoose.Schema({
-  amount: { type: Number, required: true },
-  month: { type: String, required: true }, // e.g., "May 2025" — one record per month, multiple allowed
+  amount: { type: Number },
+  month: { type: String }, // e.g., "May 2025" — one record per month, multiple allowed
   paymentDate: { type: Date, default: Date.now },
   transactionId: { type: String },
   paymentMethod: { type: String, enum: ['Bank Transfer', 'Cash', 'Other'], default: 'Bank Transfer' },
