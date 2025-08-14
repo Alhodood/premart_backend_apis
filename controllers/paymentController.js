@@ -25,6 +25,14 @@ exports.createPayment = async (req, res) => {
 
     await payment.save();
 
+    // Auto-assign delivery boy within 5km after payment is saved
+    try {
+      const { autoAssignDeliveryBoyWithin5kmHelper } = require('../helper/autoAssignHelper');
+      await autoAssignDeliveryBoyWithin5kmHelper(orderId);
+    } catch (err) {
+      console.error('Auto assign delivery boy failed:', err.message);
+    }
+
     return res.status(201).json({
       message: 'Payment recorded successfully',
       success: true,

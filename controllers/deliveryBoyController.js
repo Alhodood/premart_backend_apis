@@ -81,7 +81,7 @@ exports.resendOtpToDeliveryBoy = async (req, res) => {
 };
 
 exports.verifyOtpForDeliveryBoy = async (req, res) => {
-  const { phone, code } = req.body;
+  const { phone, code, countryCode, latitude, longitude, agencyId } = req.body;
 
   if (!phone || !code) {
     return res.status(400).json({
@@ -96,11 +96,25 @@ exports.verifyOtpForDeliveryBoy = async (req, res) => {
       .create({ to: phone, code });
 
     if (verification.status === 'approved') {
+      // If agencyId is sent, validate its format and (optionally) existence
+      if (agencyId) {
+        if (!mongoose.Types.ObjectId.isValid(agencyId)) {
+          return res.status(400).json({
+            message: 'Invalid agencyId',
+            success: false
+          });
+        }
+        // Optional existence check (uncomment if you want to enforce it strictly)
+        // const agencyExists = await DeliveryAgency.findById(agencyId).lean();
+        // if (!agencyExists) {
+        //   return res.status(404).json({ message: 'Agency not found', success: false });
+        // }
+      }
+
       let deliveryBoy = await DeliveryBoy.findOne({ phone });
 
       // If not found, register new delivery boy with required details from req.body
       if (!deliveryBoy) {
-        const { countryCode, latitude, longitude } = req.body;
         if (!countryCode || latitude === undefined || longitude === undefined) {
           return res.status(400).json({
             message: 'Missing details for registration (countryCode, latitude, longitude)',
@@ -108,15 +122,26 @@ exports.verifyOtpForDeliveryBoy = async (req, res) => {
           });
         }
 
-        deliveryBoy = new DeliveryBoy({
+        const createDoc = {
           phone,
           countryCode,
           latitude,
           longitude,
           isOnline: false,
           role: 'deliveryBoy'
-        });
+        };
+        if (agencyId) {
+          createDoc.agencyId = agencyId;
+        }
+
+        deliveryBoy = new DeliveryBoy(createDoc);
         await deliveryBoy.save();
+      } else {
+        // If delivery boy already exists and a (possibly new) agencyId is provided, update it
+        if (agencyId && String(deliveryBoy.agencyId) !== String(agencyId)) {
+          deliveryBoy.agencyId = agencyId;
+          await deliveryBoy.save();
+        }
       }
 
       return res.status(200).json({
@@ -791,6 +816,8 @@ exports.deliveryBoyUpdateOrderStatus = async (req, res) => {
       // Calculate current month string
       const currentMonth = new Date().toLocaleString('default', { month: 'long', year: 'numeric' }); // e.g. May 2025
       console.log('Calculated month string:', currentMonth);
+      const orderEarning = Number(updatedOrder.deliveryEarning || 0);
+      console.log('Order earning to credit to agency:', orderEarning);
       const deliveryBoy = await DeliveryBoy.findById(updatedOrder.assignedDeliveryBoy).lean();
       console.log('Delivery boy:', deliveryBoy);
       if (!deliveryBoy?.agencyId) {
@@ -804,13 +831,13 @@ exports.deliveryBoyUpdateOrderStatus = async (req, res) => {
           // Find existing payment record for the month
           const existingRecord = agency.paymentRecords.find(record => record.month === currentMonth);
           if (existingRecord) {
-            existingRecord.amount += 10;
+            existingRecord.amount += orderEarning;
           } else {
             agency.paymentRecords.push({
-              amount: 10,
+              amount: orderEarning,
               month: currentMonth,
               paymentMethod: 'Bank Transfer',
-              status: 'Paid',
+              status: 'Unpaid',
               paymentDate: new Date(),
               transactionId: `DEL-${Date.now()}`
             });
