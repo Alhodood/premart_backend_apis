@@ -165,33 +165,33 @@ app.get('/generatePresignedDownloadUrl', async (req, res) => {
 
 // 1---------
 // Decode VIN endpoint
-app.get("/api/decode/:vin", async (req, res) => {
-  const vin = req.params.vin;
+// app.get("/api/decode/:vin", async (req, res) => {
+//   const vin = req.params.vin;
 
-  if (!vin || vin.length !== 17) {
-    return res.status(400).json({ success: false, message: "VIN must be 17 characters" });
-  }
+//   if (!vin || vin.length !== 17) {
+//     return res.status(400).json({ success: false, message: "VIN must be 17 characters" });
+//   }
 
-  try {
-    const { data } = await axios.get(`https://vpic.nhtsa.dot.gov/api/vehicles/DecodeVin/${vin}?format=json`);
-    const results = data.Results;
+//   try {
+//     const { data } = await axios.get(`https://vpic.nhtsa.dot.gov/api/vehicles/DecodeVin/${vin}?format=json`);
+//     const results = data.Results;
 
-    const output = {
-      VIN: vin,
-      Manufacturer: results.find(r => r.Variable === "Manufacturer")?.Value,
-      ModelYear: results.find(r => r.Variable === "Model Year")?.Value,
-      VehicleType: results.find(r => r.Variable === "Vehicle Type")?.Value,
-      Series: results.find(r => r.Variable === "Series")?.Value,
-      PlantCity: results.find(r => r.Variable === "Plant City")?.Value,
-      PlantCountry: results.find(r => r.Variable === "Plant Country")?.Value,
-    };
+//     const output = {
+//       VIN: vin,
+//       Manufacturer: results.find(r => r.Variable === "Manufacturer")?.Value,
+//       ModelYear: results.find(r => r.Variable === "Model Year")?.Value,
+//       VehicleType: results.find(r => r.Variable === "Vehicle Type")?.Value,
+//       Series: results.find(r => r.Variable === "Series")?.Value,
+//       PlantCity: results.find(r => r.Variable === "Plant City")?.Value,
+//       PlantCountry: results.find(r => r.Variable === "Plant Country")?.Value,
+//     };
 
-    res.json({ success: true, data: output });
-  } catch (err) {
-    console.error("Axios error:", err.message);
-    res.status(500).json({ success: false, message: "Failed to decode VIN" });
-  }
-});
+//     res.json({ success: true, data: output });
+//   } catch (err) {
+//     console.error("Axios error:", err.message);
+//     res.status(500).json({ success: false, message: "Failed to decode VIN" });
+//   }
+// });
 
 
 
