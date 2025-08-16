@@ -73,6 +73,7 @@ app.use(cors({
     "https://autopartsnow.uk",
     "http://www.autopartsnow.uk",
     'https://d19st5rqqkklcw.cloudfront.net',
+    "https://d29n203b886yvl.cloudfront.net"
   ],
   methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
   allowedHeaders: ['Content-Type', 'Authorization'],
