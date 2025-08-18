@@ -30,12 +30,36 @@ const superNotification = require('./routes/superNotificationRoute.js')
 const offerCoupon = require('./routes/offerCouponRoutes.js')
 const dashboard = require('./routes/dashboardRoutes.js')
 const reports = require('./routes/reportRoutes.js')
-const catalog = require('./routes/catalogImageRoutes.js')
+const catalog = require('./routes/catalogImagesRoutes.js')
 const { S3Client, PutObjectCommand, GetObjectCommand } = require("@aws-sdk/client-s3");
 const { getSignedUrl } = require("@aws-sdk/s3-request-presigner");
 // const stripe = Stripe(process.env.STRIPE_SECRET_KEY);
 const connectDB =require("./config/db.js")
 const app = express();
+
+const allowedOrigins = [
+  "http://localhost:5000",
+  "http://autopartsnow.uk",
+  "https://autopartsnow.uk",
+  "http://www.autopartsnow.uk",
+  "https://d19st5rqqkklcw.cloudfront.net",
+  "https://d29n203b886yvl.cloudfront.net"
+];
+
+app.use(cors({
+  origin: function (origin, callback) {
+    // allow requests with no origin (like mobile apps, curl, etc.)
+    if (!origin) return callback(null, true);
+    if (allowedOrigins.indexOf(origin) === -1) {
+      const msg = `The CORS policy for this site does not allow access from the specified Origin: ${origin}`;
+      return callback(new Error(msg), false);
+    }
+    return callback(null, true);
+  },
+  methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
+  allowedHeaders: ['Content-Type', 'Authorization'],
+  credentials: true
+}));
 
 app.use(express.json({ limit: '10mb' }));
 // Handle invalid JSON payloads by resetting body and continuing
@@ -66,20 +90,8 @@ connectDB();
 
 // 'https://property-erp.com',
 
-app.use(cors({
-  origin: [
-    "http://localhost:5000",
-    "http://autopartsnow.uk",
-    "https://autopartsnow.uk",
-    "http://www.autopartsnow.uk",
-    'https://d19st5rqqkklcw.cloudfront.net',
-    "https://d29n203b886yvl.cloudfront.net"
-  ],
-  methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
-  allowedHeaders: ['Content-Type', 'Authorization'],
-  exposedHeaders: ['Access-Control-Allow-Origin'],
-  credentials: true
-}));
+
+
 // Database connection (replace <connection_string> with your MongoDB URI)
 
 // mongoose.connect(process.env.MONGO_URI || '<connection_string>', { useNewUrlParser: true, useUnifiedTopology: true })
@@ -130,8 +142,8 @@ app.get('/generatePresignedUrl', async (req, res) => {
     }
 
     const params = {
-      Bucket: 'premart', // your bucket name
-      Key: filename,     // file name you want to upload
+      Bucket: process.env.AWS_BUCKET_NAME, // your bucket name
+      Key: `uploads/${filename}`,     // file name you want to upload
       ContentType: 'image/jpeg', // or set dynamic based on file type
     };
 
@@ -152,11 +164,11 @@ app.get('/generatePresignedDownloadUrl', async (req, res) => {
       return res.status(400).send('Filename is required');
     }
     const params = {
-      Bucket: 'premart',
-      Key: filename,
+      Bucket: process.env.AWS_BUCKET_NAME,
+      Key: `uploads/${filename}`,
     };
     const command = new GetObjectCommand(params);
-    const signedUrl = await getSignedUrl(s3, command, { expiresIn: 300 });
+    const signedUrl = await getSignedUrl(s3, command, { expiresIn: 3600 });
     res.json({ url: signedUrl });
   } catch (error) {
     console.error('Error generating download URL:', error);
@@ -166,33 +178,33 @@ app.get('/generatePresignedDownloadUrl', async (req, res) => {
 
 // 1---------
 // Decode VIN endpoint
-app.get("/api/decode/:vin", async (req, res) => {
-  const vin = req.params.vin;
+// app.get("/api/decode/:vin", async (req, res) => {
+//   const vin = req.params.vin;
 
-  if (!vin || vin.length !== 17) {
-    return res.status(400).json({ success: false, message: "VIN must be 17 characters" });
-  }
+//   if (!vin || vin.length !== 17) {
+//     return res.status(400).json({ success: false, message: "VIN must be 17 characters" });
+//   }
 
-  try {
-    const { data } = await axios.get(`https://vpic.nhtsa.dot.gov/api/vehicles/DecodeVin/${vin}?format=json`);
-    const results = data.Results;
+//   try {
+//     const { data } = await axios.get(`https://vpic.nhtsa.dot.gov/api/vehicles/DecodeVin/${vin}?format=json`);
+//     const results = data.Results;
 
-    const output = {
-      VIN: vin,
-      Manufacturer: results.find(r => r.Variable === "Manufacturer")?.Value,
-      ModelYear: results.find(r => r.Variable === "Model Year")?.Value,
-      VehicleType: results.find(r => r.Variable === "Vehicle Type")?.Value,
-      Series: results.find(r => r.Variable === "Series")?.Value,
-      PlantCity: results.find(r => r.Variable === "Plant City")?.Value,
-      PlantCountry: results.find(r => r.Variable === "Plant Country")?.Value,
-    };
+//     const output = {
+//       VIN: vin,
+//       Manufacturer: results.find(r => r.Variable === "Manufacturer")?.Value,
+//       ModelYear: results.find(r => r.Variable === "Model Year")?.Value,
+//       VehicleType: results.find(r => r.Variable === "Vehicle Type")?.Value,
+//       Series: results.find(r => r.Variable === "Series")?.Value,
+//       PlantCity: results.find(r => r.Variable === "Plant City")?.Value,
+//       PlantCountry: results.find(r => r.Variable === "Plant Country")?.Value,
+//     };
 
-    res.json({ success: true, data: output });
-  } catch (err) {
-    console.error("Axios error:", err.message);
-    res.status(500).json({ success: false, message: "Failed to decode VIN" });
-  }
-});
+//     res.json({ success: true, data: output });
+//   } catch (err) {
+//     console.error("Axios error:", err.message);
+//     res.status(500).json({ success: false, message: "Failed to decode VIN" });
+//   }
+// });
 
 
 
@@ -334,7 +346,7 @@ app.post("/create-payment-intent", async (req, res) => {
   }
 });
 
-const PORT = process.env.PORT || 3000;
+const PORT = process.env.PORT || 3005;
 const HOST = process.env.HOST || '0.0.0.0';
 
 // Start server
