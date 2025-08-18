@@ -445,8 +445,7 @@ exports.getAgencyDeliveryBoys = async (req, res) => {
       filter.$or = [{ name: rx }, { phone: rx }];
     }
 
-    const projection =
-      'name phone countryCode isOnline availability latitude longitude assignedOrders profileImage createdAt updatedAt';
+    const projection = 'name phone countryCode isOnline availability latitude longitude assignedOrders profileImage createdAt updatedAt agencyId email emiratesId areaAssigned city dob licenseNo accountVerify';
 
     const [deliveryBoys, total] = await Promise.all([
       DeliveryBoy.find(filter)
@@ -460,16 +459,22 @@ exports.getAgencyDeliveryBoys = async (req, res) => {
 
     const formattedData = deliveryBoys.map(boy => ({
       _id: boy._id,
-      name: boy.name,
-      phone: boy.phone,
-      countryCode: boy.countryCode,
-      isOnline: boy.isOnline,
-      assignedOrders: boy.assignedOrders ? boy.assignedOrders.length : 0,
-      latitude: boy.latitude,
-      longitude: boy.longitude,
-      availability: boy.availability,
+      name: boy.name || 'NA',
+      phone: boy.phone || 'NA',
+      agencyId: boy.agencyId || 'NA',
+      emiratesId: boy.emiratesId || 'NA',
+      areaAssigned: boy.areaAssigned || 'NA',
+      city: boy.city || 'NA',
+      dob: boy.dob || 'NA',
+      licenseNo: boy.licenseNo || 'NA',
+      email: boy.email || 'NA',
+      accountVerify: boy.accountVerify || false,
+      isOnline: boy.isOnline || false,
+      latitude: boy.latitude || 'NA',
+      longitude: boy.longitude || 'NA',
+      availability: boy.availability || false,
       createdAt: boy.createdAt,
-      updatedAt: boy.updatedAt
+      assignedOrder: Array.isArray(boy.assignedOrders) ? boy.assignedOrders.length : 0,
     }));
 
     return res.status(200).json({
