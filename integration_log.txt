@@ -1,0 +1,30 @@
+[2025-10-10 08:09:59] ✅ API reachable. Your public IP: 103.31.221.164
+[2025-10-10 08:10:00] 🔗 Connected to MongoDB → Database: premart, Collection: tradesoft_models
+[2025-10-10 08:10:00] 
+🔍 Checking VIN: MNTAB7A93G6008341
+[2025-10-10 08:10:01] ⚠️  VIN MNTAB7A93G6008341 failed with status 404. Body: {"code":404,"errorCode":404,"message":"Not found"}
+[2025-10-10 08:10:01] 
+🔍 Checking VIN: 1HGCM82633A004352
+[2025-10-10 08:10:01] ⚠️  VIN 1HGCM82633A004352 failed with status 404. Body: {"code":404,"errorCode":404,"message":"Not found"}
+[2025-10-10 08:10:01] 
+🔍 Checking VIN: 4T1BF1FK7GU123456
+[2025-10-10 08:10:02] ⚠️  VIN 4T1BF1FK7GU123456 failed with status 404. Body: {"code":404,"errorCode":404,"message":"Not found"}
+[2025-10-10 08:10:02] 
+🔍 Checking VIN: 1FTFW1ET1EKF51234
+[2025-10-10 08:10:02] ⚠️  VIN 1FTFW1ET1EKF51234 failed with status 404. Body: {"code":404,"errorCode":404,"message":"Not found"}
+[2025-10-10 08:10:02] 
+🔍 Checking VIN: 5YJ3E1EA7KF317123
+[2025-10-10 08:10:02] ⚠️  VIN 5YJ3E1EA7KF317123 failed with status 404. Body: {"code":404,"errorCode":404,"message":"Not found"}
+[2025-10-10 08:10:02] 
+🔍 Checking VIN: JTDKB20U793049160
+[2025-10-10 08:10:03] ⚠️  VIN JTDKB20U793049160 failed with status 404. Body: {"code":404,"errorCode":404,"message":"Not found"}
+[2025-10-10 08:10:03] 🏁 Integration complete. MongoDB connection closed.
+[2025-10-10 10:22:25] ✅ API reachable. Your public IP: 103.31.221.164
+[2025-10-10 10:22:26] 🔗 Connected to MongoDB → Database: premart, Collection: tradesoft_models
+[2025-10-10 10:22:26] 
+🔍 Checking VIN: 6T1BF9FK0FX544390
+[2025-10-10 10:22:26] ⚠️  VIN 6T1BF9FK0FX544390 failed with status 404. Body: {"code":404,"errorCode":404,"message":"Not found"}
+[2025-10-10 10:22:26] 
+🔍 Checking VIN: 6T1BE42K39X588724
+[2025-10-10 10:22:27] ⚠️  VIN 6T1BE42K39X588724 failed with status 404. Body: {"code":404,"errorCode":404,"message":"Not found"}
+[2025-10-10 10:22:27] 🏁 Integration complete. MongoDB connection closed.
