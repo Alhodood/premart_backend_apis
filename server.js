@@ -33,8 +33,16 @@ const reports = require('./routes/reportRoutes.js')
 const catalog = require('./routes/catalogImagesRoutes.js')
 const { S3Client, PutObjectCommand, GetObjectCommand } = require("@aws-sdk/client-s3");
 const { getSignedUrl } = require("@aws-sdk/s3-request-presigner");
+const catalogRoutes = require("./routes/catalogRoutes.js");
 // const stripe = Stripe(process.env.STRIPE_SECRET_KEY);
 const connectDB =require("./config/db.js")
+
+const { MongoClient } = require('mongodb');
+const Stripe = require('stripe');
+const stripe = Stripe(process.env.STRIPE_SECRET_KEY);
+const Product = require('./models/Product');
+const { extractKeyAndBucket } = require('./helper/s3');
+
 const app = express();
 
 const allowedOrigins = [
@@ -43,7 +51,8 @@ const allowedOrigins = [
   "https://autopartsnow.uk",
   "http://www.autopartsnow.uk",
   "https://d19st5rqqkklcw.cloudfront.net",
-  "https://d29n203b886yvl.cloudfront.net"
+  "https://d29n203b886yvl.cloudfront.net",
+  "http://10.0.2.2:3005"
 ];
 
 app.use(cors({
@@ -90,8 +99,6 @@ connectDB();
 
 // 'https://property-erp.com',
 
-
-
 // Database connection (replace <connection_string> with your MongoDB URI)
 
 // mongoose.connect(process.env.MONGO_URI || '<connection_string>', { useNewUrlParser: true, useUnifiedTopology: true })
@@ -125,6 +132,7 @@ app.use('/api/dashboard',dashboard);
 app.use('/api/report',reports);
 app.use('/api/vinData',vinData);
 app.use('/api/catalog',catalog);
+app.use("/api", catalogRoutes);
 
 
 // Basic route
@@ -173,6 +181,35 @@ app.get('/generatePresignedDownloadUrl', async (req, res) => {
   } catch (error) {
     console.error('Error generating download URL:', error);
     res.status(500).send('Error generating download URL');
+  }
+});
+
+app.get('/generatePresignedDownloadUrlApp', async (req, res) => {
+  try {
+    const { keyOrUrl = '', bucket: bucketOverride } = req.query;
+
+    const { key, bucket } = extractKeyAndBucket(keyOrUrl);
+
+    if (!key) {
+      return res.status(400).json({ message: 'keyOrUrl is required (full S3 URL or key)' });
+    }
+
+    // allow caller to override; otherwise use bucket from URL; otherwise default env
+    const bucketName = bucketOverride?.trim() || bucket || process.env.AWS_BUCKET_NAME;
+
+    // (Optional) simple guard: only allow reading under 'uploads/'
+    const s3Key = `uploads/${key}`;
+
+    const command = new GetObjectCommand({
+      Bucket: bucketName,
+      Key: s3Key,
+    });
+
+    const url = await getSignedUrl(s3, command, { expiresIn: 3600 }); // 1h
+    res.json({ url, bucket: bucketName, key: s3Key, expiresIn: 3600 });
+  } catch (err) {
+    console.error('generatePresignedDownloadUrlApp error:', err);
+    res.status(500).json({ message: 'Failed to create presigned URL' });
   }
 });
 
@@ -332,7 +369,7 @@ app.post("/create-payment-intent", async (req, res) => {
   const { amount, currency } = req.body;
 
   try {
-    const paymentIntent = await Stripe(process.env.STRIPE_SECRET_KEY).paymentIntents.create({
+    const paymentIntent = await stripe.paymentIntents.create({
       amount, // in cents
       currency,
       payment_method_types: ['card'],
@@ -345,6 +382,42 @@ app.post("/create-payment-intent", async (req, res) => {
     res.status(500).send({ error: err.message });
   }
 });
+
+/////////new tradeshoft apis
+
+const MONGO_URI = process.env.MONGO_URI;
+
+let db, partsCol;
+async function initDb() {
+  const client = new MongoClient(MONGO_URI);
+  await client.connect();
+  db = client.db();
+  partsCol = db.collection("parts_catalog");
+}
+initDb()
+  .then(() => console.log('Mongo (parts_catalog) connected'))
+  .catch((e) => console.error('initDb error:', e));
+
+app.get("/parts", async (req, res) => {
+  const { catalogId, carId, groupId, partId, limit = 50, page = 1 } = req.query;
+  const q = {};
+  if (catalogId) q.catalogId = catalogId;
+  if (carId) q.carId = carId;
+  if (groupId) q.groupId = groupId;
+  if (partId) q.partId = partId;
+  const cursor = partsCol.find(q).skip((page - 1) * limit).limit(Number(limit));
+  const rows = await cursor.toArray();
+  res.json(rows);
+});
+
+app.get("/parts/:partId", async (req, res) => {
+  const doc = await partsCol.findOne({ partId: req.params.partId });
+  if (!doc) return res.status(404).json({ message: "Not found" });
+  res.json(doc);
+});
+
+//////////////////////////npm install node-fetch mongodb p-limit express
+
 
 const PORT = process.env.PORT || 3005;
 const HOST = process.env.HOST || '0.0.0.0';

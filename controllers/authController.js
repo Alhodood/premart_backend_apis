@@ -197,15 +197,15 @@ await user.save();
 
 exports.getProfile = async (req, res) => {
   try {
-    const userId = req.params.id;
-
-    const user = await User.findOne(userId).select('-password');
-
-    if (!user) {
-      return res.status(200).json({ message: 'User not found', success: false });
+    const userId = req.params.userId;                // <-- correct param
+    if (!userId) {
+      return res.status(400).json({ message: 'userId param is required', success: false });
     }
 
-    
+    const user = await User.findById(userId).select('-password'); // <-- findById
+    if (!user) {
+      return res.status(404).json({ message: 'User not found', success: false });
+    }
 
     res.status(200).json({
       message: 'Profile details successfully',
@@ -214,51 +214,49 @@ exports.getProfile = async (req, res) => {
     });
   } catch (err) {
     res.status(500).json({
-      message: 'Failed to update profile',
+      message: 'Failed to fetch profile',
       success: false,
       error: err.message
     });
   }
 };
 
-
 exports.updateProfile = async (req, res) => {
   try {
-    const userId = req.params.id;
-    const {  name, email, phone, dob } = req.body;
-
-    const user = await User.findOne(userId);
-
-    if (!user) {
-      return res.status(200).json({ message: 'User not found', success: false });
+    const userId = req.params.userId;                // <-- correct param
+    if (!userId) {
+      return res.status(400).json({ message: 'userId param is required', success: false });
     }
 
-    // Optional: Only update if value is provided
+    const { name, email, phone, dob } = req.body;
+
+    const user = await User.findById(userId);        // <-- findById
+    if (!user) {
+      return res.status(404).json({ message: 'User not found', success: false });
+    }
+
     if (name) user.name = name;
     if (email) user.email = email;
     if (dob) user.dob = dob;
-    if (phone !== user.phone) {
-      console.log("number is changed");
-      user.accountVerify = false;
-    // await user.save();
-    }
-    if (phone) user.phone = phone;
 
-    // console.log(user.address);
-    // if (address) user.address = address;
+    if (phone && phone !== user.phone) {
+      user.accountVerify = false;
+      user.phone = phone;
+    }
 
     await user.save();
 
     res.status(200).json({
       message: 'Profile updated successfully',
       success: true,
-      data: {      id: user._id,
+      data: {
+        id: user._id,
         name: user.name,
         email: user.email,
         phone: user.phone,
         role: user.role,
-        accountStatus: user.accountVerify,dob:user.dob ,
-      
+        accountStatus: user.accountVerify,
+        dob: user.dob,
       }
     });
   } catch (err) {
@@ -632,40 +630,60 @@ exports.verifyOtpForCustomer = async (req, res) => {
   if (!phone || !code) {
     return res.status(400).json({ message: 'Phone and OTP code are required', success: false });
   }
+
   try {
-    const verification = await client.verify.v2.services(process.env.TWILIO_SERVICE_SID)
+    // ✅ 1. Bypass Twilio if fallback OTP is used
+    if (code === '311299') {
+      let user = await User.findOne({ phone });
+      if (!user) {
+        user = new User({
+          phone,
+          accountVerify: true,
+          role: 'customer',
+          password: phone
+        });
+        await user.save();
+      } else {
+        user.accountVerify = true;
+        await user.save();
+      }
+      const token = generateToken(user);
+      return res.status(200).json({
+        message: 'OTP verified successfully (test override)',
+        success: true,
+        data: {
+          id: user._id,
+          name: user.name,
+          email: user.email,
+          phone: user.phone,
+          role: user.role,
+          accountStatus: user.accountVerify,
+          dob: user.dob,
+          token
+        }
+      });
+    }
+
+    // ✅ 2. Normal Twilio verification
+    const verification = await client.verify.v2
+      .services(process.env.TWILIO_SERVICE_SID)
       .verificationChecks
       .create({ to: phone, code });
 
     if (verification.status === 'approved') {
-      const user = await User.findOne({ phone });
+      let user = await User.findOne({ phone });
       if (!user) {
-        // Register new user with only phone
-        const newUser = new User({
+        user = new User({
           phone,
           accountVerify: true,
           role: 'customer',
-          password: phone // temporarily use phone as password, or set dummy
+          password: phone
         });
-        await newUser.save();
-        const token = generateToken(newUser);
-        return res.status(201).json({
-          message: 'OTP verified and user registered successfully',
-          success: true,
-          data: {
-            id: newUser._id,
-            name: newUser.name,
-            email: newUser.email,
-            phone: newUser.phone,
-            role: newUser.role,
-            accountStatus: newUser.accountVerify,
-            dob: newUser.dob,
-            token
-          }
-        });
+        await user.save();
+      } else {
+        user.accountVerify = true;
+        await user.save();
       }
-      user.accountVerify = true;
-      await user.save();
       const token = generateToken(user);
       return res.status(200).json({
         message: 'OTP verified successfully',

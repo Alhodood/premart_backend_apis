@@ -58,21 +58,39 @@ exports.createOrder = async (req, res) => {
     if (!userId) return res.status(400).json({ message: 'User ID is required', success: false });
     console.log(userId);
 
-    // Step 1: Fetch user address from User model and set deliveryAddress with fallback lat/lng
+    // Step 1: Resolve deliveryAddress (prefer body, fallback to user's default)
     const User = require('../models/User');
     const userData = await User.findById(userId);
-    if (!userData || !userData.address || userData.address.length === 0) {
-      return res.status(400).json({ message: 'No delivery address found', success: false });
+    if (!userData) {
+      return res.status(400).json({ message: 'User not found', success: false });
     }
-    const defaultAddress = userData?.address?.find(addr => addr.default);
-    if (!defaultAddress) {
-      return res.status(400).json({ message: 'No default delivery address found', success: false });
+
+    let deliveryAddress = req.body.deliveryAddress;
+
+    if (deliveryAddress && deliveryAddress.name && deliveryAddress.address) {
+      // Normalize provided address and ensure optional fields
+      deliveryAddress = {
+        ...deliveryAddress,
+        default: deliveryAddress.default ?? false,
+        addressType: deliveryAddress.addressType || 'Home',
+        latitude: deliveryAddress.latitude ?? userData.latitude ?? null,
+        longitude: deliveryAddress.longitude ?? userData.longitude ?? null,
+      };
+    } else {
+      // Fall back to user's saved default address
+      if (!userData.address || userData.address.length === 0) {
+        return res.status(400).json({ message: 'No delivery address found', success: false });
+      }
+      const defaultAddress = userData.address.find(addr => addr.default);
+      if (!defaultAddress) {
+        return res.status(400).json({ message: 'No default delivery address found', success: false });
+      }
+      deliveryAddress = {
+        ...defaultAddress.toObject(),
+        latitude: defaultAddress.latitude || userData.latitude,
+        longitude: defaultAddress.longitude || userData.longitude
+      };
     }
-    const deliveryAddress = {
-      ...defaultAddress.toObject(),
-      latitude: defaultAddress.latitude || userData.latitude,
-      longitude: defaultAddress.longitude || userData.longitude
-    };
 
     // Step 2: Fetch cart and products
     const cart = await Cart.findOne({ userId });
