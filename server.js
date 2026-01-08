@@ -31,6 +31,7 @@ const offerCoupon = require('./routes/offerCouponRoutes.js')
 const dashboard = require('./routes/dashboardRoutes.js')
 const reports = require('./routes/reportRoutes.js')
 const catalog = require('./routes/catalogImagesRoutes.js')
+const productUpload = require('./routes/productUpload');
 const { S3Client, PutObjectCommand, GetObjectCommand } = require("@aws-sdk/client-s3");
 const { getSignedUrl } = require("@aws-sdk/s3-request-presigner");
 const catalogRoutes = require("./routes/catalogRoutes.js");
@@ -133,6 +134,7 @@ app.use('/api/report',reports);
 app.use('/api/vinData',vinData);
 app.use('/api/catalog',catalog);
 app.use("/api", catalogRoutes);
+app.use('/api', productUpload);
 
 
 // Basic route
