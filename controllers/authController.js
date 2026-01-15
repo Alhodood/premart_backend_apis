@@ -1,6 +1,8 @@
+// @deprecated — replaced by unified role-based auth in authController.js
 const jwt = require('jsonwebtoken');
 const User = require('../models/User');
 const twilio = require('twilio');
+const { ROLES } = require('../constants/roles');
 
 const client = twilio(process.env.TWILIO_ACCOUNT_SID, process.env.TWILIO_AUTHTOKEN);
 const JWT_SECRET = process.env.JWT_SECRET || 'secret';
@@ -11,167 +13,82 @@ const generateToken = (user) => {
 };
 
 
-// controllers/userController.js
-exports.registerUser1 = async (req, res) => {
-  try {
-    const {
-      name,
-      email,
-      phone,
-      password,
-      dob,
-      address,
-      card
-    } = req.body;
 
-    if (!name || !email || !phone || !password || !address || !card) {
-      return res.status(400).json({ message: 'All fields are required', success: false });
-    }
-
-    const user = new User({
-      name,
-      email,
-      phone,
-      password,
-      dob,
-      address,
-      card
-    });
-
-    await user.save();
-
-    return res.status(201).json({
-      message: 'User registered successfully',
-      success: true,
-      data: {
-        userId: user._id,
-        email: user.email,
-        phone: user.phone
-      }
-    });
-  } catch (error) {
-    console.error('Register Error:', error);
-    return res.status(500).json({
-      message: 'User registration failed',
-      success: false,
-      error: error.message
-    });
-  }
-};
-
+// ===========================
+// REGISTER
+// ===========================
 exports.registerUser = async (req, res) => {
   try {
-    const { name, email, phone, password, countryCode, dob, role } = req.body;
+    const { name, email, password, phone } = req.body;
 
-    // Basic validation
-    if (!name || !email || !phone || !password || !countryCode) {
-      return res.status(200).json({
-        message: 'All required fields must be provided',
-        success: false
-      });
+    if (!email || !password) {
+      return res.status(400).json({ success: false, message: 'Email and password required' });
     }
 
-    // Check if user exists
-    const existing = await User.findOne({ $or: [{ email }, { phone }] });
-    if (existing) {
-      return res.status(200).json({
-        message: 'Email or phone already registered',
-        success: false
-      });
+    const exists = await User.findOne({ email });
+    if (exists) {
+      return res.status(400).json({ success: false, message: 'User already exists' });
     }
 
-    const newUser = new User({
+    const user = await User.create({
       name,
       email,
       phone,
       password,
-      countryCode,
-      dob,
-      role // defaults to customer if not passed
+      role: ROLES.CUSTOMER
     });
 
-    await newUser.save();
-// const token=generateToken();
-    return res.status(201).json({
+    const token = generateToken(user);
+
+    res.status(201).json({
+      success: true,
       message: 'User registered successfully',
-      success: true,
-      data: {
-        id: newUser._id,
-        name: newUser.name,
-        email: newUser.email,
-        phone: newUser.phone,
-        role: newUser.role
-      }
-    });
-
-  } catch (error) {
-    console.error('Registration Error:', error);
-    return res.status(500).json({
-      message: 'Registration failed',
-      success: false,
-      data: error.message
-    });
-  }
-};
-
-exports.loginUser = async (req, res) => {
-  try {
-    const { email, password } = req.body;
-
-    if (!email || !password) {
-      return res.status(200).json({
-        message: 'Email and password are required',
-        success: false
-      });
-    }
-    console.log(email);
-
-    // 🔍 Find user by email
-    const user = await User.findOne({ email });
-console.log(user);
-    if (!user) {
-      return res.status(200).json({
-        message: 'User not found',
-        success: false
-      });
-    }
-
-    // 🔐 Compare password
-    const isMatch = await user.comparePassword(password);
-    if (!isMatch) {
-      return res.status(200).json({
-        message: 'Invalid password',
-        success: false
-      });
-    }
-
-    const token=generateToken(user);
-    return res.status(200).json({
-      message: 'Login successful',
-      success: true,
       data: {
         id: user._id,
         name: user.name,
         email: user.email,
         phone: user.phone,
         role: user.role,
-        accountStatus: user.accountVerify,dob:user.dob ,
-        token:token,
-        accountVisibility: user.accountVisibility
-      
+        token
       }
     });
-
-  } catch (error) {
-    console.error('Login Error:', error);
-    return res.status(500).json({
-      message: 'Login failed',
-      success: false,
-      data: error.message
-    });
+  } catch (err) {
+    res.status(500).json({ success: false, message: err.message });
   }
 };
 
+
+// ===========================
+// LOGIN
+// ===========================
+exports.loginUser = async (req, res) => {
+  try {
+    const { email, password } = req.body;
+
+    const user = await User.findOne({ email });
+    if (!user) return res.status(401).json({ success: false, message: 'Invalid credentials' });
+
+    const ok = await user.comparePassword(password);
+    if (!ok) return res.status(401).json({ success: false, message: 'Invalid credentials' });
+
+    const token = generateToken(user);
+
+    res.status(200).json({
+      success: true,
+      message: 'Login successful',
+      data: {
+        id: user._id,
+        name: user.name,
+        email: user.email,
+        phone: user.phone,
+        role: user.role,
+        token
+      }
+    });
+  } catch (err) {
+    res.status(500).json({ success: false, message: err.message });
+  }
+};
 // delete Account
 exports.deletAddcount = async (req, res) => {
   const  _id= req.params.userId;

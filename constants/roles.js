@@ -1,0 +1,9 @@
+module.exports = {
+  ROLES: {
+    SUPER_ADMIN: 'SUPER_ADMIN',
+    SHOP_ADMIN: 'SHOP_ADMIN',
+    AGENCY: 'AGENCY',
+    DELIVERY_BOY: 'DELIVERY_BOY',
+    CUSTOMER: 'CUSTOMER',
+  }
+};
