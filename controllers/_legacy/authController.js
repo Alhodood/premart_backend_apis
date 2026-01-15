@@ -1,8 +1,8 @@
 // @deprecated — replaced by unified role-based auth in authController.js
 const jwt = require('jsonwebtoken');
-const User = require('../models/User');
+const User = require('../../models/User');
 const twilio = require('twilio');
-const { ROLES } = require('../constants/roles');
+const { ROLES } = require('../../constants/roles');
 
 const client = twilio(process.env.TWILIO_ACCOUNT_SID, process.env.TWILIO_AUTHTOKEN);
 const JWT_SECRET = process.env.JWT_SECRET || 'secret';
@@ -19,7 +19,7 @@ const generateToken = (user) => {
 // ===========================
 exports.registerUser = async (req, res) => {
   try {
-    const { name, email, password, phone } = req.body;
+    const { name, email, password, phone, role } = req.body;
 
     if (!email || !password) {
       return res.status(400).json({ success: false, message: 'Email and password required' });
@@ -35,7 +35,7 @@ exports.registerUser = async (req, res) => {
       email,
       phone,
       password,
-      role: ROLES.CUSTOMER
+       role: role || ROLES.CUSTOMER
     });
 
     const token = generateToken(user);

@@ -1,6 +1,8 @@
 const express = require('express');
 const router = express.Router();
 
+const rbacAuth = require('../controllers/rbacAuthController');
+
 const {
   registerUser,
   loginUser,
@@ -18,79 +20,218 @@ const {
   updateUserCard,
   deleteCardById,
   sendOtpToCustomer,
-  verifyOtpForCustomer,
+  verifyOtpToCustomer,
   resendOtpToCustomer
-} = require('../controllers/authController');
+} = require('../controllers/_legacy/authController');
 
-const adminAuthController = require('../controllers/adminAuthController');
-const deliveryAgencyAuthController = require('../controllers/deliveryAgencyAuthController');
+const adminAuthController = require('../controllers/_legacy/adminAuthController');
+const deliveryAgencyAuthController = require('../controllers/_legacy/deliveryAgencyAuthController');
 
-/* ============================
-   BASIC AUTH (CUSTOMER)
-============================ */
-router.post('/register', registerUser);
-router.post('/login', loginUser);
+const { protect, mustBeOwner } = require('../middleware/authMiddleware');
+const authorize = require('../middleware/authorize');
+const { ROLES } = require('../constants/roles');
 
-/* ============================
-   PROFILE
-============================ */
-router.put('/profile/:userId', updateProfile);
-router.get('/profile/:userId', getProfile);
-router.put('/profile-delete/:userId', deletAddcount);
 
-/* ============================
-   USERS
-============================ */
-router.get('/getAllusers', getAllUsers);
+// ==========================
+// PUBLIC AUTH (RBAC)
+// ==========================
+router.post('/register', rbacAuth.register);
+router.post('/login', rbacAuth.login);
+router.post('/verify-otp', rbacAuth.verifyOtp);
 
-/* ============================
-   ADDRESS
-============================ */
-router.get('/address/:id', getAllAddresses);
-router.post('/address/:id', addNewAddress);
-router.put('/address/:id/:addressId', updateUserAddress);
-router.delete('/address/:id/:addressId', deleteAddressById);
-router.get('/defultAddress/:id', getDefultAddress);
 
-/* ============================
-   CARD
-============================ */
-router.get('/card/:id', getAllCard);
-router.post('/card/:id', addNewCard);
-router.put('/card/:id/:cardId', updateUserCard);
-router.delete('/card/:id/:cardId', deleteCardById);
+// ==========================
+// PROFILE (Customer only)
+// ==========================
+router.get(
+  '/profile/:userId',
+  protect,
+  authorize(ROLES.CUSTOMER),
+  mustBeOwner('userId'),
+  getProfile
+);
 
-/* ============================
-   CUSTOMER OTP
-============================ */
-router.post('/send-otp', sendOtpToCustomer);
-router.post('/verify-otp', verifyOtpForCustomer);
-router.post('/resend-otp', resendOtpToCustomer);
+router.put(
+  '/profile/:userId',
+  protect,
+  authorize(ROLES.CUSTOMER),
+  mustBeOwner('userId'),
+  updateProfile
+);
 
-/* ============================
-   SUPER ADMIN
-============================ */
-router.post('/super-admin/register', adminAuthController.registerSuperAdmin);
-router.post('/super-admin/login', adminAuthController.loginSuperAdmin);
-router.put('/super-admin/profile-update/:adminId', adminAuthController.updateAdminSettings);
-router.get('/super-admin/settings/:adminId', adminAuthController.getSuperAdminSettings);
+router.put(
+  '/profile-delete/:userId',
+  protect,
+  authorize(ROLES.CUSTOMER),
+  mustBeOwner('userId'),
+  deletAddcount
+);
 
-/* ============================
-   SHOP ADMIN
-============================ */
-router.post('/shop-admin/register', adminAuthController.registerShopAdmin);
-router.post('/shop-admin/login', adminAuthController.loginShopAdmin);
-router.put('/shop/:shopId/update-details', adminAuthController.updateShopDetails);
 
-/* ============================
-   DELIVERY AGENCY
-============================ */
-router.post('/delivery-agency/register', deliveryAgencyAuthController.registerAgency);
-router.post('/delivery-agency/login', deliveryAgencyAuthController.loginAgency);
-router.put('/delivery-agency/profile/:agencyId', deliveryAgencyAuthController.updateMyProfile);
-router.get('/delivery-agency/profile/:agencyId', deliveryAgencyAuthController.getMyProfile);
-router.patch('/delivery-agency/password/:agencyId', deliveryAgencyAuthController.changePassword);
-router.get('/delivery-agency/payments/:agencyId', deliveryAgencyAuthController.getAgencyPaymentRecords);
-router.get('/delivery-agency/delivery-boys/:agencyId', deliveryAgencyAuthController.getAgencyDeliveryBoys);
+// ==========================
+// USERS (Super Admin only)
+// ==========================
+router.get(
+  '/getAllusers',
+  protect,
+  authorize(ROLES.SUPER_ADMIN),
+  getAllUsers
+);
+
+
+// ==========================
+// ADDRESS (Customer only)
+// ==========================
+router.get(
+  '/address/:id',
+  protect,
+  authorize(ROLES.CUSTOMER),
+  mustBeOwner('id'),
+  getAllAddresses
+);
+
+router.post(
+  '/address/:id',
+  protect,
+  authorize(ROLES.CUSTOMER),
+  mustBeOwner('id'),
+  addNewAddress
+);
+
+router.put(
+  '/address/:id/:addressId',
+  protect,
+  authorize(ROLES.CUSTOMER),
+  mustBeOwner('id'),
+  updateUserAddress
+);
+
+router.delete(
+  '/address/:id/:addressId',
+  protect,
+  authorize(ROLES.CUSTOMER),
+  mustBeOwner('id'),
+  deleteAddressById
+);
+
+router.get(
+  '/defultAddress/:id',
+  protect,
+  authorize(ROLES.CUSTOMER),
+  mustBeOwner('id'),
+  getDefultAddress
+);
+
+
+// ==========================
+// CARD (Customer only)
+// ==========================
+router.get(
+  '/card/:id',
+  protect,
+  authorize(ROLES.CUSTOMER),
+  mustBeOwner('id'),
+  getAllCard
+);
+
+router.post(
+  '/card/:id',
+  protect,
+  authorize(ROLES.CUSTOMER),
+  mustBeOwner('id'),
+  addNewCard
+);
+
+router.put(
+  '/card/:id/:cardId',
+  protect,
+  authorize(ROLES.CUSTOMER),
+  mustBeOwner('id'),
+  updateUserCard
+);
+
+router.delete(
+  '/card/:id/:cardId',
+  protect,
+  authorize(ROLES.CUSTOMER),
+  mustBeOwner('id'),
+  deleteCardById
+);
+
+
+// ==========================
+// SUPER ADMIN
+// ==========================
+router.put(
+  '/super-admin/profile-update/:adminId',
+  protect,
+  authorize(ROLES.SUPER_ADMIN),
+  mustBeOwner('adminId'),
+  adminAuthController.updateAdminSettings
+);
+
+router.get(
+  '/super-admin/settings/:adminId',
+  protect,
+  authorize(ROLES.SUPER_ADMIN),
+  mustBeOwner('adminId'),
+  adminAuthController.getSuperAdminSettings
+);
+
+
+// ==========================
+// SHOP ADMIN
+// ==========================
+router.put(
+  '/shop/:shopId/update-details',
+  protect,
+  authorize(ROLES.SHOP_ADMIN),
+  mustBeOwner('shopId'),
+  adminAuthController.updateShopDetails
+);
+
+
+// ==========================
+// DELIVERY AGENCY
+// ==========================
+router.put(
+  '/delivery-agency/profile/:agencyId',
+  protect,
+  authorize(ROLES.AGENCY),
+  mustBeOwner('agencyId'),
+  deliveryAgencyAuthController.updateMyProfile
+);
+
+router.get(
+  '/delivery-agency/profile/:agencyId',
+  protect,
+  authorize(ROLES.AGENCY),
+  mustBeOwner('agencyId'),
+  deliveryAgencyAuthController.getMyProfile
+);
+
+router.patch(
+  '/delivery-agency/password/:agencyId',
+  protect,
+  authorize(ROLES.AGENCY),
+  mustBeOwner('agencyId'),
+  deliveryAgencyAuthController.changePassword
+);
+
+router.get(
+  '/delivery-agency/payments/:agencyId',
+  protect,
+  authorize(ROLES.AGENCY),
+  mustBeOwner('agencyId'),
+  deliveryAgencyAuthController.getAgencyPaymentRecords
+);
+
+router.get(
+  '/delivery-agency/delivery-boys/:agencyId',
+  protect,
+  authorize(ROLES.AGENCY),
+  mustBeOwner('agencyId'),
+  deliveryAgencyAuthController.getAgencyDeliveryBoys
+);
 
 module.exports = router;

@@ -12,8 +12,8 @@
 const bcrypt = require('bcryptjs');
 const jwt = require('jsonwebtoken');
 const mongoose = require('mongoose');
-const { DeliveryAgency } = require('../models/DeliveryAgency');
-const DeliveryBoy = require('../models/DeliveryBoy');
+const { DeliveryAgency } = require('../../models/DeliveryAgency');
+const DeliveryBoy = require('../../models/DeliveryBoy');
 
 /* ----------------------------- helpers ----------------------------- */
 

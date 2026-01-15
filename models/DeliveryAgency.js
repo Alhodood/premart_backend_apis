@@ -1,5 +1,5 @@
 const mongoose = require('mongoose');
-
+const { ROLES } = require('../constants/roles');
 const agencyBankDetailsSchema = new mongoose.Schema({
   bankName: { type: String },
   accountNumber: { type: String },
@@ -25,7 +25,14 @@ const agencyDetailsSchema = new mongoose.Schema({
   termsAndCondition: { type: String },
   supportMail: { type: String },
   supportNumber: { type: String },
+   role: {
+    type: String,
+    enum: Object.values(ROLES),
+    default: ROLES.AGENCY,
+    index: true
+  },
   payoutType: { type: String, enum: ['monthly', 'weekly'], default: 'monthly' },
+  
   agencyBankDetails: agencyBankDetailsSchema
 }, { timestamps: true });
 

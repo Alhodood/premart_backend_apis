@@ -1,4 +1,5 @@
 const mongoose = require('mongoose');
+const { ROLES } = require('../constants/roles');
 
 const deliveryBoySchema = new mongoose.Schema(
   {
@@ -13,11 +14,11 @@ const deliveryBoySchema = new mongoose.Schema(
     isOnline: { type: Boolean, default: false},
     assignedOrders: [{ type: mongoose.Schema.Types.ObjectId, ref: 'Order' }],
         profileImage: { type: String },
-    role: { 
-      type: String, 
-      enum: ['deliveryBoy'], 
-      default: 'deliveryBoy' 
-    },
+    role: {
+  type: String,
+  enum: Object.values(ROLES),
+  default: ROLES.DELIVERY_BOY
+},
     areaAssigned: String,
     emiratesId: String,
     operatingHours: String,

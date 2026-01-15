@@ -1,3 +1,5 @@
+
+
 const bcrypt = require('bcrypt');
 const jwt = require('jsonwebtoken');
 const mongoose = require('mongoose');
@@ -22,6 +24,8 @@ const client = twilio(process.env.TWILIO_ACCOUNT_SID, process.env.TWILIO_AUTHTOK
 
 const DEV_BYPASS_OTP = true;
 const BYPASS_CODE = "123456";
+
+// @deprecated — delivery boy auth now handled by unified authController
 
 // exports.sendOtpToDeliveryBoy = async (req, res) => {
 //   const { phone } = req.body;
@@ -52,169 +56,169 @@ const BYPASS_CODE = "123456";
 //   }
 // };
 
-exports.sendOtpToDeliveryBoy = async (req, res) => {
-  const { phone } = req.body;
+// exports.sendOtpToDeliveryBoy = async (req, res) => {
+//   const { phone } = req.body;
 
-  if (!phone) {
-    return res.status(400).json({
-      message: 'Phone is required',
-      success: false
-    });
-  }
+//   if (!phone) {
+//     return res.status(400).json({
+//       message: 'Phone is required',
+//       success: false
+//     });
+//   }
 
-  // ✅ DEV MODE: Don't call Twilio
-  if (DEV_BYPASS_OTP) {
-    console.log(`⚠️ DEV MODE OTP bypass active for ${phone} → use 123456`);
-    return res.status(200).json({
-      message: 'OTP sent successfully (DEV MODE)',
-      success: true
-    });
-  }
+//   // ✅ DEV MODE: Don't call Twilio
+//   if (DEV_BYPASS_OTP) {
+//     console.log(`⚠️ DEV MODE OTP bypass active for ${phone} → use 123456`);
+//     return res.status(200).json({
+//       message: 'OTP sent successfully (DEV MODE)',
+//       success: true
+//     });
+//   }
 
-  try {
-    await client.verify.v2.services(process.env.TWILIO_SERVICE_SID)
-      .verifications
-      .create({ to: phone, channel: 'sms' });
+//   try {
+//     await client.verify.v2.services(process.env.TWILIO_SERVICE_SID)
+//       .verifications
+//       .create({ to: phone, channel: 'sms' });
 
-    return res.status(200).json({
-      message: 'OTP sent successfully',
-      success: true
-    });
-  } catch (err) {
-    console.error('Send OTP Error:', err);
-    res.status(500).json({
-      message: 'Failed to send OTP',
-      success: false,
-      error: err.message
-    });
-  }
-};
+//     return res.status(200).json({
+//       message: 'OTP sent successfully',
+//       success: true
+//     });
+//   } catch (err) {
+//     console.error('Send OTP Error:', err);
+//     res.status(500).json({
+//       message: 'Failed to send OTP',
+//       success: false,
+//       error: err.message
+//     });
+//   }
+// };
 
-// Resend OTP to delivery boy
-exports.resendOtpToDeliveryBoy = async (req, res) => {
-  const { phone } = req.body;
+// // Resend OTP to delivery boy
+// exports.resendOtpToDeliveryBoy = async (req, res) => {
+//   const { phone } = req.body;
 
-  if (!phone) {
-    return res.status(400).json({
-      message: 'Phone is required',
-      success: false
-    });
-  }
+//   if (!phone) {
+//     return res.status(400).json({
+//       message: 'Phone is required',
+//       success: false
+//     });
+//   }
 
-  try {
-    // Re-trigger OTP sending using Twilio
-    await client.verify.v2.services(process.env.TWILIO_SERVICE_SID)
-      .verifications
-      .create({ to: phone, channel: 'sms' });
+//   try {
+//     // Re-trigger OTP sending using Twilio
+//     await client.verify.v2.services(process.env.TWILIO_SERVICE_SID)
+//       .verifications
+//       .create({ to: phone, channel: 'sms' });
 
-    return res.status(200).json({
-      message: 'OTP resent successfully',
-      success: true
-    });
-  } catch (err) {
-    console.error('Resend OTP Error:', err);
-    res.status(500).json({
-      message: 'Failed to resend OTP',
-      success: false,
-      error: err.message
-    });
-  }
-};
+//     return res.status(200).json({
+//       message: 'OTP resent successfully',
+//       success: true
+//     });
+//   } catch (err) {
+//     console.error('Resend OTP Error:', err);
+//     res.status(500).json({
+//       message: 'Failed to resend OTP',
+//       success: false,
+//       error: err.message
+//     });
+//   }
+// };
 
-exports.verifyOtpForDeliveryBoy = async (req, res) => {
-  const { phone, code, countryCode, latitude, longitude, agencyId } = req.body;
+// exports.verifyOtpForDeliveryBoy = async (req, res) => {
+//   const { phone, code, countryCode, latitude, longitude, agencyId } = req.body;
 
-  if (!phone || !code) {
-    return res.status(400).json({
-      message: 'Phone and OTP code are required',
-      success: false
-    });
-  }
+//   if (!phone || !code) {
+//     return res.status(400).json({
+//       message: 'Phone and OTP code are required',
+//       success: false
+//     });
+//   }
 
-  try {
-    let isVerified = false;
+//   try {
+//     let isVerified = false;
 
-    // ✅ DEV BYPASS OTP
-    if (code === "123456") {
-      console.log("⚠️ OTP bypass used for:", phone);
-      isVerified = true;
-    } else {
-      // Real Twilio verification
-      const verification = await client.verify.v2
-        .services(process.env.TWILIO_SERVICE_SID)
-        .verificationChecks
-        .create({ to: phone, code });
+//     // ✅ DEV BYPASS OTP
+//     if (code === "123456") {
+//       console.log("⚠️ OTP bypass used for:", phone);
+//       isVerified = true;
+//     } else {
+//       // Real Twilio verification
+//       const verification = await client.verify.v2
+//         .services(process.env.TWILIO_SERVICE_SID)
+//         .verificationChecks
+//         .create({ to: phone, code });
 
-      isVerified = verification.status === 'approved';
-    }
+//       isVerified = verification.status === 'approved';
+//     }
 
-    if (!isVerified) {
-      return res.status(401).json({
-        message: 'Invalid OTP',
-        success: false
-      });
-    }
+//     if (!isVerified) {
+//       return res.status(401).json({
+//         message: 'Invalid OTP',
+//         success: false
+//       });
+//     }
 
-    // ===============================
-    // Existing logic stays unchanged
-    // ===============================
+//     // ===============================
+//     // Existing logic stays unchanged
+//     // ===============================
 
-    if (agencyId) {
-      if (!mongoose.Types.ObjectId.isValid(agencyId)) {
-        return res.status(400).json({
-          message: 'Invalid agencyId',
-          success: false
-        });
-      }
-    }
+//     if (agencyId) {
+//       if (!mongoose.Types.ObjectId.isValid(agencyId)) {
+//         return res.status(400).json({
+//           message: 'Invalid agencyId',
+//           success: false
+//         });
+//       }
+//     }
 
-    let deliveryBoy = await DeliveryBoy.findOne({ phone });
+//     let deliveryBoy = await DeliveryBoy.findOne({ phone });
 
-    if (!deliveryBoy) {
-      if (!countryCode || latitude === undefined || longitude === undefined) {
-        return res.status(400).json({
-          message: 'Missing details for registration (countryCode, latitude, longitude)',
-          success: false
-        });
-      }
+//     if (!deliveryBoy) {
+//       if (!countryCode || latitude === undefined || longitude === undefined) {
+//         return res.status(400).json({
+//           message: 'Missing details for registration (countryCode, latitude, longitude)',
+//           success: false
+//         });
+//       }
 
-      const createDoc = {
-        phone,
-        countryCode,
-        latitude,
-        longitude,
-        isOnline: false,
-        role: 'deliveryBoy'
-      };
+//       const createDoc = {
+//         phone,
+//         countryCode,
+//         latitude,
+//         longitude,
+//         isOnline: false,
+//         role: 'deliveryBoy'
+//       };
 
-      if (agencyId) {
-        createDoc.agencyId = agencyId;
-      }
+//       if (agencyId) {
+//         createDoc.agencyId = agencyId;
+//       }
 
-      deliveryBoy = new DeliveryBoy(createDoc);
-      await deliveryBoy.save();
-    } else {
-      if (agencyId && String(deliveryBoy.agencyId) !== String(agencyId)) {
-        deliveryBoy.agencyId = agencyId;
-        await deliveryBoy.save();
-      }
-    }
+//       deliveryBoy = new DeliveryBoy(createDoc);
+//       await deliveryBoy.save();
+//     } else {
+//       if (agencyId && String(deliveryBoy.agencyId) !== String(agencyId)) {
+//         deliveryBoy.agencyId = agencyId;
+//         await deliveryBoy.save();
+//       }
+//     }
 
-    return res.status(200).json({
-      message: 'OTP verified successfully',
-      success: true,
-      data: deliveryBoy
-    });
+//     return res.status(200).json({
+//       message: 'OTP verified successfully',
+//       success: true,
+//       data: deliveryBoy
+//     });
 
-  } catch (err) {
-    console.error('Verify OTP Error:', err);
-    res.status(500).json({
-      message: 'OTP verification failed',
-      success: false,
-      error: err.message
-    });
-  }
-};
+//   } catch (err) {
+//     console.error('Verify OTP Error:', err);
+//     res.status(500).json({
+//       message: 'OTP verification failed',
+//       success: false,
+//       error: err.message
+//     });
+//   }
+// };
 
 // exports.verifyOtpForDeliveryBoy = async (req, res) => {
 //   const { phone, code, countryCode, latitude, longitude, agencyId } = req.body;

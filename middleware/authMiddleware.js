@@ -1,22 +1,32 @@
+// middleware/authMiddleware.js
 const jwt = require('jsonwebtoken');
-const User = require('../models/User');
 
-exports.protect = async (req, res, next) => {
+exports.protect = (req, res, next) => {
   try {
     const header = req.headers.authorization;
+
     if (!header || !header.startsWith('Bearer ')) {
-      return res.status(401).json({ message: 'Unauthorized' });
+      return res.status(401).json({ message: 'Unauthorized: Token missing' });
     }
 
     const token = header.split(' ')[1];
     const decoded = jwt.verify(token, process.env.JWT_SECRET);
 
-    const user = await User.findById(decoded.id).select('-password');
-    if (!user) return res.status(401).json({ message: 'User not found' });
-
-    req.user = user;
+    req.user = decoded; // { id, role }
     next();
-  } catch (err) {
-    return res.status(401).json({ message: 'Invalid token' });
+  } catch {
+    return res.status(401).json({ message: 'Unauthorized: Invalid token' });
   }
+};
+
+exports.mustBeOwner = (paramKey = 'userId') => {
+  return (req, res, next) => {
+    if (req.user.role === 'SUPER_ADMIN') return next();
+
+    if (req.user.id !== req.params[paramKey]) {
+      return res.status(403).json({ message: 'Forbidden: Ownership violation' });
+    }
+
+    next();
+  };
 };

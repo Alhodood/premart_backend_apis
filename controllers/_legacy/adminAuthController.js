@@ -1,10 +1,10 @@
 const jwt = require('jsonwebtoken');
 const bcrypt = require('bcrypt');
-const { Shop } = require('../models/Shop');
+const { Shop } = require('../../models/Shop');
 const{
   ShopAdmin,
   SuperAdmin
-} = require('../models/AdminAuth');
+} = require('../../models/AdminAuth');
 const twilio = require('twilio');
 const JWT_SECRET = process.env.JWT_SECRET || 'your_jwt_secret'; // Replace for production
 const JWT_EXPIRE = process.env.JWT_EXPIRE || '1d';
