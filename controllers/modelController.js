@@ -1,5 +1,5 @@
 const Model = require('../models/Model');
-const Product = require('../models/Product');
+const Product = require('../models/_deprecated/Product');
 // Create a new model entry
 exports.createModel = async (req, res) => {
   console.log('hai');

@@ -6,7 +6,7 @@ const cors = require('cors');
 require('dotenv').config();
 const axios = require("axios");
 const authRoutes = require('./routes/authRoutes');
-const productRoutes = require('./routes/productRoutes.js');
+const productRoutes = require('./routes/_deprecated/productRoutes.js');
 const shopRoutes = require('./routes/shopRoutes.js');
 const customerAddress= require("./routes/customerAddressRoutes.js")
 const vinData= require("./routes/vinDataRoutes.js")
@@ -41,7 +41,7 @@ const connectDB =require("./config/db.js")
 const { MongoClient } = require('mongodb');
 const Stripe = require('stripe');
 const stripe = Stripe(process.env.STRIPE_SECRET_KEY);
-const Product = require('./models/Product');
+const Product = require('./models/_deprecated/Product.js');
 const { extractKeyAndBucket } = require('./helper/s3');
 
 const app = express();

@@ -1,7 +1,7 @@
 const mongoose = require('mongoose');
 const Model = require('../models/Model');
 const Brand = require('../models/Brand');
-const Product = require('../models/Product');
+const Product = require('../models/_deprecated/Product');
 
 // Create a new brand
 exports.createBrand = async (req, res) => {

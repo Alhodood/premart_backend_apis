@@ -1,6 +1,6 @@
 const mongoose = require('mongoose');
 const WishList = require('../models/WishList');
-const Product = require('../models/Product');
+const Product = require('../models/_deprecated/Product');
 
 exports.addToWishList = async (req, res) => {
   try {

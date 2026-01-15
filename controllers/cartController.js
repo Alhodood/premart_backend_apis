@@ -1,5 +1,5 @@
 const Cart = require('../models/Cart');
-const Product = require('../models/Product');
+const Product = require('../models/_deprecated/Product');
 
 /**
  * POST /api/cart/:userId/add

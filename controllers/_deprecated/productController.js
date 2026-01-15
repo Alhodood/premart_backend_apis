@@ -1,17 +1,17 @@
-const Banner = require('../models/Banners');
+const Banner = require('../../models/Banners');
 const { v4: uuidv4 } = require('uuid');
-const Product = require('../models/Product');
+const Product = require('../../models/_deprecated/Product');
 
-const { Shop } = require('../models/Shop');
+const { Shop } = require('../../models/Shop');
 
-const Brand=  require('../models/Brand');
+const Brand=  require('../../models/Brand');
 
-const Year=  require('../models/Year');
-const Category=  require('../models/Categories');
+const Year=  require('../../models/Year');
+const Category=  require('../../models/Categories');
 
 
-const Fuel = require('../models/Fuel');
-const Model = require('../models/Model');
+const Fuel = require('../../models/Fuel');
+const Model = require('../../models/Model');
 
 
 

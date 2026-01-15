@@ -1,35 +1,19 @@
 const express = require("express");
-const Catalog = require("../models/Catalog.js");
-const Car = require("../models/Car.js");
-const Group = require("../models/Group.js");
-const Part = require("../models/Part.js");
-
 const router = express.Router();
+const partsController = require('../controllers/partsCatalogController');
+const shopProductController = require('../controllers/shopProductController');
 
-// Get all catalogs
-router.get("/catalogs", async (req, res) => {
-  res.json(await Catalog.find());
-});
 
-// Get cars for a catalog
-router.get("/catalogs/:catalogId/cars", async (req, res) => {
-  res.json(await Car.find({ catalogId: req.params.catalogId }));
-});
+// ========== PARTS CATALOG ==========
+router.post('/catalog', partsController.createPart);
+router.get('/catalog', partsController.getAllParts);
+router.get('/catalog/:id', partsController.getPartById);
+router.get('/catalog/search/query', partsController.searchParts);
 
-// Get groups for a car
-router.get("/catalogs/:catalogId/cars/:carId/groups", async (req, res) => {
-  res.json(await Group.find({ catalogId: req.params.catalogId, carId: req.params.carId }));
-});
-
-// Get parts for a group
-router.get("/catalogs/:catalogId/cars/:carId/groups/:groupId/parts", async (req, res) => {
-  res.json(
-    await Part.find({
-      catalogId: req.params.catalogId,
-      carId: req.params.carId,
-      groupId: req.params.groupId,
-    })
-  );
-});
+// ========== SHOP PRODUCTS ==========
+router.post('/shop-product/:shopId', shopProductController.addShopProduct);
+router.get('/shop-product/:shopId', shopProductController.getShopProducts);
+router.patch('/shop-product/:id', shopProductController.updateShopProduct);
+router.delete('/shop-product/:id', shopProductController.deleteShopProduct);
 
 module.exports = router;

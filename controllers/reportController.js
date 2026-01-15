@@ -1,4 +1,4 @@
-const Product = require('../models/Product');
+const Product = require('../models/_deprecated/Product');
 const Order = require('../models/Order');
 const Payment = require('../models/Payment');
 const moment = require('moment');

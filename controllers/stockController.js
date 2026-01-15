@@ -1,5 +1,5 @@
 const Stock = require('../models/Stock');
-const Product = require('../models/Product');
+const Product = require('../models/_deprecated/Product');
 const mongoose = require('mongoose');
 
 // 1. View all stock for a shop

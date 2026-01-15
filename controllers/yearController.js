@@ -1,4 +1,4 @@
-const Product = require('../models/Product');
+const Product = require('../models/_deprecated/Product');
 const Year = require('../models/Year');
 
 // Create a new year
