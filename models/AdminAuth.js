@@ -1,5 +1,6 @@
 const mongoose = require('mongoose');
 const bcrypt = require('bcrypt');
+const { ROLES } = require('../constants/roles');
 
 const SettingsSchema = new mongoose.Schema({
   appName: { type: String, default: '' },
@@ -22,7 +23,12 @@ const AdminSchema = new mongoose.Schema(
     countryCode:{ type: String, required: true },
     dob:{ type: String },
     accountVerify:{type:Boolean},
-    role: { type: String, enum: ['customer', 'shopAdmin', 'superAdmin', 'deliveryBoy'], default: 'superAdmin' },
+  
+role: {
+  type: String,
+  enum: Object.values(ROLES),
+  default: ROLES.SUPER_ADMIN
+},
     // Fields for OTP login
     // Nested settings for super admin configuration (e.g., commission, tax, Stripe keys)
     settings: { type: SettingsSchema, default: () => ({}) }
@@ -61,10 +67,16 @@ const ShopAdminSchema = new mongoose.Schema(
     countryCode:{ type: String, required: true },
     dob:{ type: String },
     address:{type:Boolean},
-    role: { type: String,required: true},
+   role: {
+  type: String,
+  enum: Object.values(ROLES),
+  default: ROLES.SHOP_ADMIN,
+  required: true
+},
     location:{type:String},
     emiratesIdImage: {type:String, required:true},
     companyLicenseImage: {type:String, requires:true}
+    
     // Fields for OTP login
    
   },

@@ -4,14 +4,14 @@ const deliveryBoyController = require('../controllers/deliveryBoyController');
 const { toggleAvailability } = require('../controllers/deliveryBoyController');
 const orderController = require('../controllers/orderController');
 
-router.post('/register', deliveryBoyController.registerDeliveryBoy);
+// router.post('/register', deliveryBoyController.registerDeliveryBoy);
 
 
-router.post('/send-otp', deliveryBoyController.sendOtpToDeliveryBoy);
+// router.post('/send-otp', deliveryBoyController.sendOtpToDeliveryBoy);
 
-router.post('/verify-otp', deliveryBoyController.verifyOtpForDeliveryBoy);
+// router.post('/verify-otp', deliveryBoyController.verifyOtpForDeliveryBoy);
 
-router.post('/resend-otp', deliveryBoyController.resendOtpToDeliveryBoy);
+// router.post('/resend-otp', deliveryBoyController.resendOtpToDeliveryBoy);
 
 router.put('/update/:deliveryBoyId', deliveryBoyController.updateDeliveryBoy);
 
