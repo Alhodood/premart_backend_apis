@@ -21,7 +21,7 @@ Stack: Node.js + Express + MongoDB + JWT
 Auth: JWT + RBAC middleware
 Architecture: Modular routes, controllers, models
 Design goal: Scalable multi-vendor marketplace backend
-Current state: Auth + Product Architecture stabilized
+Current state: Auth + Product Architecture + Orders pipeline operational
 
 ⸻
 
@@ -52,9 +52,9 @@ Self-registration is blocked for privileged roles.
 
 	3.	OTP Flow
 
-	•	Endpoint: POST /api/auth/verify-otp
-	•	DEV OTP: 123456
-	•	Auto user creation if number not found
+Endpoint: POST /api/auth/verify-otp
+DEV OTP: 123456
+Auto user creation if number not found
 
 Status: COMPLETE
 
@@ -76,17 +76,19 @@ Status: STRICTLY ENFORCED & VERIFIED
 
 	5.	Product Architecture Refactor (Major Upgrade)
 
-Old problem:
-	•	Product duplicated per shop
-	•	Difficult pricing logic
-	•	Hard to scale orders, stock, analytics
+Old problems solved:
+	•	Product duplication per shop
+	•	Pricing tightly coupled to product
+	•	Stock logic hard to scale
+	•	Order and analytics complexity
 
 New architecture implemented:
 
-A) PartsCatalog (Global Master Product)
-Represents universal product master (one entry globally)
+A) PartsCatalog (Global Master Product Layer)
 
-Fields:
+Represents universal product master (single source of truth)
+
+Core fields:
 	•	partNumber
 	•	partName
 	•	description
@@ -102,26 +104,27 @@ APIs:
 POST /api/catalog → Create catalog part
 GET /api/catalog → List all parts
 GET /api/catalog/:id → Get by ID
-GET /api/catalog/search/query → Search with filters
+GET /api/catalog/search/query → Filtered search
 
 ⸻
 
 B) ShopProduct (Marketplace Layer)
+
 Represents which shop sells which part.
 
-Fields:
+Core fields:
 	•	shopId
 	•	part (ObjectId → PartsCatalog)
 	•	price
 	•	discountedPrice
 	•	stock
-	•	isAvailable (used for active/inactive instead of delete)
+	•	isAvailable (soft delete instead of physical delete)
 
 APIs:
 POST /api/shop-product/:shopId
 GET /api/shop-product/:shopId
 PATCH /api/shop-product/:id
-DELETE /api/shop-product/:id → sets isAvailable = false (soft delete)
+DELETE /api/shop-product/:id → Sets isAvailable = false
 
 Hard delete removed. Soft delete enforced across system.
 
@@ -130,14 +133,55 @@ Hard delete removed. Soft delete enforced across system.
 Why this architecture matters
 
 This now supports:
-	•	Multi-vendor marketplace
+	•	True multi-vendor marketplace
 	•	Shop-level pricing
-	•	Stock control
+	•	Proper stock control
 	•	Clean order references
-	•	Proper reporting
+	•	Accurate reporting
 	•	Long-term scalability
 
 Status: COMPLETE & VERIFIED in Postman
+
+⸻
+
+	6.	Cart Module
+
+Cart fully operational:
+	•	Add to cart
+	•	Remove from cart
+	•	Delete specific product
+	•	Get cart with quantity
+	•	Linked to userId
+
+APIs:
+POST /api/cart/add/:userId
+POST /api/cart/remove/:userId
+GET /api/cart/:userId
+DELETE /api/cart/:userId/product/:productId
+
+Status: COMPLETE & VERIFIED
+
+⸻
+
+	7.	Orders Module (Core Pipeline Working)
+
+Order flow now operational:
+	•	Cart → Order creation
+	•	MasterOrder created
+	•	Per-shop order split supported
+	•	Delivery distance & earning calculated
+	•	Stock deduction applied
+	•	Order + MasterOrder saved cleanly
+	•	Cart cleared after success
+
+Example success response confirmed:
+	•	orderIds returned
+	•	masterOrderId returned
+	•	originalTotal, finalPayable validated
+
+Status: PIPELINE WORKING & VERIFIED IN POSTMAN
+
+Lifecycle control (status transitions, delivery flow) is next phase.
 
 ⸻
 
@@ -180,6 +224,7 @@ POST /api/auth/verify-otp
 ⸻
 
 Protected APIs
+
 All protected APIs require header:
 
 Authorization: Bearer <JWT_TOKEN>
@@ -189,16 +234,18 @@ Ownership rules apply when userId, shopId, agencyId are used.
 ⸻
 
 VERIFIED TEST COVERAGE (POSTMAN)
-
-Customer register/login – Pass
-Delivery OTP login – Pass
-JWT protection – Pass
-RBAC blocking – Pass
-Ownership enforcement – Pass
-Create catalog product – Pass
-Assign product to shop – Pass
-Fetch shop products – Pass
-Soft delete product – Pass
+	•	Customer register/login – Pass
+	•	Delivery OTP login – Pass
+	•	JWT protection – Pass
+	•	RBAC blocking – Pass
+	•	Ownership enforcement – Pass
+	•	Create catalog product – Pass
+	•	Assign product to shop – Pass
+	•	Fetch shop products – Pass
+	•	Soft delete product – Pass
+	•	Add/remove/get cart – Pass
+	•	Create order from cart – Pass
+	•	MasterOrder creation – Pass
 
 ⸻
 
@@ -206,32 +253,21 @@ CURRENT PHASE
 
 Auth Layer – Complete
 Product Architecture – Complete
+Cart – Complete
+Order Creation Pipeline – Working
 
-Now entering: Core Business Flow
+Now entering: Order Lifecycle & Delivery Control
 
 ⸻
 
 NEXT MODULES (EXECUTION ORDER)
-	1.	Orders refactor using ShopProduct
-	2.	Cart linked to ShopProduct
-	3.	Delivery flow enforcement
-	4.	Payment & payout correctness
+	1.	Order lifecycle enforcement (status flow)
+	2.	Delivery boy assignment flow
+	3.	Payment & payout correctness
+	4.	Refund lifecycle
 	5.	Reporting & analytics
 	6.	Notification workflows
 
 ⸻
 
 Last updated: 15 Jan 2026
-
-⸻
-
-Now you can commit with:
-
-If only doc added:
-docs: add project status and API usage guide
-
-If product refactor included:
-feat(product): refactor to catalog + shop-product architecture
-
-If both together:
-feat: stabilize auth + implement scalable product architecture

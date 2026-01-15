@@ -1,83 +1,103 @@
 const mongoose = require('mongoose');
 
-// track each status change with timestamp
-const OrderStatusSchema = new mongoose.Schema({
-  status: { 
-    type: String, 
-    required: true,
-    default: 'Pending'
+const orderItemSchema = new mongoose.Schema(
+  {
+    shopProductId: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: 'ShopProduct',
+      required: true
+    },
+
+    quantity: {
+      type: Number,
+      required: true,
+      min: 1
+    },
+
+    // Immutable snapshot (price must NEVER change even if product updates later)
+    snapshot: {
+      partNumber: String,
+      partName: String,
+
+      brand: { type: mongoose.Schema.Types.ObjectId, ref: 'Brand' },
+      model: { type: mongoose.Schema.Types.ObjectId, ref: 'Model' },
+      category: { type: mongoose.Schema.Types.ObjectId, ref: 'Category' },
+
+      price: { type: Number, required: true },
+      discountedPrice: Number,
+
+      image: String
+    }
   },
-  date: { type: Date, required: true, default: Date.now }
-}, { _id: false });
+  { _id: false }
+);
 
-const deliveryAddressSchema = new mongoose.Schema({
-  name: { type: String, required: true },
-  email: { type: String },
-  flatNumber: { type: String },
-  contact: { type: String, required: true },
-  address: { type: String, required: true },
-  area: { type: String, required: true },
-  place: { type: String, required: true },
-  default: { type: Boolean, required: true },
-  addressType: { type: String, required: true },
-  latitude: Number,
-  longitude: Number
-}, { _id: false });
-
-const refundRequestSchema = new mongoose.Schema({
-  requested: { type: Boolean, default: false },
-  reason: { type: String },
-  status: { type: String, default: 'Pending' }
-}, { _id: false });
-
-const refundDetailsSchema = new mongoose.Schema({
-  refundAmount: String,
-  refundReason: String
-}, { _id: false });
-
-
-
-const orderDetailsSchema = new mongoose.Schema({
-  userId: { type: String, required: true },
-  masterOrderId: { type: mongoose.Schema.Types.ObjectId, ref: 'MasterOrder' },
-  productId: [{
-    productId: { type: String, required: true },
-    quantity: { type: Number, required: true, default: 1 }
-  }],
-  shopId: { type: String, required: true },
-
-  deliveryAddress: deliveryAddressSchema,
-
-  couponCode: String,
-  appliedCoupon: Object,
-products: {
-  type: [mongoose.Schema.Types.Mixed],
-  default: []
-},
-  totalAmount: { type: String, required: true },
-  finalPayable: { type: String, required: true },
-  
-  deliverycharge: { type: Boolean, required: true, default: false },
-
-  deliveryDistance: { type: Number, default: 0 }, // ✅ distance between pickup and drop
-  deliveryEarning: { type: Number, default: 0 }, // ✅ earned amount per order
-
-  assignedDeliveryBoy: { type: mongoose.Schema.Types.ObjectId, ref: 'DeliveryBoy' },
-paymentType: { type: String },
- transactionId: { type: String },
-  cancelReason: { type: String },
-  refundRequest: refundRequestSchema,
-  additionalcharges: { type: Number, default: 0 },
-
-  //items: { type: Number, default: 0 }, // ✅ number of items in the order (can be auto-calculated from productId.length if needed)
-
-  orderStatus: { type: String, default: "Pending" },
-  // full history of order status changes
-  orderStatusList: {
-    type: [OrderStatusSchema],
-    default: [{ status: 'Pending', date: Date.now() }]
+const deliveryAddressSchema = new mongoose.Schema(
+  {
+    name: String,
+    contact: String,
+    address: String,
+    area: String,
+    place: String,
+    latitude: Number,
+    longitude: Number
   },
+  { _id: false }
+);
 
-}, { timestamps: true });
+const orderStatusSchema = new mongoose.Schema(
+  {
+    status: String,
+    date: { type: Date, default: Date.now }
+  },
+  { _id: false }
+);
 
-module.exports = mongoose.model('Order', orderDetailsSchema);
+const orderSchema = new mongoose.Schema(
+  {
+    // Relations
+    userId: { type: mongoose.Schema.Types.ObjectId, ref: 'User', required: true },
+    shopId: { type: mongoose.Schema.Types.ObjectId, ref: 'Shop', required: true },
+    masterOrderId: { type: mongoose.Schema.Types.ObjectId, ref: 'MasterOrder' },
+
+    // Items
+    items: [orderItemSchema],
+
+    // Address
+    deliveryAddress: deliveryAddressSchema,
+
+    // Amounts (ALL NUMBERS)
+    subtotal: { type: Number, required: true },
+    discount: { type: Number, default: 0 },
+    deliveryCharge: { type: Number, default: 0 },
+    totalPayable: { type: Number, required: true },
+
+    // Coupon
+    coupon: {
+      code: String,
+      discountType: String,
+      discountValue: Number,
+      discountAmount: Number
+    },
+
+    // Payment
+    paymentType: { type: String, enum: ['COD', 'CARD', 'WALLET'], required: true },
+    paymentStatus: { type: String, default: 'Pending' },
+    transactionId: String,
+
+    // Delivery
+    assignedDeliveryBoy: { type: mongoose.Schema.Types.ObjectId, ref: 'DeliveryBoy' },
+    deliveryDistance: { type: Number, default: 0 },
+    deliveryEarning: { type: Number, default: 0 },
+
+    // Status
+    status: { type: String, default: 'Pending' },
+    statusHistory: {
+      type: [orderStatusSchema],
+      default: [{ status: 'Pending', date: new Date() }]
+    }
+  },
+  { timestamps: true }
+);
+
+module.exports = mongoose.model('Order', orderSchema);
