@@ -13,8 +13,8 @@ const partsCatalogSchema = new mongoose.Schema({
   yearFrom: Number,
   yearTo: Number,
 
-  engineCode: String,
-  transmission: String,
+engine: { type: mongoose.Schema.Types.ObjectId, ref: 'Engine' },
+transmission: { type: mongoose.Schema.Types.ObjectId, ref: 'Transmission' },
 
   images: [String],
 isActive: { type: Boolean, default: true }

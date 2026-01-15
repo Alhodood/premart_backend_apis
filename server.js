@@ -43,6 +43,8 @@ const Stripe = require('stripe');
 const stripe = Stripe(process.env.STRIPE_SECRET_KEY);
 const Product = require('./models/_deprecated/Product.js');
 const { extractKeyAndBucket } = require('./helper/s3');
+const engineRoutes = require('./routes/engineRoutes');
+const transmissionRoutes = require('./routes/transmissionRoutes');
 
 const app = express();
 
@@ -135,6 +137,8 @@ app.use('/api/vinData',vinData);
 app.use('/api/catalog',catalog);
 app.use("/api", catalogRoutes);
 app.use('/api', productUpload);
+app.use('/api/engine', engineRoutes);
+app.use('/api/transmission', transmissionRoutes);
 
 
 // Basic route

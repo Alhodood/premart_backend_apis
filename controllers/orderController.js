@@ -799,48 +799,29 @@ exports.createOrderFromDirectBuy = async (req, res) => {
 
 exports.viewMyOrders = async (req, res) => {
   try {
-    const userId = req.params.userId;
+    const { userId } = req.params;
 
-    if (!userId) {
-      return res.status(400).json({
-        message: 'UserId is required',
-        success: false,
-        data: []
-      });
-    }
+    const orders = await Order.find({ userId })
+      .sort({ createdAt: -1 })
+      .populate('shopId', 'shopeDetails.shopName')
+      .lean();
 
-    const orders = await Order.find({ userId }).sort({ createdAt: -1 }); // Latest orders first
+    const formatted = orders.map(order => ({
+      orderId: order._id,
+      shop: order.shopId?.shopeDetails?.shopName,
+      status: order.status,
+      totalPayable: order.totalPayable,
+      createdAt: order.createdAt,
+      items: order.items.map(i => ({
+        quantity: i.quantity,
+        ...i.snapshot
+      }))
+    }));
 
-    if (!orders || orders.length === 0) {
-      return res.status(404).json({
-        message: 'No orders found',
-        success: false,
-        data: []
-      });
-    }
+    res.json({ success: true, data: formatted });
 
-    // Map orders to transform productId and products arrays into single objects
-    const modifiedOrders = orders.map(order => {
-      return {
-        ...order.toObject(),
-        productId: order.productId && order.productId.length > 0 ? order.productId[0] : null,
-        products: order.products && order.products.length > 0 ? order.products[0] : null
-      };
-    });
-
-    return res.status(200).json({
-      message: 'Orders fetched successfully',
-      success: true,
-      data: modifiedOrders
-    });
-
-  } catch (error) {
-    console.error('View Orders Error:', error);
-    res.status(500).json({
-      message: 'Failed to fetch orders',
-      success: false,
-      data: error.message
-    });
+  } catch (err) {
+    res.status(500).json({ success: false, message: err.message });
   }
 };
 
@@ -923,73 +904,36 @@ exports.viewMyOrders = async (req, res) => {
 exports.viewOrdersByShopAdmin = async (req, res) => {
   try {
     const { shopId } = req.params;
-    const { page = 1, limit = 10, sort = 'desc', sortBy = 'createdAt' } = req.query;
-
-    if (!shopId) {
-      return res.status(400).json({
-        message: 'Shop ID is required',
-        success: false
-      });
-    }
 
     const orders = await Order.find({ shopId })
-      .sort({ [sortBy]: sort === 'asc' ? 1 : -1 })
-      .skip((page - 1) * limit)
-      .limit(parseInt(limit))
+      .sort({ createdAt: -1 })
       .lean();
 
-    const mappedOrders = orders.map(order => {
-      const delivery = order.deliveryAddress || {};
-      const productObj = order.productId && order.productId.length > 0 ? order.productId[0] : {};
-      const fullProd = order.products && order.products.length > 0 ? order.products[0] : {};
-      const subCat = fullProd.subCategories && fullProd.subCategories.length > 0 ? fullProd.subCategories[0] : {};
-      const part = subCat.parts && subCat.parts.length > 0 ? subCat.parts[0] : {};
+    const formatted = orders.map(order => ({
+      orderId: order._id,
+      customer: order.deliveryAddress?.name,
+      contact: order.deliveryAddress?.contact,
+      address: order.deliveryAddress?.address,
+      totalPayable: order.totalPayable,
+      status: order.status,
+      createdAt: order.createdAt,
 
-      return {
-        _id: order._id,
-        userId: order.userId,
-        productId: productObj.productId,
-        quantity: productObj.quantity,
-        name: delivery.name,
-        contact: delivery.contact,
-        area: delivery.area,
-        couponCode: order.couponCode,
-        brand: fullProd.brand,
-        year: fullProd.year,
-        model: fullProd.model,
-        frameCode: fullProd.frameCode,
-        region: fullProd.region,
-        categoryTab: subCat.categoryTab,
-        subCategoryTab: subCat.subCategoryTab,
-        partNumber: part.partNumber,
-        partName: part.partName,
-        imageUrl: part.imageUrl,
-        totalAmount: order.totalAmount,
-        finalPayable: order.finalPayable,
-        deliverycharge: order.deliverycharge,
-        paymentType: order.paymentType,
-        orderStatus: order.orderStatus,
-        createdAt: order.createdAt
-      };
-    });
+      items: order.items.map(i => ({
+        quantity: i.quantity,
+        partNumber: i.snapshot.partNumber,
+        partName: i.snapshot.partName,
+        brand: i.snapshot.brand,
+        model: i.snapshot.model,
+        category: i.snapshot.category,
+        price: i.snapshot.price,
+        image: i.snapshot.image
+      }))
+    }));
 
-    const total = await Order.countDocuments({ shopId });
+    res.json({ success: true, data: formatted });
 
-    return res.status(200).json({
-      message: 'Shop orders fetched successfully',
-      success: true,
-      total,
-      page: parseInt(page),
-      limit: parseInt(limit),
-      data: mappedOrders
-    });
-  } catch (error) {
-    console.error('Shop Admin View Orders Error:', error);
-    res.status(500).json({
-      message: 'Failed to fetch shop orders',
-      success: false,
-      data: error.message
-    });
+  } catch (err) {
+    res.status(500).json({ success: false, message: err.message });
   }
 };
 
