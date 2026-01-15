@@ -1,5 +1,5 @@
 const mongoose= require('mongoose');
-const product= require("../models/Product");
+const product= require("./_deprecated/Product");
 const dealsSchema= new mongoose.Schema({
 
     shopId: {type:String, required: true },

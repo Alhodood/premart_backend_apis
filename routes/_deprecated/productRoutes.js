@@ -1,16 +1,16 @@
 const express = require('express');
 const router = express.Router();
-const productController = require('../controllers/productController');
+const productController = require('../../controllers/_deprecated/productController');
 
 // Import all controllers
-const fuelController = require('../controllers/fuelController');
-const modelController = require('../controllers/modelController');
-const yearController = require('../controllers/yearController');
-const brandController = require('../controllers/brandController');
-const categoryController = require('../controllers/categoryController');
-const uploadMiddleWare = require('../middleware/s3Upload');
+const fuelController = require('../../controllers/fuelController');
+const modelController = require('../../controllers/modelController');
+const yearController = require('../../controllers/yearController');
+const brandController = require('../../controllers/brandController');
+const categoryController = require('../../controllers/categoryController');
+const uploadMiddleWare = require('../../middleware/s3Upload');
 
-const subCategoriesController = require('../controllers/subCategoryController');
+const subCategoriesController = require('../../controllers/subCategoryController');
 const multer = require('multer');
 const upload = multer({ dest: 'uploads/' });
 

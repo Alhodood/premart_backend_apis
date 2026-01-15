@@ -22,10 +22,10 @@ const {
   sendOtpToCustomer,
   verifyOtpToCustomer,
   resendOtpToCustomer
-} = require('../controllers/_legacy/authController');
+} = require('../controllers/_deprecated/authController');
 
-const adminAuthController = require('../controllers/_legacy/adminAuthController');
-const deliveryAgencyAuthController = require('../controllers/_legacy/deliveryAgencyAuthController');
+const adminAuthController = require('../controllers/_deprecated/adminAuthController');
+const deliveryAgencyAuthController = require('../controllers/_deprecated/deliveryAgencyAuthController');
 
 const { protect, mustBeOwner } = require('../middleware/authMiddleware');
 const authorize = require('../middleware/authorize');

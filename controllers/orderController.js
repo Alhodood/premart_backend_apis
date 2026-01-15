@@ -1,6 +1,6 @@
 const Order = require('../models/Order');
 const Cart = require('../models/Cart');
-const Product = require('../models/Product');
+const Product = require('../models/_deprecated/Product');
 const Payment = require('../models/Payment');
 const DeliveryBoy = require('../models/DeliveryBoy');
 const mongoose = require('mongoose');

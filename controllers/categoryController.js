@@ -1,5 +1,5 @@
 const Category = require('../models/Categories');
-const Product = require('../models/Product');
+const Product = require('../models/_deprecated/Product');
 
 // Create a new category
 exports.createCategory = async (req, res) => {

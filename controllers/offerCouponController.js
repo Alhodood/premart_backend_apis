@@ -1,7 +1,7 @@
 const Coupon = require('../models/Coupon');
 const Offer = require('../models/Offers');
 const mongoose = require('mongoose');
-const { Product } = require('../models/Product');
+const { Product } = require('../models/_deprecated/Product');
 
 exports.createCoupon = async (req, res) => {
   try {
