@@ -2,7 +2,7 @@
 const express = require('express');
 const router = express.Router();
 const mongoose = require('mongoose');
-const Product = require('../product_full_featured_model'); // adjust path
+const Product = require('../models/product_full_featured_model'); // adjust path
 
 // Body validation helper (simple) - replace with Joi/Zod for production
 function validateProductPayload(body) {

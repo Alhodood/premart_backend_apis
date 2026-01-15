@@ -1,5 +1,6 @@
 const mongoose = require('mongoose');
 const bcrypt = require('bcrypt');
+const { ROLES } = require('../constants/roles');
 
 const cardDetailsSchema = new mongoose.Schema({
   cardHolderName: { type: String },
@@ -28,10 +29,12 @@ const UserSchema = new mongoose.Schema({
   dob: String,
   accountVerify:{type: Boolean, default:false},
   role: {
-    type: String,
-    enum: ['customer'],
-    default: 'customer'
-  }, address: [customerAddressDetailsSchema],
+  type: String,
+  enum: Object.values(ROLES),
+  default: ROLES.CUSTOMER,
+  index: true
+},
+ address: [customerAddressDetailsSchema],
   card:[cardDetailsSchema],
 }, { timestamps: true });
 
