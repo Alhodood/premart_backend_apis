@@ -1,6 +1,7 @@
 const PartsCatalog = require('../models/PartsCatalog');
 const Engine = require('../models/Engine');
 const Transmission = require('../models/Transmission');
+const VehicleConfiguration = require('../models/VehicleConfiguration');
 
 // CREATE PART
 exports.createPart = async (req, res) => {
@@ -8,21 +9,17 @@ exports.createPart = async (req, res) => {
     const {
       partNumber,
       partName,
-      brand,
-      model,
       category,
-      engine,
-      transmission
+      compatibleVehicleConfigs
     } = req.body;
 
-    if (!partNumber || !partName || !brand || !model || !category) {
+    if (!partNumber || !partName || !category) {
       return res.status(400).json({
         success: false,
-        message: 'partNumber, partName, brand, model, category are required'
+        message: 'partNumber, partName, category are required'
       });
     }
 
-    // Prevent duplicate partNumber
     const existing = await PartsCatalog.findOne({ partNumber });
     if (existing) {
       return res.status(400).json({
@@ -31,19 +28,28 @@ exports.createPart = async (req, res) => {
       });
     }
 
-    // Validate optional refs
-    if (engine && !(await Engine.findById(engine))) {
-      return res.status(400).json({ success: false, message: 'Invalid engine id' });
-    }
+    // Validate vehicle config IDs
+    if (compatibleVehicleConfigs?.length) {
+      const validCount = await VehicleConfiguration.countDocuments({
+        _id: { $in: compatibleVehicleConfigs }
+      });
 
-    if (transmission && !(await Transmission.findById(transmission))) {
-      return res.status(400).json({ success: false, message: 'Invalid transmission id' });
+      if (validCount !== compatibleVehicleConfigs.length) {
+        return res.status(400).json({
+          success: false,
+          message: 'One or more invalid vehicleConfiguration IDs'
+        });
+      }
     }
 
     const part = await PartsCatalog.create(req.body);
 
     const populated = await PartsCatalog.findById(part._id)
-      .populate('brand model category engine transmission');
+      .populate({
+        path: 'compatibleVehicleConfigs',
+        populate: ['brand', 'model', 'engineType', 'transmission']
+      })
+      .populate('category');
 
     res.status(201).json({ success: true, data: populated });
 
