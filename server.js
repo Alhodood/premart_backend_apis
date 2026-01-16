@@ -139,6 +139,7 @@ app.use("/api", catalogRoutes);
 app.use('/api', productUpload);
 app.use('/api/engine', engineRoutes);
 app.use('/api/transmission', transmissionRoutes);
+app.use('/api/vehicle-config', require('./routes/vehicleConfigurationRoutes'));
 
 
 // Basic route

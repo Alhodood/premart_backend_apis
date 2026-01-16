@@ -20,19 +20,19 @@ PROJECT: PreMart Backend APIs
 Stack: Node.js + Express + MongoDB + JWT
 Auth: JWT + RBAC middleware
 Architecture: Modular routes, controllers, models
-Design goal: Scalable multi-vendor marketplace backend
-Current state: Auth + Product Architecture + Orders pipeline operational
+Design goal: Scalable multi-vendor automotive marketplace backend
+Current state: Auth + Product Architecture + Cart + Order pipeline operational
 
 ⸻
 
 COMPLETED MILESTONES
 	1.	Authentication Architecture
 
-	•	Unified login/register across all roles
-	•	Central RBAC implementation
-	•	roleModelMap abstraction for multi-model auth
-	•	JWT based protection
-	•	Ownership enforced via middleware
+• Unified login/register across all roles
+• Central RBAC implementation
+• roleModelMap abstraction for multi-model auth
+• JWT based protection
+• Ownership enforced via middleware
 
 Status: COMPLETE & TESTED
 
@@ -66,9 +66,9 @@ Middleware chain enforced:
 protect → authorize(role) → mustBeOwner(param)
 
 Rules enforced:
-	•	Customer can only access own data
-	•	Admin only accesses admin routes
-	•	Ownership verified using route params
+• Customer can only access own data
+• Admin only accesses admin routes
+• Ownership verified using route params
 
 Status: STRICTLY ENFORCED & VERIFIED
 
@@ -77,48 +77,91 @@ Status: STRICTLY ENFORCED & VERIFIED
 	5.	Product Architecture Refactor (Major Upgrade)
 
 Old problems solved:
-	•	Product duplication per shop
-	•	Pricing tightly coupled to product
-	•	Stock logic hard to scale
-	•	Order and analytics complexity
+• Product duplication per shop
+• Pricing tightly coupled to product
+• Stock logic hard to scale
+• Order and analytics complexity
+• Poor compatibility modeling
 
-New architecture implemented:
+New normalized architecture implemented:
 
-A) PartsCatalog (Global Master Product Layer)
+A) PartsCatalog (Global Master Part Layer)
 
-Represents universal product master (single source of truth)
+Represents the universal part itself.
+No duplicated vehicle-specific details.
+Vehicle compatibility handled via VehicleConfiguration.
 
 Core fields:
-	•	partNumber
-	•	partName
-	•	description
-	•	brand (ObjectId → Brand)
-	•	model (ObjectId → Model)
-	•	category (ObjectId → Category)
-	•	yearFrom / yearTo
-	•	engineCode
-	•	transmission
-	•	images[]
+• partNumber
+• partName
+• description
+• brand (ObjectId → Brand)
+• model (ObjectId → Model)
+• category (ObjectId → Category)
+• images[]
+• compatibleVehicleConfigs (Array of VehicleConfiguration IDs)
+• madeIn
+• weight
+• dimensions { length, width, height }
+• oemNumber
+• warranty
+• isActive (soft delete)
 
 APIs:
 POST /api/catalog → Create catalog part
 GET /api/catalog → List all parts
 GET /api/catalog/:id → Get by ID
-GET /api/catalog/search/query → Filtered search
+GET /api/catalog/search → Filtered search
+
+Status: COMPLETE & VERIFIED
 
 ⸻
 
-B) ShopProduct (Marketplace Layer)
+B) VehicleConfiguration (Automotive Fitment Layer)
+
+Represents real-world vehicle configurations.
+This is the authoritative compatibility model.
+
+Fields include:
+• brand
+• model
+• yearFrom
+• yearTo
+• engineType
+• transmission
+• frameCode
+• region
+• trim
+• commonName
+• vinPatterns[]
+• description
+• isActive
+
+Parts reference this model instead of duplicating data.
+
+APIs:
+POST /api/vehicle-config
+GET /api/vehicle-config
+GET /api/vehicle-config/:id
+GET /api/vehicle-config/search
+PUT /api/vehicle-config/:id
+DELETE /api/vehicle-config/:id (soft delete)
+
+Status: COMPLETE & INTEGRATED
+
+⸻
+
+C) ShopProduct (Marketplace Layer)
 
 Represents which shop sells which part.
 
 Core fields:
-	•	shopId
-	•	part (ObjectId → PartsCatalog)
-	•	price
-	•	discountedPrice
-	•	stock
-	•	isAvailable (soft delete instead of physical delete)
+• shopId
+• part (ObjectId → PartsCatalog)
+• price
+• discountedPrice
+• stock
+• isAvailable (soft delete instead of physical delete)
 
 APIs:
 POST /api/shop-product/:shopId
@@ -133,55 +176,67 @@ Hard delete removed. Soft delete enforced across system.
 Why this architecture matters
 
 This now supports:
-	•	True multi-vendor marketplace
-	•	Shop-level pricing
-	•	Proper stock control
-	•	Clean order references
-	•	Accurate reporting
-	•	Long-term scalability
+• True multi-vendor marketplace
+• Automotive-grade compatibility modeling
+• VIN / fitment ready search
+• Shop-level pricing
+• Proper stock control
+• Clean order references
+• Accurate reporting
+• Long-term scalability
 
 Status: COMPLETE & VERIFIED in Postman
 
 ⸻
 
-	6.	Cart Module
+	6.	Cart Module (Refactored to ShopProduct)
 
-Cart fully operational:
-	•	Add to cart
-	•	Remove from cart
-	•	Delete specific product
-	•	Get cart with quantity
-	•	Linked to userId
+Cart now fully aligned with new architecture.
+No legacy Product references remain.
+
+Features working:
+• Add to cart (shopProductId based)
+• Remove from cart
+• Update quantity
+• Get cart with populated part details
+• Clear cart
+• Linked strictly to userId
 
 APIs:
 POST /api/cart/add/:userId
 POST /api/cart/remove/:userId
+PATCH /api/cart/update/:userId
 GET /api/cart/:userId
-DELETE /api/cart/:userId/product/:productId
+DELETE /api/cart/clear/:userId
 
 Status: COMPLETE & VERIFIED
 
 ⸻
 
-	7.	Orders Module (Core Pipeline Working)
+	7.	Orders Module (Core Pipeline Refactored & Working)
 
-Order flow now operational:
-	•	Cart → Order creation
-	•	MasterOrder created
-	•	Per-shop order split supported
-	•	Delivery distance & earning calculated
-	•	Stock deduction applied
-	•	Order + MasterOrder saved cleanly
-	•	Cart cleared after success
+Order system now uses snapshot architecture and ShopProduct correctly.
 
-Example success response confirmed:
-	•	orderIds returned
-	•	masterOrderId returned
-	•	originalTotal, finalPayable validated
+Order flow operational:
+• Cart → Order creation
+• MasterOrder created
+• Per-shop order split supported
+• Snapshot stored (price, part data immutable)
+• Delivery distance & earning calculated
+• Stock deduction applied from ShopProduct
+• Order + MasterOrder saved cleanly
+• Cart cleared after success
+
+Confirmed working response includes:
+• orderIds
+• masterOrderId
+• originalTotal
+• finalPayable
+• deliveryCharge
 
 Status: PIPELINE WORKING & VERIFIED IN POSTMAN
 
-Lifecycle control (status transitions, delivery flow) is next phase.
+Note: Remaining legacy read APIs are being normalized to snapshot model.
 
 ⸻
 
@@ -226,7 +281,6 @@ POST /api/auth/verify-otp
 Protected APIs
 
 All protected APIs require header:
-
 Authorization: Bearer <JWT_TOKEN>
 
 Ownership rules apply when userId, shopId, agencyId are used.
@@ -234,18 +288,22 @@ Ownership rules apply when userId, shopId, agencyId are used.
 ⸻
 
 VERIFIED TEST COVERAGE (POSTMAN)
-	•	Customer register/login – Pass
-	•	Delivery OTP login – Pass
-	•	JWT protection – Pass
-	•	RBAC blocking – Pass
-	•	Ownership enforcement – Pass
-	•	Create catalog product – Pass
-	•	Assign product to shop – Pass
-	•	Fetch shop products – Pass
-	•	Soft delete product – Pass
-	•	Add/remove/get cart – Pass
-	•	Create order from cart – Pass
-	•	MasterOrder creation – Pass
+
+• Customer register/login – Pass
+• Delivery OTP login – Pass
+• JWT protection – Pass
+• RBAC blocking – Pass
+• Ownership enforcement – Pass
+• Create PartsCatalog – Pass
+• Create VehicleConfiguration – Pass
+• Link catalog to vehicle configs – Pass
+• Assign product to shop – Pass
+• Fetch shop products – Pass
+• Soft delete product – Pass
+• Add/remove/update/get cart – Pass
+• Create order from cart – Pass
+• MasterOrder creation – Pass
+• Stock deduction – Pass
 
 ⸻
 
@@ -253,21 +311,6 @@ CURRENT PHASE
 
 Auth Layer – Complete
 Product Architecture – Complete
+Vehicle Fitment Layer – Complete
 Cart – Complete
-Order Creation Pipeline – Working
-
 Now entering: Order Lifecycle & Delivery Control
-
-⸻
-
-NEXT MODULES (EXECUTION ORDER)
-	1.	Order lifecycle enforcement (status flow)
-	2.	Delivery boy assignment flow
-	3.	Payment & payout correctness
-	4.	Refund lifecycle
-	5.	Reporting & analytics
-	6.	Notification workflows
-
-⸻
-
-Last updated: 15 Jan 2026
