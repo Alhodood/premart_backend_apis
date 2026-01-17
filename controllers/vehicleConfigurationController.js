@@ -3,31 +3,19 @@ const VehicleConfiguration = require('../models/VehicleConfiguration');
 // CREATE
 exports.createConfig = async (req, res) => {
   try {
-    const {
-      brand,
-      model,
-      yearFrom,
-      yearTo
-    } = req.body;
+    const { brand, model, year } = req.body;
 
-    if (!brand || !model || !yearFrom || !yearTo) {
+    if (!brand || !model || !year) {
       return res.status(400).json({
         success: false,
-        message: 'brand, model, yearFrom, yearTo are required'
-      });
-    }
-
-    if (yearFrom > yearTo) {
-      return res.status(400).json({
-        success: false,
-        message: 'yearFrom cannot be greater than yearTo'
+        message: 'brand, model, year are required'
       });
     }
 
     const config = await VehicleConfiguration.create(req.body);
 
     const populated = await VehicleConfiguration.findById(config._id)
-      .populate('brand model engineType transmission');
+      .populate('brand model');
 
     res.status(201).json({ success: true, data: populated });
 
@@ -42,7 +30,7 @@ exports.createConfig = async (req, res) => {
 exports.getAllConfigs = async (req, res) => {
   try {
     const configs = await VehicleConfiguration.find({ isActive: true })
-      .populate('brand model engineType transmission')
+      .populate('brand model')
       .sort({ createdAt: -1 });
 
     res.json({
@@ -62,10 +50,13 @@ exports.getAllConfigs = async (req, res) => {
 exports.getConfigById = async (req, res) => {
   try {
     const config = await VehicleConfiguration.findById(req.params.id)
-      .populate('brand model engineType transmission');
+      .populate('brand model');
 
     if (!config || !config.isActive) {
-      return res.status(404).json({ success: false, message: 'Vehicle configuration not found' });
+      return res.status(404).json({
+        success: false,
+        message: 'Vehicle configuration not found'
+      });
     }
 
     res.json({ success: true, data: config });
@@ -94,20 +85,15 @@ exports.searchConfigs = async (req, res) => {
 
     if (brand) filter.brand = brand;
     if (model) filter.model = model;
-    if (engineType) filter.engineType = engineType;
-    if (transmission) filter.transmission = transmission;
+    if (year) filter.year = Number(year);
+
+    if (engineType) filter.engineType = new RegExp(engineType, 'i');
+    if (transmission) filter.transmission = new RegExp(transmission, 'i');
     if (frameCode) filter.frameCode = new RegExp(frameCode, 'i');
     if (region) filter.region = new RegExp(region, 'i');
 
-    if (year) {
-      filter.$and = [
-        { yearFrom: { $lte: Number(year) } },
-        { yearTo: { $gte: Number(year) } }
-      ];
-    }
-
     const results = await VehicleConfiguration.find(filter)
-      .populate('brand model engineType transmission')
+      .populate('brand model')
       .sort({ createdAt: -1 });
 
     res.json({
@@ -130,10 +116,13 @@ exports.updateConfig = async (req, res) => {
       req.params.id,
       req.body,
       { new: true }
-    ).populate('brand model engineType transmission');
+    ).populate('brand model');
 
     if (!updated) {
-      return res.status(404).json({ success: false, message: 'Config not found' });
+      return res.status(404).json({
+        success: false,
+        message: 'Config not found'
+      });
     }
 
     res.json({ success: true, data: updated });
@@ -155,7 +144,10 @@ exports.deactivateConfig = async (req, res) => {
     );
 
     if (!config) {
-      return res.status(404).json({ success: false, message: 'Config not found' });
+      return res.status(404).json({
+        success: false,
+        message: 'Config not found'
+      });
     }
 
     res.json({ success: true, data: config });
