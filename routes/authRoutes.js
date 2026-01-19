@@ -40,6 +40,8 @@ router.post('/login', rbacAuth.login);
 router.post('/verify-otp', rbacAuth.verifyOtp);
 
 
+router.post('/bootstrap/super-admin', rbacAuth.createSuperAdmin);
+
 // ==========================
 // PROFILE (Customer only)
 // ==========================

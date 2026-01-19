@@ -6,6 +6,7 @@ const partsCatalogSchema = new mongoose.Schema({
   description: String,
 
   category: { type: mongoose.Schema.Types.ObjectId, ref: 'Category', required: true },
+  subCategory: { type: mongoose.Schema.Types.ObjectId, ref: 'SubCategory', required: true },
 
   compatibleVehicleConfigs: [{
     type: mongoose.Schema.Types.ObjectId,

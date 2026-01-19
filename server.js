@@ -50,6 +50,7 @@ const app = express();
 
 const allowedOrigins = [
   "http://localhost:5000",
+  "http://localhost:5050",
   "http://autopartsnow.uk",
   "https://autopartsnow.uk",
   "http://www.autopartsnow.uk",

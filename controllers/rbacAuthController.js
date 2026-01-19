@@ -113,3 +113,58 @@ exports.verifyOtp = async (req, res) => {
     res.status(500).json({ success: false, message: err.message });
   }
 };
+
+exports.createSuperAdmin = async (req, res) => {
+  try {
+    const { name, email, password, phone, countryCode } = req.body;
+
+    if (!email || !password || !name) {
+      return res.status(400).json({
+        success: false,
+        message: 'name, email, password are required'
+      });
+    }
+
+    const Model = roleModelMap[ROLES.SUPER_ADMIN];
+
+    // prevent duplicates
+    const exists = await Model.findOne({ email });
+    if (exists) {
+      return res.status(400).json({
+        success: false,
+        message: 'Super admin already exists with this email'
+      });
+    }
+
+    const admin = await Model.create({
+      name,
+      email,
+      password,
+      phone,
+      countryCode,
+      role: ROLES.SUPER_ADMIN
+    });
+
+    const token = generateToken({
+      id: admin._id,
+      role: ROLES.SUPER_ADMIN
+    });
+
+    res.status(201).json({
+      success: true,
+      message: 'Super admin created successfully',
+      data: {
+        id: admin._id,
+        role: ROLES.SUPER_ADMIN,
+        token
+      }
+    });
+
+  } catch (err) {
+    console.error('Create SuperAdmin Error:', err);
+    res.status(500).json({
+      success: false,
+      message: err.message
+    });
+  }
+};
