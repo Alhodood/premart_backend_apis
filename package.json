@@ -4,7 +4,8 @@
   "main": "server.js",
   "scripts": {
     "start": "nodemon server.js",
-    "test": "jest"
+    "test": "jest",
+    "seed": "node seed.js"
   },
   "dependencies": {
     "@aws-sdk/s3-request-presigner": "^3.812.0",

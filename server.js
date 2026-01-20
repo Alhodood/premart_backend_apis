@@ -55,7 +55,8 @@ const allowedOrigins = [
   "http://www.autopartsnow.uk",
   "https://d19st5rqqkklcw.cloudfront.net",
   "https://d29n203b886yvl.cloudfront.net",
-  "http://10.0.2.2:3005"
+  "http://10.0.2.2:3005",
+  "https://n8fd2gwd-3005.inc1.devtunnels.ms"
 ];
 
 app.use(cors({
