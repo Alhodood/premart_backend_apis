@@ -106,23 +106,66 @@ exports.updatePaymentStatus = async (req, res) => {
 
 
 exports.getAllPayments = async (req, res) => {
-    try {
-      const payments = await Payment.find().sort({ createdAt: -1 });
-  
-      return res.status(200).json({
-        message: 'All payments fetched successfully',
-        success: true,
-        data: payments
+  try {
+    const payments = await Payment.find()
+      .populate({
+        path: 'userId',
+        select: 'name address'
+      })
+      .populate({
+        path: 'shopId',
+        select: 'shopeDetails.shopName shopeDetails.shopAddress'
+      })
+      .populate({
+        path: 'orderId',
+        select: 'orderNumber'
       });
-    } catch (error) {
-      console.error('Fetch All Payments Error:', error);
-      res.status(500).json({
-        message: 'Failed to fetch payments',
-        success: false,
-        data: error.message
-      });
-    }
-  };
+
+    // Flatten + enforce correct latest-first sorting
+    const flatData = payments
+      .map(p => ({
+        paymentId: p._id,
+
+        // MAIN DISPLAY
+        userName: p.userId?.name || null,
+        shopName: p.shopId?.shopeDetails?.shopName || null,
+        orderId: p.orderId?._id || null,
+
+        amount: p.amount,
+        paymentMethod: p.paymentMethod,
+        paymentStatus: p.paymentStatus,
+        transactionId: p.transactionId || null,
+
+        paymentDate: p.paymentDate || null,
+        createdAt: p.createdAt || null,
+
+        // EXTRA FIELDS
+        userContact: p.userId?.address?.[0]?.contact || null,
+        shopAddress: p.shopId?.shopeDetails?.shopAddress || null,
+
+        // INTERNAL SORT FIELD (not sent to frontend)
+        __sortDate: new Date(p.paymentDate || p.createdAt || 0)
+      }))
+      // GUARANTEED latest first
+      .sort((a, b) => b.__sortDate - a.__sortDate)
+      // remove internal field
+      .map(({ __sortDate, ...rest }) => rest);
+
+    return res.status(200).json({
+      success: true,
+      message: 'All payments fetched successfully',
+      data: flatData
+    });
+
+  } catch (error) {
+    console.error('Fetch All Payments Error:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Failed to fetch payments',
+      data: error.message
+    });
+  }
+};
 
 
 

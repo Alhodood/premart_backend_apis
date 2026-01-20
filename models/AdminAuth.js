@@ -2,6 +2,9 @@ const mongoose = require('mongoose');
 const bcrypt = require('bcrypt');
 const { ROLES } = require('../constants/roles');
 
+/* ------------------------------
+   SETTINGS (Super Admin only)
+--------------------------------*/
 const SettingsSchema = new mongoose.Schema({
   appName: { type: String, default: '' },
   supportEmail: { type: String, default: '' },
@@ -14,95 +17,100 @@ const SettingsSchema = new mongoose.Schema({
   maxActiveOrdersPerDeliveryBoy: { type: Number, default: 5 }
 }, { _id: false });
 
-const AdminSchema = new mongoose.Schema(
-  {
-    name: { type: String, required: true },
-    email: { type: String, unique: true, sparse: true },
-    phone: { type: String, unique: true, sparse: true },
-    password: { type: String, required: true },
-    countryCode:{ type: String, required: true },
-    dob:{ type: String },
-    accountVerify:{type:Boolean},
-  
-role: {
-  type: String,
-  enum: Object.values(ROLES),
-  default: ROLES.SUPER_ADMIN
-},
-    // Fields for OTP login
-    // Nested settings for super admin configuration (e.g., commission, tax, Stripe keys)
-    settings: { type: SettingsSchema, default: () => ({}) }
+
+/* ------------------------------
+   SUPER ADMIN SCHEMA
+--------------------------------*/
+const SuperAdminSchema = new mongoose.Schema({
+  name: { type: String, required: true },
+
+  email: { type: String, unique: true, sparse: true },
+  phone: { type: String, unique: true, sparse: true },
+
+  password: { type: String, required: true },
+
+  countryCode: { type: String, required: true },
+  dob: { type: String },
+
+  accountVerify: { type: Boolean, default: true },
+
+  role: {
+    type: String,
+    enum: Object.values(ROLES),
+    default: ROLES.SUPER_ADMIN
   },
-  { timestamps: true, minimize: false }
-);
 
-// Hash password before saving the user (for email registration)
-AdminSchema.pre('save', async function (next) {
-  if (!this.isModified('password')) return next();
-  try {
-    const salt = await bcrypt.genSalt(10);
-    this.password = await bcrypt.hash(this.password, salt);
-    return next();
-  } catch (error) {
-    return next(error);
-  }
-});
+  settings: { type: SettingsSchema, default: () => ({}) }
 
-// Compare candidate password with the user's hashed password
-AdminSchema.methods.comparePassword = async function (candidatePassword) {
-  return await bcrypt.compare(candidatePassword, this.password);
-};
+}, { timestamps: true });
 
 
+/* ------------------------------
+   SHOP ADMIN SCHEMA
+--------------------------------*/
+const ShopAdminSchema = new mongoose.Schema({
+  name: { type: String, required: true },
 
+  email: { type: String, unique: true, sparse: true },
+  phone: { type: String, unique: true, sparse: true },
 
+  password: { type: String, required: true },
 
+  countryCode: { type: String, },
+  dob: { type: String },
 
-const ShopAdminSchema = new mongoose.Schema(
-  {
-    name: { type: String, required: true },
-    email: { type: String, unique: true, sparse: true },
-    phone: { type: String, unique: true, sparse: true },
-    password: { type: String, required: true },
-    countryCode:{ type: String, required: true },
-    dob:{ type: String },
-    address:{type:Boolean},
-   role: {
-  type: String,
-  enum: Object.values(ROLES),
-  default: ROLES.SHOP_ADMIN,
-  required: true
-},
-    location:{type:String},
-    emiratesIdImage: {type:String, required:true},
-    companyLicenseImage: {type:String, requires:true}
+  role: {
+    type: String,
+    enum: Object.values(ROLES),
+    default: ROLES.SHOP_ADMIN,
     
-    // Fields for OTP login
-   
   },
-  { timestamps: true }
-);
 
-// Hash password before saving the user (for email registration)
-ShopAdminSchema.pre('save', async function (next) {
+  location: { type: String },
+
+  emiratesIdImage: { type: String, },
+  companyLicenseImage: { type: String,  }
+
+}, { timestamps: true });
+
+
+/* ------------------------------
+   PASSWORD HASHING (BOTH)
+--------------------------------*/
+async function hashPassword(next) {
   if (!this.isModified('password')) return next();
+
   try {
     const salt = await bcrypt.genSalt(10);
     this.password = await bcrypt.hash(this.password, salt);
-    return next();
-  } catch (error) {
-    return next(error);
+    next();
+  } catch (err) {
+    next(err);
   }
-});
+}
 
-// Compare candidate password with the user's hashed password
-ShopAdminSchema.methods.comparePassword = async function (candidatePassword) {
-  return await bcrypt.compare(candidatePassword, this.password);
-};
+SuperAdminSchema.pre('save', hashPassword);
+ShopAdminSchema.pre('save', hashPassword);
+
+
+/* ------------------------------
+   PASSWORD COMPARISON (BOTH)
+--------------------------------*/
+function comparePassword(candidatePassword) {
+  return bcrypt.compare(candidatePassword, this.password);
+}
+
+SuperAdminSchema.methods.comparePassword = comparePassword;
+ShopAdminSchema.methods.comparePassword = comparePassword;
+
+
+/* ------------------------------
+   EXPORT MODELS
+--------------------------------*/
+const SuperAdmin = mongoose.model('SuperAdmin', SuperAdminSchema);
 const ShopAdmin = mongoose.model('ShopAdmin', ShopAdminSchema);
-const SuperAdmin = mongoose.model('SuperAdmin', AdminSchema);
 
 module.exports = {
-  ShopAdmin,
-  SuperAdmin
+  SuperAdmin,
+  ShopAdmin
 };
