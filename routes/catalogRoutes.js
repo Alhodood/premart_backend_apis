@@ -6,7 +6,7 @@ const shopProductController = require('../controllers/shopProductController');
 
 // ========== PARTS CATALOG ==========
 router.post('/catalog', partsController.createPart);
-router.get('/catalog', partsController.getAllParts);
+router.get('/getParts', partsController.getAllParts);
 router.get('/catalog/:id', partsController.getPartById);
 router.get('/catalog/search/query', partsController.searchParts);
 
