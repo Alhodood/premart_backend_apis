@@ -56,20 +56,20 @@ const ShopAdminSchema = new mongoose.Schema({
 
   password: { type: String, required: true },
 
-  countryCode: { type: String, required: true },
+  countryCode: { type: String, },
   dob: { type: String },
 
   role: {
     type: String,
     enum: Object.values(ROLES),
     default: ROLES.SHOP_ADMIN,
-    required: true
+    
   },
 
   location: { type: String },
 
-  emiratesIdImage: { type: String, required: true },
-  companyLicenseImage: { type: String, required: true }
+  emiratesIdImage: { type: String, },
+  companyLicenseImage: { type: String,  }
 
 }, { timestamps: true });
 

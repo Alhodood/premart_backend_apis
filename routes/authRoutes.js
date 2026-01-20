@@ -38,9 +38,15 @@ const { ROLES } = require('../constants/roles');
 router.post('/register', rbacAuth.register);
 router.post('/login', rbacAuth.login);
 router.post('/verify-otp', rbacAuth.verifyOtp);
+router.get('/getUsers',rbacAuth.getAllCustomers
+);
 
 
 router.post('/bootstrap/super-admin', rbacAuth.createSuperAdmin);
+router.post(
+  '/super-admin/create-shop-admin',
+  rbacAuth.createShopAdmin
+);
 
 // ==========================
 // PROFILE (Customer only)
