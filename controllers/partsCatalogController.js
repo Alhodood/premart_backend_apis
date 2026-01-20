@@ -13,6 +13,8 @@ exports.createPart = async (req, res) => {
       compatibleVehicleConfigs
     } = req.body;
 
+    console.log('📦 Create Part Request:', JSON.stringify(req.body, null, 2));
+
     if (!partNumber || !partName || !category) {
       return res.status(400).json({
         success: false,
@@ -28,7 +30,7 @@ exports.createPart = async (req, res) => {
       });
     }
 
-    // Validate vehicle config IDs
+    // Validate vehicle config IDs if provided
     if (compatibleVehicleConfigs?.length) {
       const validCount = await VehicleConfiguration.countDocuments({
         _id: { $in: compatibleVehicleConfigs }
@@ -42,30 +44,51 @@ exports.createPart = async (req, res) => {
       }
     }
 
+    // Create the part
     const part = await PartsCatalog.create(req.body);
+    console.log('✅ Part created:', part._id);
 
+    // Populate the response
     const populated = await PartsCatalog.findById(part._id)
       .populate({
         path: 'compatibleVehicleConfigs',
-        populate: ['brand', 'model', 'engineType', 'transmission']
+        populate: {
+          path: 'brand model',
+          select: 'brandName modelName'
+        }
       })
-      .populate('category');
+      .populate('category', 'categoryName')
+      .populate('subCategory', 'subCategoryName');
 
     res.status(201).json({ success: true, data: populated });
 
   } catch (err) {
-    console.error('Create Part Error:', err);
-    res.status(500).json({ success: false, error: err.message });
+    console.error('❌ Create Part Error:', err);
+    console.error('Error details:', err.message);
+    console.error('Stack:', err.stack);
+    res.status(500).json({ 
+      success: false, 
+      message: err.message,
+      error: process.env.NODE_ENV === 'development' ? err.stack : undefined
+    });
   }
 };
 
 
 
-// GET ALL PARTS
+// GET ALL PARTS - FIXED
 exports.getAllParts = async (req, res) => {
   try {
     const parts = await PartsCatalog.find({ isActive: true })
-      .populate('brand model category engine transmission')
+      .populate('category', 'categoryName')
+      .populate('subCategory', 'subCategoryName')
+      .populate({
+        path: 'compatibleVehicleConfigs',
+        populate: {
+          path: 'brand model',
+          select: 'brandName modelName'
+        }
+      })
       .sort({ createdAt: -1 });
 
     res.json({ success: true, count: parts.length, data: parts });
@@ -78,11 +101,19 @@ exports.getAllParts = async (req, res) => {
 
 
 
-// GET PART BY ID
+// GET PART BY ID - FIXED
 exports.getPartById = async (req, res) => {
   try {
     const part = await PartsCatalog.findById(req.params.id)
-      .populate('brand model category engine transmission');
+      .populate('category', 'categoryName')
+      .populate('subCategory', 'subCategoryName')
+      .populate({
+        path: 'compatibleVehicleConfigs',
+        populate: {
+          path: 'brand model',
+          select: 'brandName modelName year engineType transmission'
+        }
+      });
 
     if (!part || !part.isActive) {
       return res.status(404).json({ success: false, message: 'Part not found' });
@@ -98,37 +129,56 @@ exports.getPartById = async (req, res) => {
 
 
 
-// ADVANCED SEARCH
+// ADVANCED SEARCH - FIXED
 exports.searchParts = async (req, res) => {
   try {
     const {
       partNumber,
+      partName,
+      category,
       brand,
       model,
-      category,
-      engine,
-      transmission,
       year
     } = req.query;
 
     const filter = { isActive: true };
 
     if (partNumber) filter.partNumber = new RegExp(partNumber, 'i');
-    if (brand) filter.brand = brand;
-    if (model) filter.model = model;
+    if (partName) filter.partName = new RegExp(partName, 'i');
     if (category) filter.category = category;
-    if (engine) filter.engine = engine;
-    if (transmission) filter.transmission = transmission;
 
-    if (year) {
-      filter.$and = [
-        { yearFrom: { $lte: Number(year) } },
-        { yearTo: { $gte: Number(year) } }
-      ];
+    // For brand/model/year filtering, we need to:
+    // 1. Find matching VehicleConfigurations
+    // 2. Then find parts with those configs
+    let vehicleConfigIds = null;
+    
+    if (brand || model || year) {
+      const vehicleFilter = {};
+      if (brand) vehicleFilter.brand = brand;
+      if (model) vehicleFilter.model = model;
+      if (year) vehicleFilter.year = Number(year);
+      
+      const matchingConfigs = await VehicleConfiguration.find(vehicleFilter).select('_id');
+      vehicleConfigIds = matchingConfigs.map(c => c._id);
+      
+      if (vehicleConfigIds.length > 0) {
+        filter.compatibleVehicleConfigs = { $in: vehicleConfigIds };
+      } else {
+        // No matching configs found, return empty
+        return res.json({ success: true, count: 0, data: [] });
+      }
     }
 
     const results = await PartsCatalog.find(filter)
-      .populate('brand model category engine transmission')
+      .populate('category', 'categoryName')
+      .populate('subCategory', 'subCategoryName')
+      .populate({
+        path: 'compatibleVehicleConfigs',
+        populate: {
+          path: 'brand model',
+          select: 'brandName modelName year engineType transmission'
+        }
+      })
       .sort({ createdAt: -1 });
 
     res.json({
@@ -152,7 +202,9 @@ exports.deactivatePart = async (req, res) => {
       req.params.id,
       { isActive: false },
       { new: true }
-    ).populate('brand model category engine transmission');
+    )
+      .populate('category', 'categoryName')
+      .populate('subCategory', 'subCategoryName');
 
     if (!part) {
       return res.status(404).json({ success: false, message: 'Part not found' });
