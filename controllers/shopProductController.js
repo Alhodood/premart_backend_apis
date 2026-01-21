@@ -22,7 +22,7 @@ exports.getShopProducts = async (req, res) => {
     const products = await ShopProduct.find({ shopId })
       .populate({
         path: 'part',
-        populate: ['brand', 'model', 'category']
+        populate: ['category', 'subCategory'] // PartsCatalog doesn't have brand/model directly
       });
 
     res.json({ success: true, data: products });

@@ -86,24 +86,47 @@ exports.getCart = async (req, res) => {
 
     const cart = await Cart.findOne({ userId }).populate({
       path: 'items.shopProductId',
-      populate: {
-        path: 'part',
-        populate: ['brand', 'model', 'category']
-      }
+      populate: [
+        {
+          path: 'part',
+          populate: ['category', 'subCategory'] // PartsCatalog doesn't have brand/model directly
+        },
+        {
+          path: 'shopId',
+          select: 'shopeDetails' // Populate shop details
+        }
+      ]
     });
 
     if (!cart) {
       return res.json({ success: true, data: [] });
     }
 
-    const formatted = cart.items.map(item => ({
-      shopProductId: item.shopProductId._id,
-      quantity: item.quantity,
-      price: item.shopProductId.price,
-      discountedPrice: item.shopProductId.discountedPrice,
-      stock: item.shopProductId.stock,
-      part: item.shopProductId.part
-    }));
+    const formatted = cart.items.map(item => {
+      const shopProduct = item.shopProductId;
+      const shop = shopProduct?.shopId;
+      const shopDetails = shop?.shopeDetails;
+
+      // Format shop information
+      const shopInfo = shop && shopDetails ? {
+        _id: shop._id,
+        shopName: shopDetails.shopName || null,
+        shopAddress: shopDetails.shopAddress || null,
+        shopContact: shopDetails.shopContact || null,
+        shopMail: shopDetails.shopMail || null,
+        shopLocation: shopDetails.shopLocation || null
+      } : null;
+
+      return {
+        shopProductId: shopProduct._id,
+        quantity: item.quantity,
+        price: shopProduct.price,
+        discountedPrice: shopProduct.discountedPrice,
+        stock: shopProduct.stock,
+        part: shopProduct.part,
+        shop: shopInfo
+      };
+    });
 
     res.json({ success: true, data: formatted });
   } catch (err) {

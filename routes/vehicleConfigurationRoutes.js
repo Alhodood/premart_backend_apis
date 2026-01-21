@@ -6,6 +6,7 @@ const controller = require('../controllers/vehicleConfigurationController');
 router.post('/', controller.createConfig);
 router.get('/', controller.getAllConfigs);
 router.get('/search', controller.searchConfigs);
+router.get('/search/vin', controller.searchByVin); // VIN pattern search
 router.get('/:id', controller.getConfigById);
 router.put('/:id', controller.updateConfig);
 router.delete('/:id', controller.deactivateConfig);
