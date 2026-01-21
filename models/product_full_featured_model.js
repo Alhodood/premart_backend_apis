@@ -40,7 +40,7 @@ const AnalyticsSchema = new Schema({
 }, { _id: false });
 
 const PartSchema = new Schema({
-  partNumber: { type: String, required: true, index: true },
+  partNumber: { type: String, required: true },
   partName: { type: String, required: true },
   description: { type: String },
   qty: { type: Number, default: 0 },
@@ -126,7 +126,6 @@ const ProductSchema = new Schema({
 // --- Indexes ---
 ProductSchema.index({ brand: 1, model: 1, year: 1 });
 ProductSchema.index({ 'parts.partNumber': 1 });
-ProductSchema.index({ commonProductId: 1 }, { unique: true });
 ProductSchema.index({ 'seo.title': 'text', 'parts.partName': 'text', 'parts.description': 'text' });
 
 // --- Virtuals ---

@@ -30,8 +30,7 @@ const partsCatalogSchema = new mongoose.Schema({
 
 }, { timestamps: true });
 
-// Index for faster searches
-partsCatalogSchema.index({ partNumber: 1 });
+// Index for faster searches (partNumber already indexed via unique: true on field)
 partsCatalogSchema.index({ partName: 'text', description: 'text' });
 partsCatalogSchema.index({ category: 1, isActive: 1 });
 
