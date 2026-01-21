@@ -97,7 +97,7 @@ exports.createOrder = async (req, res) => {
         path: 'items.shopProductId',
         populate: {
           path: 'part',
-          populate: ['brand', 'model', 'category']
+          populate: ['category', 'subCategory'] // PartsCatalog doesn't have brand/model directly
         }
       });
 

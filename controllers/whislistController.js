@@ -108,7 +108,8 @@ exports.getWishList = async (req, res) => {
       return res.status(200).json({
         message: 'User not found',
         success: true,
-        data: []
+        data: [],
+        productIds: [] // Return empty array for product IDs
       });
     }
 
@@ -119,14 +120,91 @@ exports.getWishList = async (req, res) => {
     return res.status(200).json({
       message: 'Wishlist found with products',
       success: true,
-      data: products
+      data: products,
+      productIds: wishList.wishListProduct // Return product IDs array for easy checking
     });
 
   } catch (e) {
-    console.error('Error fetching cart:', e);
+    console.error('Error fetching wishlist:', e);
     return res.status(500).json({
       message: 'Internal server error',
       success: false
+    });
+  }
+};
+
+// CHECK IF PRODUCT IS IN WISHLIST
+exports.checkWishlistStatus = async (req, res) => {
+  try {
+    const userId = req.params.userId;
+    const { productID } = req.query;
+
+    if (!productID) {
+      return res.status(400).json({
+        success: false,
+        message: 'productID is required in query parameters'
+      });
+    }
+
+    const wishList = await WishList.findOne({ userId });
+
+    if (!wishList) {
+      return res.status(200).json({
+        success: true,
+        isInWishlist: false,
+        message: 'Wishlist not found'
+      });
+    }
+
+    // Check if product ID is in wishlist (normalize to string for comparison)
+    const productIdStr = productID.toString();
+    const isInWishlist = wishList.wishListProduct.includes(productIdStr);
+
+    return res.status(200).json({
+      success: true,
+      isInWishlist: isInWishlist,
+      productID: productID,
+      message: isInWishlist ? 'Product is in wishlist' : 'Product is not in wishlist'
+    });
+
+  } catch (e) {
+    console.error('Error checking wishlist status:', e);
+    return res.status(500).json({
+      success: false,
+      message: 'Internal server error',
+      error: e.message
+    });
+  }
+};
+
+// GET WISHLIST PRODUCT IDS ONLY (Lightweight endpoint for status checking)
+exports.getWishlistProductIds = async (req, res) => {
+  try {
+    const userId = req.params.userId;
+    const wishList = await WishList.findOne({ userId });
+
+    if (!wishList) {
+      return res.status(200).json({
+        success: true,
+        productIds: [],
+        count: 0,
+        message: 'Wishlist not found'
+      });
+    }
+
+    return res.status(200).json({
+      success: true,
+      productIds: wishList.wishListProduct,
+      count: wishList.wishListProduct.length,
+      message: 'Wishlist product IDs retrieved'
+    });
+
+  } catch (e) {
+    console.error('Error fetching wishlist product IDs:', e);
+    return res.status(500).json({
+      success: false,
+      message: 'Internal server error',
+      error: e.message
     });
   }
 };

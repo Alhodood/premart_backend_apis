@@ -157,3 +157,69 @@ exports.deactivateConfig = async (req, res) => {
     res.status(500).json({ success: false, error: err.message });
   }
 };
+
+
+// SEARCH BY VIN PATTERN
+exports.searchByVin = async (req, res) => {
+  try {
+    const { vin } = req.query;
+
+    if (!vin) {
+      return res.status(400).json({
+        success: false,
+        message: 'VIN number is required'
+      });
+    }
+
+    // Normalize VIN (uppercase, remove spaces)
+    const normalizedVin = vin.trim().toUpperCase().replace(/\s+/g, '');
+
+    if (normalizedVin.length < 4) {
+      return res.status(400).json({
+        success: false,
+        message: 'VIN must be at least 4 characters'
+      });
+    }
+
+    // Get all active vehicle configurations
+    const allConfigs = await VehicleConfiguration.find({ isActive: true })
+      .populate('brand model');
+
+    // Filter configurations where VIN matches any vinPattern
+    const matchingConfigs = allConfigs.filter(config => {
+      if (!config.vinPatterns || config.vinPatterns.length === 0) {
+        return false;
+      }
+
+      // Check if VIN matches any pattern in vinPatterns array
+      return config.vinPatterns.some(pattern => {
+        // Convert wildcard pattern to regex
+        // e.g., "4T1B*" becomes "^4T1B" (matches start of string)
+        // "*" at end means match from start
+        const regexPattern = pattern
+          .replace(/\*/g, '.*') // Replace * with .* for regex
+          .replace(/\?/g, '.')  // Replace ? with . for single char
+          .toUpperCase();
+
+        try {
+          const regex = new RegExp(`^${regexPattern}`, 'i');
+          return regex.test(normalizedVin);
+        } catch (err) {
+          // If pattern is invalid, try simple string match
+          return normalizedVin.startsWith(pattern.replace(/\*/g, '').toUpperCase());
+        }
+      });
+    });
+
+    res.json({
+      success: true,
+      count: matchingConfigs.length,
+      vin: normalizedVin,
+      data: matchingConfigs
+    });
+
+  } catch (err) {
+    console.error('Search By VIN Error:', err.message);
+    res.status(500).json({ success: false, error: err.message });
+  }
+};

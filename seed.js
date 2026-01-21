@@ -19,8 +19,6 @@ const Banner = require('./models/Banners');
 const Coupon = require('./models/Coupon');
 const Offers = require('./models/Offers');
 const VehicleConfiguration = require('./models/VehicleConfiguration');
-const Engine = require('./models/Engine');
-const Transmission = require('./models/Transmission');
 
 const connectDB = async () => {
   try {
@@ -49,7 +47,6 @@ const clearDatabase = async () => {
       const result = await collection.deleteMany({});
       console.log(`   ✓ Cleared ${collectionName}: ${result.deletedCount} documents`);
     } catch (err) {
-      // Collection might not exist, which is fine
       console.log(`   ⚠ Skipped ${collectionName} (may not exist)`);
     }
   }
@@ -57,25 +54,30 @@ const clearDatabase = async () => {
   console.log('✅ Database cleared\n');
 };
 
+// Helper function to get random item from array
+const randomItem = (arr) => arr[Math.floor(Math.random() * arr.length)];
+const randomInt = (min, max) => Math.floor(Math.random() * (max - min + 1)) + min;
+
 const seedData = async () => {
   console.log('🌱 Seeding database...\n');
 
   try {
-    // 1. Seed Brands
+    // 1. Seed Brands (12 brands)
     console.log('📦 Seeding Brands...');
-    const brands = await Brand.insertMany([
-      { brandName: 'Toyota', brandImage: 'https://via.placeholder.com/200?text=Toyota', visibility: true },
-      { brandName: 'Nissan', brandImage: 'https://via.placeholder.com/200?text=Nissan', visibility: true },
-      { brandName: 'Honda', brandImage: 'https://via.placeholder.com/200?text=Honda', visibility: true },
-      { brandName: 'BMW', brandImage: 'https://via.placeholder.com/200?text=BMW', visibility: true },
-      { brandName: 'Mercedes-Benz', brandImage: 'https://via.placeholder.com/200?text=Mercedes', visibility: true },
-      { brandName: 'Audi', brandImage: 'https://via.placeholder.com/200?text=Audi', visibility: true },
-      { brandName: 'Ford', brandImage: 'https://via.placeholder.com/200?text=Ford', visibility: true },
-      { brandName: 'Chevrolet', brandImage: 'https://via.placeholder.com/200?text=Chevrolet', visibility: true },
-    ]);
+    const brandNames = [
+      'Toyota', 'Nissan', 'Honda', 'BMW', 'Mercedes-Benz', 'Audi',
+      'Ford', 'Chevrolet', 'Lexus', 'Hyundai', 'Kia', 'Mazda'
+    ];
+    const brands = await Brand.insertMany(
+      brandNames.map(name => ({
+        brandName: name,
+        brandImage: `https://via.placeholder.com/200?text=${name}`,
+        visibility: true
+      }))
+    );
     console.log(`   ✓ Created ${brands.length} brands\n`);
 
-    // 2. Seed Categories
+    // 2. Seed Categories (8 categories)
     console.log('📦 Seeding Categories...');
     const categories = await Category.insertMany([
       { categoryName: 'Engine Parts', categoryImage: 'https://via.placeholder.com/200?text=Engine', visibility: true },
@@ -92,44 +94,50 @@ const seedData = async () => {
     // 3. Seed SubCategories
     console.log('📦 Seeding SubCategories...');
     const subCategories = await SubCategory.insertMany([
-      { subCategoryName: 'Spark Plugs', category: categories[0]._id, visibility: true },
-      { subCategoryName: 'Air Filters', category: categories[5]._id, visibility: true },
-      { subCategoryName: 'Brake Pads', category: categories[1]._id, visibility: true },
-      { subCategoryName: 'Shock Absorbers', category: categories[2]._id, visibility: true },
-      { subCategoryName: 'Batteries', category: categories[3]._id, visibility: true },
+      { subCategoryName: 'Spark Plugs', category: categories[0]._id, visibility: true }, // 0 - Engine Parts
+      { subCategoryName: 'Air Filters', category: categories[5]._id, visibility: true }, // 1 - Filters
+      { subCategoryName: 'Brake Pads', category: categories[1]._id, visibility: true }, // 2 - Brake System
+      { subCategoryName: 'Shock Absorbers', category: categories[2]._id, visibility: true }, // 3 - Suspension
+      { subCategoryName: 'Batteries', category: categories[3]._id, visibility: true }, // 4 - Electrical
+      { subCategoryName: 'Oil Filters', category: categories[5]._id, visibility: true }, // 5 - Filters
+      { subCategoryName: 'Headlights', category: categories[4]._id, visibility: true }, // 6 - Body Parts
+      { subCategoryName: 'Radiator Hoses', category: categories[7]._id, visibility: true }, // 7 - Cooling System
     ]);
     console.log(`   ✓ Created ${subCategories.length} subcategories\n`);
 
-    // 4. Seed Models
+    // 4. Seed Models (distribute across brands)
     console.log('📦 Seeding Models...');
-    const models = await Model.insertMany([
-      { modelName: 'Camry', brand: brands[0]._id, visibility: true },
-      { modelName: 'Corolla', brand: brands[0]._id, visibility: true },
-      { modelName: 'Patrol', brand: brands[1]._id, visibility: true },
-      { modelName: 'Altima', brand: brands[1]._id, visibility: true },
-      { modelName: 'Accord', brand: brands[2]._id, visibility: true },
-      { modelName: 'Civic', brand: brands[2]._id, visibility: true },
-      { modelName: '3 Series', brand: brands[3]._id, visibility: true },
-      { modelName: '5 Series', brand: brands[3]._id, visibility: true },
-      { modelName: 'C-Class', brand: brands[4]._id, visibility: true },
-      { modelName: 'E-Class', brand: brands[4]._id, visibility: true },
-    ]);
+    const modelData = [
+      { name: 'Camry', brandIndex: 0 }, { name: 'Corolla', brandIndex: 0 }, { name: 'RAV4', brandIndex: 0 }, { name: 'Highlander', brandIndex: 0 },
+      { name: 'Patrol', brandIndex: 1 }, { name: 'Altima', brandIndex: 1 }, { name: 'Sentra', brandIndex: 1 }, { name: 'Maxima', brandIndex: 1 },
+      { name: 'Accord', brandIndex: 2 }, { name: 'Civic', brandIndex: 2 }, { name: 'CR-V', brandIndex: 2 }, { name: 'Pilot', brandIndex: 2 },
+      { name: '3 Series', brandIndex: 3 }, { name: '5 Series', brandIndex: 3 }, { name: 'X3', brandIndex: 3 }, { name: 'X5', brandIndex: 3 },
+      { name: 'C-Class', brandIndex: 4 }, { name: 'E-Class', brandIndex: 4 }, { name: 'GLE', brandIndex: 4 }, { name: 'S-Class', brandIndex: 4 },
+      { name: 'A4', brandIndex: 5 }, { name: 'Q5', brandIndex: 5 }, { name: 'A6', brandIndex: 5 }, { name: 'Q7', brandIndex: 5 },
+      { name: 'F-150', brandIndex: 6 }, { name: 'Mustang', brandIndex: 6 }, { name: 'Explorer', brandIndex: 6 },
+      { name: 'Silverado', brandIndex: 7 }, { name: 'Tahoe', brandIndex: 7 }, { name: 'Equinox', brandIndex: 7 },
+      { name: 'RX', brandIndex: 8 }, { name: 'ES', brandIndex: 8 }, { name: 'NX', brandIndex: 8 },
+      { name: 'Elantra', brandIndex: 9 }, { name: 'Sonata', brandIndex: 9 }, { name: 'Tucson', brandIndex: 9 },
+      { name: 'Optima', brandIndex: 10 }, { name: 'Sorento', brandIndex: 10 }, { name: 'Sportage', brandIndex: 10 },
+      { name: 'CX-5', brandIndex: 11 }, { name: 'CX-9', brandIndex: 11 }, { name: 'Mazda3', brandIndex: 11 },
+    ];
+    const models = await Model.insertMany(
+      modelData.map(m => ({
+        modelName: m.name,
+        brand: brands[m.brandIndex]._id,
+        visibility: true
+      }))
+    );
     console.log(`   ✓ Created ${models.length} models\n`);
 
-    // 5. Seed Years
+    // 5. Seed Years (2015-2024)
     console.log('📦 Seeding Years...');
-    const years = await Year.insertMany([
-      { year: '2024', visibility: true },
-      { year: '2023', visibility: true },
-      { year: '2022', visibility: true },
-      { year: '2021', visibility: true },
-      { year: '2020', visibility: true },
-      { year: '2019', visibility: true },
-      { year: '2018', visibility: true },
-      { year: '2017', visibility: true },
-      { year: '2016', visibility: true },
-      { year: '2015', visibility: true },
-    ]);
+    const years = await Year.insertMany(
+      Array.from({ length: 10 }, (_, i) => ({
+        year: String(2024 - i),
+        visibility: true
+      }))
+    );
     console.log(`   ✓ Created ${years.length} years\n`);
 
     // 6. Seed Fuel Types
@@ -142,483 +150,261 @@ const seedData = async () => {
     ]);
     console.log(`   ✓ Created ${fuels.length} fuel types\n`);
 
-    // 7. Seed Users
+    // 7. Seed Users (20 users)
     console.log('📦 Seeding Users...');
     const hashedPassword = await bcrypt.hash('password123', 10);
-    const users = await User.insertMany([
-      {
-        name: 'John Doe',
-        email: 'john.doe@example.com',
-        phone: '+971501234567',
-        password: hashedPassword,
-        accountVisibility: true,
-        accountVerify: true,
+    const userData = [
+      { name: 'Super Admin', email: 'admin@premart.com', phone: '+971509999999', role: 'SUPER_ADMIN', verify: true },
+      ...Array.from({ length: 19 }, (_, i) => ({
+        name: `Customer ${i + 1}`,
+        email: `customer${i + 1}@example.com`,
+        phone: `+971501234${String(i).padStart(3, '0')}`,
         role: 'CUSTOMER',
-        address: [{
-          name: 'John Doe',
-          address: '123 Main Street, Dubai',
-          contact: '+971501234567',
-          area: 'Dubai Marina',
-          place: 'Dubai',
-          default: true,
-          addressType: 'Home',
-          latitude: 25.0772,
-          longitude: 55.1398
-        }]
-      },
-      {
-        name: 'Jane Smith',
-        email: 'jane.smith@example.com',
-        phone: '+971507654321',
+        verify: Math.random() > 0.3
+      }))
+    ];
+    const users = await User.insertMany(
+      userData.map(u => ({
+        name: u.name,
+        email: u.email,
+        phone: u.phone,
         password: hashedPassword,
         accountVisibility: true,
-        accountVerify: true,
-        role: 'CUSTOMER',
-      },
-      {
-        name: 'Super Admin',
-        email: 'admin@premart.com',
-        phone: '+971509999999',
-        password: hashedPassword,
-        accountVisibility: true,
-        accountVerify: true,
-        role: 'SUPER_ADMIN',
-      },
-    ]);
+        accountVerify: u.verify,
+        role: u.role
+      }))
+    );
     console.log(`   ✓ Created ${users.length} users (password: password123)\n`);
 
-    // 8. Seed Shops
+    // 8. Seed Shops (10 shops)
     console.log('📦 Seeding Shops...');
     const shopPassword = await bcrypt.hash('shop123', 10);
-    const shops = await Shop.insertMany([
-      {
+    const shopNames = [
+      'Auto Parts Express', 'Premium Auto Supplies', 'Quick Parts Center',
+      'Elite Auto Components', 'Speed Parts Hub', 'AutoZone Dubai',
+      'Car Parts Warehouse', 'Pro Auto Spares', 'Gulf Auto Parts',
+      'Desert Auto Components'
+    ];
+    const shopLocations = ['Dubai', 'Abu Dhabi', 'Sharjah', 'Ajman'];
+    const shops = await Shop.insertMany(
+      shopNames.map((name, i) => ({
         shopeDetails: {
-          shopName: 'Auto Parts Express',
-          shopAddress: 'Sheikh Zayed Road, Dubai',
-          shopMail: 'contact@autopartsexpress.ae',
-          shopContact: '+97142234567',
-          shopLicenseNumber: 'LIC-001',
+          shopName: name,
+          shopAddress: `${randomItem(['Sheikh Zayed Road', 'Business Bay', 'Deira', 'Downtown', 'JBR'])}${i % 2 === 0 ? ', Dubai' : ', ' + randomItem(shopLocations)}`,
+          shopMail: `${name.toLowerCase().replace(/\s+/g, '')}@example.ae`,
+          shopContact: `+97142${String(i).padStart(6, '0')}`,
+          shopLicenseNumber: `LIC-${String(i + 1).padStart(3, '0')}`,
           shopLicenseExpiry: '2025-12-31',
-          EmiratesId: '784-1234-5678901-1',
-          shopLocation: 'Dubai',
-          taxRegistrationNumber: 'TRN-001',
-          supportMail: 'support@autopartsexpress.ae',
-          supportNumber: '+97142234568',
-          password: shopPassword,
-          shopBankDetails: {
-            bankName: 'Emirates NBD',
-            accountNumber: '1234567890',
-            ibanNuber: 'AE123456789012345678901',
-            branch: 'Dubai Main',
-            swiftCode: 'EBILAEAD'
-          }
+          EmiratesId: `784-${String(i + 1).padStart(4, '0')}-${String(i + 1).padStart(7, '0')}-${i + 1}`,
+          shopLocation: randomItem(shopLocations),
+          taxRegistrationNumber: `TRN-${String(i + 1).padStart(3, '0')}`,
+          supportMail: `support@${name.toLowerCase().replace(/\s+/g, '')}.ae`,
+          supportNumber: `+97142${String(i + 1).padStart(6, '1')}`,
+          password: shopPassword
         }
-      },
-      {
-        shopeDetails: {
-          shopName: 'Premium Auto Supplies',
-          shopAddress: 'Business Bay, Dubai',
-          shopMail: 'info@premiumauto.ae',
-          shopContact: '+97142345678',
-          shopLicenseNumber: 'LIC-002',
-          shopLicenseExpiry: '2025-12-31',
-          EmiratesId: '784-2345-6789012-2',
-          shopLocation: 'Dubai',
-          taxRegistrationNumber: 'TRN-002',
-          supportMail: 'support@premiumauto.ae',
-          supportNumber: '+97142345679',
-          password: shopPassword,
-        }
-      },
-      {
-        shopeDetails: {
-          shopName: 'Quick Parts Center',
-          shopAddress: 'Deira, Dubai',
-          shopMail: 'sales@quickparts.ae',
-          shopContact: '+97142456789',
-          shopLicenseNumber: 'LIC-003',
-          shopLicenseExpiry: '2025-12-31',
-          EmiratesId: '784-3456-7890123-3',
-          shopLocation: 'Dubai',
-          taxRegistrationNumber: 'TRN-003',
-          supportMail: 'support@quickparts.ae',
-          supportNumber: '+97142456790',
-          password: shopPassword,
-        }
-      },
-    ]);
+      }))
+    );
     console.log(`   ✓ Created ${shops.length} shops (password: shop123)\n`);
 
-    // 9. Seed Vehicle Configurations (needed for PartsCatalog)
+    // 9. Seed Vehicle Configurations (50 configs)
     console.log('📦 Seeding Vehicle Configurations...');
-    const vehicleConfigs = await VehicleConfiguration.insertMany([
-      {
-        brand: brands[0]._id, // Toyota
-        model: models[0]._id, // Camry
-        year: 2023,
-        engineType: '2.5L Petrol',
-        transmission: 'Automatic',
-        frameCode: 'XV70',
-        region: 'GCC',
-        trim: ['LE', 'XLE'],
-        commonName: 'Toyota Camry 2023',
-        vinPatterns: ['4T1B*', 'JTDKB*', '5YJ3*'],
-        description: 'Toyota Camry 2023 with 2.5L Petrol engine and Automatic transmission',
-        visibility: true,
-        isActive: true
-      },
-      {
-        brand: brands[0]._id, // Toyota
-        model: models[1]._id, // Corolla
-        year: 2023,
-        engineType: '1.8L Petrol',
-        transmission: 'CVT',
-        frameCode: 'E210',
-        region: 'GCC',
-        trim: ['L', 'LE'],
-        commonName: 'Toyota Corolla 2023',
-        vinPatterns: ['JTDKB*', '4T1B*', '5YJ3*'],
-        description: 'Toyota Corolla 2023 with 1.8L Petrol engine and CVT transmission',
-        visibility: true,
-        isActive: true
-      },
-      {
-        brand: brands[1]._id, // Nissan
-        model: models[2]._id, // Patrol
-        year: 2023,
-        engineType: '5.6L Petrol',
-        transmission: 'Automatic',
-        frameCode: 'Y62',
-        region: 'GCC',
-        trim: ['SE', 'LE'],
-        commonName: 'Nissan Patrol 2023',
-        vinPatterns: ['JN8*', '5N1*', '1N6*'],
-        description: 'Nissan Patrol 2023 with 5.6L Petrol engine and Automatic transmission',
-        visibility: true,
-        isActive: true
-      },
-      {
-        brand: brands[2]._id, // Honda
-        model: models[4]._id, // Accord
-        year: 2022,
-        engineType: '1.5L Turbo Petrol',
-        transmission: 'CVT',
-        frameCode: '10G',
-        region: 'GCC',
-        trim: ['LX', 'EX'],
-        commonName: 'Honda Accord 2022',
-        vinPatterns: ['1HGCM*', '19XFC*', 'JHMCM*'],
-        description: 'Honda Accord 2022 with 1.5L Turbo Petrol engine and CVT transmission',
-        visibility: true,
-        isActive: true
-      },
-      {
-        brand: brands[3]._id, // BMW
-        model: models[6]._id, // 3 Series
-        year: 2023,
-        engineType: '2.0L Turbo Petrol',
-        transmission: 'Automatic',
-        frameCode: 'G20',
-        region: 'GCC',
-        trim: ['320i', '330i'],
-        commonName: 'BMW 3 Series 2023',
-        vinPatterns: ['WBA*', '5UX*', 'WBX*'],
-        description: 'BMW 3 Series 2023 with 2.0L Turbo Petrol engine and Automatic transmission',
-        visibility: true,
-        isActive: true
-      },
-    ]);
-    console.log(`   ✓ Created ${vehicleConfigs.length} vehicle configurations\n`);
+    const engineTypes = ['1.8L Petrol', '2.0L Petrol', '2.5L Petrol', '3.0L Petrol', '3.5L Petrol', '4.0L Petrol', '5.6L Petrol', '2.0L Diesel', '2.5L Diesel', '3.0L Diesel', '1.5L Turbo Petrol', '2.0L Turbo Petrol'];
+    const transmissions = ['Automatic', 'CVT', 'Manual', 'DCT'];
+    const frameCodes = ['XV70', 'E210', 'Y62', '10G', 'G20', 'W205', 'B9', 'P702', 'K2XX', 'RX350', 'YG', 'K5', 'CX-5'];
+    const vinPatterns = ['4T1B*', 'JTDKB*', '5YJ3*', 'JN8*', '5N1*', '1N6*', '1HGCM*', '19XFC*', 'JHMCM*', 'WBA*', '5UX*', 'WBX*', 'WDD*', 'WDC*', 'WAU*', 'WVW*'];
+    const trims = [['LE', 'XLE'], ['L', 'LE'], ['SE', 'LE'], ['LX', 'EX'], ['320i', '330i'], ['C200', 'C300'], ['A4', 'A4 Premium'], ['Base', 'LT'], ['RX 350', 'RX 450h']];
 
-    // 10. Seed Parts Catalog
+    const vehicleConfigs = [];
+    for (let i = 0; i < 50; i++) {
+      const brand = randomItem(brands);
+      const brandModels = models.filter(m => m.brand.toString() === brand._id.toString());
+      if (brandModels.length === 0) continue;
+      const model = randomItem(brandModels);
+      const year = randomInt(2018, 2024);
+      
+      vehicleConfigs.push({
+        brand: brand._id,
+        model: model._id,
+        year,
+        engineType: randomItem(engineTypes),
+        transmission: randomItem(transmissions),
+        frameCode: randomItem(frameCodes),
+        region: 'GCC',
+        trim: randomItem(trims),
+        commonName: `${brand.brandName} ${model.modelName} ${year}`,
+        vinPatterns: [randomItem(vinPatterns), randomItem(vinPatterns)],
+        description: `${brand.brandName} ${model.modelName} ${year} with ${randomItem(engineTypes)} engine`,
+        visibility: true,
+        isActive: true
+      });
+    }
+    const createdVehicleConfigs = await VehicleConfiguration.insertMany(vehicleConfigs);
+    console.log(`   ✓ Created ${createdVehicleConfigs.length} vehicle configurations\n`);
+
+    // 10. Seed Parts Catalog (100 parts)
     console.log('📦 Seeding Parts Catalog...');
-    const partsCatalog = await PartsCatalog.insertMany([
-      {
-        partNumber: 'SP-001',
-        partName: 'NGK Spark Plug',
-        description: 'High-performance spark plug for petrol engines',
-        category: categories[0]._id,
-        compatibleVehicleConfigs: [vehicleConfigs[0]._id, vehicleConfigs[1]._id, vehicleConfigs[3]._id],
-        madeIn: 'Japan',
-        weight: 0.05,
-        dimensions: { length: 10, width: 2, height: 2 },
-        oemNumber: 'NGK-12345',
-        warranty: '1 Year',
-        images: ['https://via.placeholder.com/400?text=Spark+Plug'],
-        isActive: true
-      },
-      {
-        partNumber: 'BF-001',
-        partName: 'Premium Brake Pad Set',
-        description: 'Ceramic brake pads for superior stopping power',
-        category: categories[1]._id,
-        compatibleVehicleConfigs: [vehicleConfigs[0]._id, vehicleConfigs[2]._id, vehicleConfigs[4]._id],
-        madeIn: 'Germany',
-        weight: 1.5,
-        dimensions: { length: 15, width: 10, height: 3 },
-        oemNumber: 'BP-67890',
-        warranty: '2 Years',
-        images: ['https://via.placeholder.com/400?text=Brake+Pads'],
-        isActive: true
-      },
-      {
-        partNumber: 'AF-001',
-        partName: 'High Flow Air Filter',
-        description: 'Performance air filter for better engine breathing',
-        category: categories[5]._id,
-        compatibleVehicleConfigs: [vehicleConfigs[0]._id, vehicleConfigs[1]._id, vehicleConfigs[2]._id, vehicleConfigs[3]._id],
-        madeIn: 'USA',
-        weight: 0.3,
-        dimensions: { length: 20, width: 20, height: 5 },
-        oemNumber: 'AF-11111',
-        warranty: '6 Months',
-        images: ['https://via.placeholder.com/400?text=Air+Filter'],
-        isActive: true
-      },
-      {
-        partNumber: 'BAT-001',
-        partName: '12V Car Battery',
-        description: 'Maintenance-free car battery with 2-year warranty',
-        category: categories[3]._id,
-        compatibleVehicleConfigs: [vehicleConfigs[0]._id, vehicleConfigs[1]._id, vehicleConfigs[3]._id, vehicleConfigs[4]._id],
-        madeIn: 'UAE',
-        weight: 15,
-        dimensions: { length: 25, width: 17, height: 19 },
-        oemNumber: 'BAT-22222',
-        warranty: '2 Years',
-        images: ['https://via.placeholder.com/400?text=Battery'],
-        isActive: true
-      },
-      {
-        partNumber: 'SH-001',
-        partName: 'Premium Shock Absorber',
-        description: 'Gas-filled shock absorber for smooth ride',
-        category: categories[2]._id,
-        compatibleVehicleConfigs: [vehicleConfigs[2]._id, vehicleConfigs[4]._id],
-        madeIn: 'Japan',
-        weight: 3.5,
-        dimensions: { length: 50, width: 8, height: 8 },
-        oemNumber: 'SH-33333',
-        warranty: '1 Year',
-        images: ['https://via.placeholder.com/400?text=Shock+Absorber'],
-        isActive: true
-      },
-      {
-        partNumber: 'OF-001',
-        partName: 'Oil Filter',
-        description: 'High-quality oil filter for regular maintenance',
-        category: categories[5]._id, // Filters
-        compatibleVehicleConfigs: [vehicleConfigs[0]._id, vehicleConfigs[1]._id, vehicleConfigs[2]._id, vehicleConfigs[3]._id, vehicleConfigs[4]._id],
-        madeIn: 'USA',
-        weight: 0.2,
-        dimensions: { length: 8, width: 8, height: 6 },
-        oemNumber: 'OF-44444',
-        warranty: '6 Months',
-        images: ['https://via.placeholder.com/400?text=Oil+Filter'],
-        isActive: true
-      },
-      {
-        partNumber: 'WF-001',
-        partName: 'Windshield Wiper Blades',
-        description: 'Premium windshield wiper blades set',
-        category: categories[4]._id, // Body Parts
-        compatibleVehicleConfigs: [vehicleConfigs[0]._id, vehicleConfigs[1]._id, vehicleConfigs[3]._id],
-        madeIn: 'Germany',
-        weight: 0.3,
-        dimensions: { length: 60, width: 2, height: 1 },
-        oemNumber: 'WF-55555',
-        warranty: '1 Year',
-        images: ['https://via.placeholder.com/400?text=Wiper+Blades'],
-        isActive: true
-      },
-      {
-        partNumber: 'RB-001',
-        partName: 'Radiator Hose',
-        description: 'Cooling system radiator hose',
-        category: categories[7]._id, // Cooling System
-        compatibleVehicleConfigs: [vehicleConfigs[0]._id, vehicleConfigs[2]._id, vehicleConfigs[4]._id],
-        madeIn: 'Japan',
-        weight: 0.4,
-        dimensions: { length: 40, width: 5, height: 5 },
-        oemNumber: 'RH-66666',
-        warranty: '1 Year',
-        images: ['https://via.placeholder.com/400?text=Radiator+Hose'],
-        isActive: true
-      },
-      {
-        partNumber: 'EX-001',
-        partName: 'Exhaust Muffler',
-        description: 'Performance exhaust muffler',
-        category: categories[6]._id, // Exhaust System
-        compatibleVehicleConfigs: [vehicleConfigs[2]._id, vehicleConfigs[4]._id],
-        madeIn: 'USA',
-        weight: 8.5,
-        dimensions: { length: 80, width: 25, height: 20 },
-        oemNumber: 'EX-77777',
-        warranty: '2 Years',
-        images: ['https://via.placeholder.com/400?text=Exhaust+Muffler'],
-        isActive: true
-      },
-    ]);
-    console.log(`   ✓ Created ${partsCatalog.length} parts in catalog\n`);
+    
+    // Map part types to subcategories
+    // subCategories: [0: Spark Plugs, 1: Air Filters, 2: Brake Pads, 3: Shock Absorbers, 4: Batteries, 5: Oil Filters, 6: Headlights, 7: Radiator Hoses]
+    const partTypes = [
+      { name: 'Spark Plug', categoryIndex: 0, subCategoryIndex: 0, prefix: 'SP' }, // Engine Parts -> Spark Plugs
+      { name: 'Brake Pad Set', categoryIndex: 1, subCategoryIndex: 2, prefix: 'BP' }, // Brake System -> Brake Pads
+      { name: 'Air Filter', categoryIndex: 5, subCategoryIndex: 1, prefix: 'AF' }, // Filters -> Air Filters
+      { name: 'Car Battery', categoryIndex: 3, subCategoryIndex: 4, prefix: 'BAT' }, // Electrical -> Batteries
+      { name: 'Shock Absorber', categoryIndex: 2, subCategoryIndex: 3, prefix: 'SH' }, // Suspension -> Shock Absorbers
+      { name: 'Oil Filter', categoryIndex: 5, subCategoryIndex: 5, prefix: 'OF' }, // Filters -> Oil Filters
+      { name: 'Headlight Assembly', categoryIndex: 4, subCategoryIndex: 6, prefix: 'HL' }, // Body Parts -> Headlights
+      { name: 'Radiator Hose', categoryIndex: 7, subCategoryIndex: 7, prefix: 'RH' }, // Cooling System -> Radiator Hoses
+      { name: 'Exhaust Muffler', categoryIndex: 6, prefix: 'EX' }, // Exhaust System (no subcategory)
+      { name: 'Windshield Wiper', categoryIndex: 4, prefix: 'WW' }, // Body Parts (no subcategory)
+      { name: 'Timing Belt', categoryIndex: 0, prefix: 'TB' }, // Engine Parts (no subcategory)
+      { name: 'Alternator', categoryIndex: 3, prefix: 'ALT' }, // Electrical (no subcategory)
+      { name: 'Starter Motor', categoryIndex: 3, prefix: 'SM' }, // Electrical (no subcategory)
+      { name: 'Brake Rotor', categoryIndex: 1, prefix: 'BR' }, // Brake System (no subcategory)
+      { name: 'Wheel Bearing', categoryIndex: 2, prefix: 'WB' } // Suspension (no subcategory)
+    ];
 
-    // 10. Seed Shop Products
+    const madeIn = ['Japan', 'Germany', 'USA', 'UAE', 'China', 'Korea'];
+    const partsCatalog = [];
+    
+    for (let i = 0; i < 100; i++) {
+      const partType = randomItem(partTypes);
+      const partNumber = `${partType.prefix}-${String(i + 1).padStart(3, '0')}`;
+      const compatibleCount = randomInt(3, 10);
+      const compatibleVehicleConfigs = [];
+      for (let j = 0; j < compatibleCount; j++) {
+        compatibleVehicleConfigs.push(randomItem(createdVehicleConfigs)._id);
+      }
+      
+      // Build part data
+      const partData = {
+        partNumber,
+        partName: `${partType.name} ${i + 1}`,
+        description: `High-quality ${partType.name.toLowerCase()} for various vehicle models`,
+        category: categories[partType.categoryIndex]._id,
+        compatibleVehicleConfigs: [...new Set(compatibleVehicleConfigs)], // Remove duplicates
+        madeIn: randomItem(madeIn),
+        weight: Math.round((Math.random() * 20 + 0.1) * 100) / 100,
+        dimensions: {
+          length: randomInt(5, 100),
+          width: randomInt(5, 50),
+          height: randomInt(2, 30)
+        },
+        oemNumber: `OEM-${String(i + 1).padStart(5, '0')}`,
+        warranty: randomItem(['6 Months', '1 Year', '2 Years', '3 Years']),
+        images: [`https://via.placeholder.com/400?text=${encodeURIComponent(partType.name)}`],
+        isActive: true
+      };
+      
+      // Add subCategory if mapped
+      if (partType.subCategoryIndex !== undefined && subCategories[partType.subCategoryIndex]) {
+        partData.subCategory = subCategories[partType.subCategoryIndex]._id;
+      }
+      
+      partsCatalog.push(partData);
+    }
+    const createdPartsCatalog = await PartsCatalog.insertMany(partsCatalog);
+    console.log(`   ✓ Created ${createdPartsCatalog.length} parts in catalog\n`);
+
+    // 11. Seed Shop Products (100 parts × 10 shops = 1000 products)
     console.log('📦 Seeding Shop Products...');
     const shopProducts = [];
     for (const shop of shops) {
-      for (const part of partsCatalog) {
-        const basePrice = Math.floor(Math.random() * 500) + 50; // Random price between 50-550
-        const discount = Math.random() > 0.5 ? Math.floor(basePrice * 0.1) : 0;
+      for (const part of createdPartsCatalog) {
+        const basePrice = randomInt(50, 1500);
+        const hasDiscount = Math.random() > 0.6;
+        const discount = hasDiscount ? Math.floor(basePrice * randomInt(5, 20) / 100) : 0;
+        
         shopProducts.push({
           shopId: shop._id,
           part: part._id,
           price: basePrice,
-          discountedPrice: discount > 0 ? basePrice - discount : null,
-          stock: Math.floor(Math.random() * 100) + 10,
-          isAvailable: true
+          discountedPrice: hasDiscount ? basePrice - discount : null,
+          stock: randomInt(5, 200),
+          isAvailable: Math.random() > 0.1 // 90% available
         });
       }
     }
     await ShopProduct.insertMany(shopProducts);
     console.log(`   ✓ Created ${shopProducts.length} shop products\n`);
 
-    // 12. Seed Delivery Agencies
+    // 12. Seed Delivery Agencies (5 agencies)
     console.log('📦 Seeding Delivery Agencies...');
     const agencyPassword = await bcrypt.hash('agency123', 10);
-    const agencies = await DeliveryAgency.insertMany([
-      {
+    const agencyNames = [
+      'Fast Delivery Services', 'Express Logistics', 'Quick Ship UAE',
+      'Gulf Delivery Solutions', 'Premium Logistics'
+    ];
+    const agencies = await DeliveryAgency.insertMany(
+      agencyNames.map((name, i) => ({
         agencyDetails: {
-          email: 'agency1@delivery.ae',
+          email: `agency${i + 1}@delivery.ae`,
           password: agencyPassword,
-          profileImage: 'https://via.placeholder.com/200?text=Agency+1',
-          agencyName: 'Fast Delivery Services',
-          agencyAddress: 'Dubai Industrial City',
-          agencyMail: 'agency1@delivery.ae',
-          agencyContact: '+971501111111',
-          agencyLicenseNumber: 'DL-001',
+          profileImage: `https://via.placeholder.com/200?text=Agency+${i + 1}`,
+          agencyName: name,
+          agencyAddress: `${randomItem(['Dubai Industrial City', 'Sharjah Industrial Area', 'Abu Dhabi Industrial Zone'])}`,
+          agencyMail: `agency${i + 1}@delivery.ae`,
+          agencyContact: `+97150${String(i + 1).padStart(7, '1')}`,
+          agencyLicenseNumber: `DL-${String(i + 1).padStart(3, '0')}`,
           agencyLicenseExpiry: '2025-12-31',
-          emiratesId: '784-1111-1111111-1',
-          agencyLocation: 'Dubai',
-          supportMail: 'support@fastdelivery.ae',
-          supportNumber: '+971501111112',
-          payoutType: 'weekly',
+          emiratesId: `784-${String(i + 1).padStart(4, '1')}-${String(i + 1).padStart(7, '1')}-${i + 1}`,
+          agencyLocation: randomItem(['Dubai', 'Sharjah', 'Abu Dhabi']),
+          supportMail: `support@${name.toLowerCase().replace(/\s+/g, '')}.ae`,
+          supportNumber: `+97150${String(i + 1).padStart(7, '2')}`,
+          payoutType: randomItem(['weekly', 'monthly'])
         }
-      },
-      {
-        agencyDetails: {
-          email: 'agency2@delivery.ae',
-          password: agencyPassword,
-          profileImage: 'https://via.placeholder.com/200?text=Agency+2',
-          agencyName: 'Express Logistics',
-          agencyAddress: 'Sharjah Industrial Area',
-          agencyMail: 'agency2@delivery.ae',
-          agencyContact: '+971502222222',
-          agencyLicenseNumber: 'DL-002',
-          agencyLicenseExpiry: '2025-12-31',
-          emiratesId: '784-2222-2222222-2',
-          agencyLocation: 'Sharjah',
-          supportMail: 'support@expresslogistics.ae',
-          supportNumber: '+971502222223',
-          payoutType: 'monthly',
-        }
-      },
-    ]);
+      }))
+    );
     console.log(`   ✓ Created ${agencies.length} delivery agencies (password: agency123)\n`);
 
-    // 13. Seed Delivery Boys
+    // 13. Seed Delivery Boys (15 boys)
     console.log('📦 Seeding Delivery Boys...');
-    const deliveryBoys = await DeliveryBoy.insertMany([
-      {
-        name: 'Ahmed Ali',
-        phone: '+971503333333',
-        email: 'ahmed@delivery.ae',
-        agencyId: agencies[0]._id,
-        isOnline: true,
-        availability: true,
-        latitude: 25.2048,
-        longitude: 55.2708,
-        areaAssigned: 'Dubai Marina',
-        city: 'Dubai',
-        accountVerify: true,
-        countryCode: '+971',
-      },
-      {
-        name: 'Mohammed Hassan',
-        phone: '+971504444444',
-        email: 'mohammed@delivery.ae',
-        agencyId: agencies[0]._id,
-        isOnline: false,
-        availability: false,
-        latitude: 25.2764,
-        longitude: 55.2962,
-        areaAssigned: 'Downtown Dubai',
-        city: 'Dubai',
-        accountVerify: true,
-        countryCode: '+971',
-      },
-      {
-        name: 'Omar Khalid',
-        phone: '+971505555555',
-        email: 'omar@delivery.ae',
-        agencyId: agencies[1]._id,
-        isOnline: true,
-        availability: true,
-        latitude: 25.3573,
-        longitude: 55.4033,
-        areaAssigned: 'Sharjah',
-        city: 'Sharjah',
-        accountVerify: true,
-        countryCode: '+971',
-      },
-    ]);
+    const deliveryBoys = await DeliveryBoy.insertMany(
+      Array.from({ length: 15 }, (_, i) => ({
+        name: `Delivery Boy ${i + 1}`,
+        phone: `+97150${String(i + 1).padStart(7, '3')}`,
+        email: `boy${i + 1}@delivery.ae`,
+        agencyId: randomItem(agencies)._id,
+        isOnline: Math.random() > 0.4,
+        availability: Math.random() > 0.3,
+        latitude: 25.0 + Math.random() * 0.5,
+        longitude: 55.0 + Math.random() * 0.5,
+        areaAssigned: randomItem(['Dubai Marina', 'Downtown Dubai', 'Business Bay', 'Deira', 'Sharjah', 'Abu Dhabi']),
+        city: randomItem(['Dubai', 'Sharjah', 'Abu Dhabi']),
+        accountVerify: Math.random() > 0.2,
+        countryCode: '+971'
+      }))
+    );
     console.log(`   ✓ Created ${deliveryBoys.length} delivery boys\n`);
 
-    // 14. Seed Banners
+    // 14. Seed Banners (5 banners)
     console.log('📦 Seeding Banners...');
-    const banners = await Banner.insertMany([
-      {
-        title: 'Summer Sale 2024',
-        pic: 'https://via.placeholder.com/1200x400?text=Summer+Sale',
+    const banners = await Banner.insertMany(
+      Array.from({ length: 5 }, (_, i) => ({
+        title: `Banner ${i + 1}`,
+        pic: `https://via.placeholder.com/1200x400?text=Banner+${i + 1}`,
         isActive: true,
-        redirectScreen: '/products?category=all',
-        shopId: shops[0]._id,
-      },
-      {
-        title: 'New Arrivals',
-        pic: 'https://via.placeholder.com/1200x400?text=New+Arrivals',
-        isActive: true,
-        redirectScreen: '/products?new=true',
-        shopId: shops[1]._id,
-      },
-    ]);
+        redirectScreen: '/products',
+        shopId: randomItem(shops)._id
+      }))
+    );
     console.log(`   ✓ Created ${banners.length} banners\n`);
 
-    // 15. Seed Coupons
+    // 15. Seed Coupons (10 coupons)
     console.log('📦 Seeding Coupons...');
-    const coupons = await Coupon.insertMany([
-      {
-        code: 'WELCOME10',
-        discountValue: 10,
+    const coupons = await Coupon.insertMany(
+      Array.from({ length: 10 }, (_, i) => ({
+        code: `COUPON${i + 1}`,
+        discountValue: randomInt(10, 30),
         discountType: 'percent',
-        minOrderAmount: 100,
-        usageLimit: 100,
+        minOrderAmount: randomInt(100, 500),
+        usageLimit: randomInt(50, 500),
         startDate: new Date(),
-        expiryDate: new Date(Date.now() + 90 * 24 * 60 * 60 * 1000), // 90 days
-        isActive: true,
-        shopId: shops[0]._id,
-      },
-      {
-        code: 'SAVE20',
-        discountValue: 20,
-        discountType: 'percent',
-        minOrderAmount: 200,
-        usageLimit: 50,
-        startDate: new Date(),
-        expiryDate: new Date(Date.now() + 60 * 24 * 60 * 60 * 1000), // 60 days
-        isActive: true,
-        shopId: shops[1]._id,
-      },
-    ]);
+        expiryDate: new Date(Date.now() + randomInt(30, 90) * 24 * 60 * 60 * 1000),
+        isActive: Math.random() > 0.2,
+        shopId: i % 3 === 0 ? null : randomItem(shops)._id // Some shop-specific, some general
+      }))
+    );
     console.log(`   ✓ Created ${coupons.length} coupons\n`);
 
     console.log('\n✅ Database seeding completed successfully!');
@@ -629,11 +415,11 @@ const seedData = async () => {
     console.log(`   • Models: ${models.length}`);
     console.log(`   • Years: ${years.length}`);
     console.log(`   • Fuel Types: ${fuels.length}`);
-    console.log(`   • Vehicle Configurations: ${vehicleConfigs.length}`);
+    console.log(`   • Vehicle Configurations: ${createdVehicleConfigs.length}`);
     console.log(`   • Users: ${users.length} (password: password123)`);
     console.log(`     - Admin: admin@premart.com (SUPER_ADMIN)`);
     console.log(`   • Shops: ${shops.length} (password: shop123)`);
-    console.log(`   • Parts Catalog: ${partsCatalog.length}`);
+    console.log(`   • Parts Catalog: ${createdPartsCatalog.length}`);
     console.log(`   • Shop Products: ${shopProducts.length}`);
     console.log(`   • Delivery Agencies: ${agencies.length} (password: agency123)`);
     console.log(`   • Delivery Boys: ${deliveryBoys.length}`);

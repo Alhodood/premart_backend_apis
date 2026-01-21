@@ -13,4 +13,10 @@ const shopProductSchema = new mongoose.Schema({
 
 }, { timestamps: true });
 
+// Indexes for performance optimization
+shopProductSchema.index({ part: 1, isAvailable: 1 });
+shopProductSchema.index({ shopId: 1, isAvailable: 1 });
+shopProductSchema.index({ part: 1, shopId: 1, isAvailable: 1 }); // Compound index
+shopProductSchema.index({ price: 1 }); // For price sorting
+
 module.exports = mongoose.model('ShopProduct', shopProductSchema);

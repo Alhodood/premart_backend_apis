@@ -9,6 +9,7 @@ router.post('/catalog', partsController.createPart);
 router.get('/getParts', partsController.getAllParts);
 router.get('/catalog/:id', partsController.getPartById);
 router.get('/catalog/search/query', partsController.searchParts);
+router.get('/catalog/search/part-number', partsController.searchByPartNumber); // Part number search
 
 // ========== SHOP PRODUCTS ==========
 router.post('/shop-product/:shopId', shopProductController.addShopProduct);
