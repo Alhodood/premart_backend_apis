@@ -3,15 +3,31 @@ const ShopProduct = require('../models/ShopProduct');
 exports.addShopProduct = async (req, res) => {
   try {
     const shopId = req.params.shopId;
+    const { part, price, discountedPrice, stock } = req.body;
 
-    const product = await ShopProduct.create({
-      ...req.body,
-      shopId
-    });
+    if (!part) {
+      return res.status(400).json({ success: false, message: "part is required" });
+    }
 
-    res.status(201).json({ success: true, data: product });
+    const product = await ShopProduct.findOneAndUpdate(
+      { shopId, part }, // identity
+      {
+        $set: {
+          price,
+          discountedPrice,
+          stock,
+          isAvailable: true,
+        }
+      },
+      {
+        new: true,
+        upsert: true // 🔥 This is the real fix
+      }
+    );
+
+    return res.json({ success: true, data: product });
   } catch (err) {
-    res.status(400).json({ success: false, error: err.message });
+    return res.status(400).json({ success: false, error: err.message });
   }
 };
 
@@ -21,9 +37,19 @@ exports.getShopProducts = async (req, res) => {
 
     const products = await ShopProduct.find({ shopId })
       .populate({
-        path: 'part',
-        populate: ['brand', 'model', 'category']
-      });
+  path: 'part',
+  populate: [
+    { path: 'category', select: 'categoryName' },
+    { path: 'subCategory', select: 'subCategoryName' },
+    {
+      path: 'compatibleVehicleConfigs',
+      populate: [
+        { path: 'brand', select: 'brandName' },
+        { path: 'model', select: 'modelName' }
+      ]
+    }
+  ]
+});
 
     res.json({ success: true, data: products });
   } catch (err) {
@@ -33,9 +59,18 @@ exports.getShopProducts = async (req, res) => {
 
 exports.updateShopProduct = async (req, res) => {
   try {
+    const allowedFields = ['price', 'discountedPrice', 'stock', 'isAvailable'];
+
+    const updateData = {};
+    for (const key of allowedFields) {
+      if (req.body[key] !== undefined && req.body[key] !== null) {
+        updateData[key] = req.body[key];
+      }
+    }
+
     const updated = await ShopProduct.findByIdAndUpdate(
       req.params.id,
-      req.body,
+      { $set: updateData },
       { new: true }
     );
 

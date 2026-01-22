@@ -3,41 +3,107 @@ const { Shop } = require('../models/Shop');
 const Order = require('../models/Order');
 
 // Create a new shop
+// controllers/shopController.js
+// controllers/shopController.js
+
+
+
 exports.createShop = async (req, res) => {
   try {
-    // const shopId= req.params.shopId;
-    const  shopeDetails  = req.body;
-console.log(shopeDetails);
-    // const newShop = new Shop({
-    //   // shopId,
-    //   shopeDetails
-    // });
+    const { shopeDetails } = req.body;
 
-    const newShop = new Shop({
+    // ✅ Validate required shop details
+    if (!shopeDetails) {
+      return res.status(400).json({
+        success: false,
+        message: 'Shop details are required'
+      });
+    }
+
+    const {
+      shopName,
+      shopAddress,
+      shopMail,
+      shopContact,
+      shopLocation  // ✅ This is critical
+    } = shopeDetails;
+
+    // ✅ Validate required fields
+    if (!shopName || !shopAddress || !shopContact) {
+      return res.status(400).json({
+        success: false,
+        message: 'Shop name, address, and contact are required'
+      });
+    }
+
+    // ✅ CRITICAL: Validate shop location
+    if (!shopLocation || shopLocation.trim() === '') {
+      return res.status(400).json({
+        success: false,
+        message: 'Shop location is required',
+        hint: 'Provide location in format: "latitude,longitude" (e.g., "25.2048,55.2708")'
+      });
+    }
+
+    // ✅ Validate location format
+    const locationParts = shopLocation.split(',');
+    if (locationParts.length !== 2) {
+      return res.status(400).json({
+        success: false,
+        message: 'Invalid shop location format',
+        hint: 'Use format: "latitude,longitude" (e.g., "25.2048,55.2708")'
+      });
+    }
+
+    const [lat, lng] = locationParts.map(num => parseFloat(num.trim()));
+
+    // ✅ Validate numbers
+    if (isNaN(lat) || isNaN(lng)) {
+      return res.status(400).json({
+        success: false,
+        message: 'Shop location must contain valid numbers',
+        received: shopLocation
+      });
+    }
+
+    // ✅ Validate range (for UAE/Dubai)
+    if (lat < 24 || lat > 26 || lng < 54 || lng > 56) {
+      return res.status(400).json({
+        success: false,
+        message: 'Coordinates out of valid range for UAE',
+        hint: 'UAE coordinates: latitude 24-26, longitude 54-56',
+        received: `${lat}, ${lng}`
+      });
+    }
+
+    // ✅ Create shop with validated location
+    const shop = new Shop({
       shopeDetails: {
-        shopName: req.body.shopeDetails.shopName,
-        shopAddress: req.body.shopeDetails.shopAddress,
-        shopMail: req.body.shopeDetails.shopMail,
-        shopContact: req.body.shopeDetails.shopContact,
-        shopLicenseNumber: req.body.shopeDetails.shopLicenseNumber,
-        shopLicenseExpiry: req.body.shopeDetails.shopLicenseExpiry,
-        shopLicenseImage: req.body.shopeDetails.shopLicenseImage,
-        EmiratesId: req.body.shopeDetails.EmiratesId,
-        EmiratesIdImage: req.body.shopeDetails.EmiratesIdImage,
-        shopLocation: req.body.shopeDetails.shopLocation,
-        termsAndCondition: req.body.shopeDetails.termsAndCondition,
-        supportMail: req.body.shopeDetails.supportMail,
-        supportNumber: req.body.shopeDetails.supportNumber,
-        shopBankDetails: req.body.shopeDetails.shopBankDetails
+        ...shopeDetails,
+        shopLocation: `${lat},${lng}`  // ✅ Ensure proper format
       }
     });
-    console.log(newShop);
 
-    const savedShop = await newShop.save();
-    res.status(201).json({ success: true, data: savedShop,message:"New shop created successfuly" });
-  } catch (error) {
-    console.error('Error creating shop:', error);
-    res.status(500).json({ success: false, message: 'Server Error',data:[] });
+    await shop.save();
+
+    return res.status(201).json({
+      success: true,
+      message: 'Shop created successfully',
+      data: {
+        _id: shop._id,
+        shopName: shop.shopeDetails.shopName,
+        shopAddress: shop.shopeDetails.shopAddress,
+        shopLocation: shop.shopeDetails.shopLocation,  // ✅ Confirm it's saved
+        createdAt: shop.createdAt
+      }
+    });
+  } catch (err) {
+    console.error('Create Shop Error:', err);
+    return res.status(500).json({
+      success: false,
+      message: 'Failed to create shop',
+      error: err.message
+    });
   }
 };
 
@@ -85,27 +151,41 @@ exports.getShopById = async (req, res) => {
 };
 
 // Update shop by ID
+// controllers/shopController.js
 exports.updateShop = async (req, res) => {
   try {
-    const shopId = req.params.id;
+    const { id } = req.params;
+    const updateData = req.body;
 
-    const shop = await Shop.findById(shopId);
+    // Find and update shop
+    const shop = await Shop.findByIdAndUpdate(
+      id,
+      { $set: updateData },
+      { 
+        new: true,  // Return updated document
+        runValidators: true  // Run schema validators
+      }
+    );
+
     if (!shop) {
-      return res.status(404).json({ success: false, message: 'Shop not found', data: [] });
+      return res.status(404).json({
+        success: false,
+        message: 'Shop not found'
+      });
     }
 
-    // Update shopeDetails fields
-    shop.shopeDetails = {
-      ...shop.shopeDetails.toObject(),
-      ...req.body.shopeDetails
-    };
-
-    await shop.save();
-
-    res.status(200).json({ success: true, data: shop, message: "Shop updated successfully" });
-  } catch (error) {
-    console.error('Update Shop Error:', error);
-    res.status(500).json({ success: false, message: 'Server Error', data: [] });
+    res.status(200).json({
+      success: true,
+      message: 'Shop updated successfully',
+      data: shop
+    });
+  } catch (err) {
+    console.error('Update Shop Error:', err);
+    res.status(500).json({
+      success: false,
+      message: 'Failed to update shop',
+      error: err.message
+    });
   }
 };
 

@@ -48,15 +48,26 @@ router.post(
   rbacAuth.createShopAdmin
 );
 
+router.post(
+  '/super-admin/create-agency',
+  rbacAuth.createAgency
+);
 // ==========================
 // PROFILE (Customer only)
 // ==========================
 router.get(
   '/profile/:userId',
-  protect,
-  authorize(ROLES.CUSTOMER),
-  mustBeOwner('userId'),
   getProfile
+);
+
+router.get(
+  '/customer/:userId/orders',
+  rbacAuth.getCustomerOrders
+);
+
+router.get(
+  '/customer/:userId',
+  rbacAuth.getCustomerDetailsById
 );
 
 router.put(

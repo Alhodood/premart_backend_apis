@@ -74,7 +74,110 @@ exports.createPart = async (req, res) => {
   }
 };
 
+// UPDATE PART - NEW ENDPOINT
+exports.updatePart = async (req, res) => {
+  try {
+    const { id } = req.params;
+    const updateData = req.body;
 
+    console.log('🔄 Update Part Request');
+    console.log('📋 Part ID:', id);
+    console.log('📦 Update Data:', JSON.stringify(updateData, null, 2));
+
+    // Validate part ID
+    if (!id) {
+      return res.status(400).json({
+        success: false,
+        message: 'Part ID is required'
+      });
+    }
+
+    // Check if part exists
+    const existingPart = await PartsCatalog.findById(id);
+    if (!existingPart) {
+      console.log('❌ Part not found with ID:', id);
+      return res.status(404).json({
+        success: false,
+        message: 'Part not found'
+      });
+    }
+
+    console.log('✅ Found existing part:', existingPart.partNumber);
+
+    // If partNumber is being updated, check for duplicates
+    if (updateData.partNumber && updateData.partNumber !== existingPart.partNumber) {
+      const duplicate = await PartsCatalog.findOne({ 
+        partNumber: updateData.partNumber,
+        _id: { $ne: id }
+      });
+      
+      if (duplicate) {
+        return res.status(400).json({
+          success: false,
+          message: 'Part with this part number already exists'
+        });
+      }
+    }
+
+    // Validate vehicle config IDs if provided
+    if (updateData.compatibleVehicleConfigs && Array.isArray(updateData.compatibleVehicleConfigs)) {
+      if (updateData.compatibleVehicleConfigs.length > 0) {
+        const validCount = await VehicleConfiguration.countDocuments({
+          _id: { $in: updateData.compatibleVehicleConfigs }
+        });
+
+        if (validCount !== updateData.compatibleVehicleConfigs.length) {
+          return res.status(400).json({
+            success: false,
+            message: 'One or more invalid vehicle configuration IDs'
+          });
+        }
+        console.log('✅ Validated vehicle configurations');
+      }
+    }
+
+    // Update the part
+    const updatedPart = await PartsCatalog.findByIdAndUpdate(
+      id,
+      updateData,
+      { new: true, runValidators: true }
+    )
+      .populate('category', 'categoryName')
+      .populate('subCategory', 'subCategoryName')
+      .populate({
+        path: 'compatibleVehicleConfigs',
+        populate: {
+          path: 'brand model',
+          select: 'brandName modelName year engineType transmission'
+        }
+      });
+
+    if (!updatedPart) {
+      return res.status(404).json({
+        success: false,
+        message: 'Failed to update part'
+      });
+    }
+
+    console.log('✅ Part updated successfully:', updatedPart._id);
+
+    res.json({ 
+      success: true, 
+      message: 'Part updated successfully',
+      data: updatedPart 
+    });
+
+  } catch (err) {
+    console.error('❌ Update Part Error:', err);
+    console.error('Error details:', err.message);
+    console.error('Stack:', err.stack);
+    res.status(500).json({ 
+      success: false, 
+      message: 'Failed to update part',
+      error: err.message
+    });
+  }
+};
 
 // GET ALL PARTS - FIXED
 exports.getAllParts = async (req, res) => {
