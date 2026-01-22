@@ -65,6 +65,8 @@ const ShopAdminSchema = new mongoose.Schema({
     default: ROLES.SHOP_ADMIN,
     
   },
+ shopId: { type: mongoose.Schema.Types.ObjectId, ref: 'Shop' },
+  
 
   location: { type: String },
 
@@ -72,6 +74,8 @@ const ShopAdminSchema = new mongoose.Schema({
   companyLicenseImage: { type: String,  }
 
 }, { timestamps: true });
+
+
 
 
 /* ------------------------------
@@ -102,6 +106,7 @@ function comparePassword(candidatePassword) {
 
 SuperAdminSchema.methods.comparePassword = comparePassword;
 ShopAdminSchema.methods.comparePassword = comparePassword;
+
 
 
 /* ------------------------------

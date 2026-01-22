@@ -2,6 +2,10 @@ const express = require('express');
 const router = express.Router();
 
 const reportController = require('../controllers/reportController');
+const { 
+  getWeeklySales,
+  getOrderStatusDistribution 
+} = require('../controllers/dashboardController');
 
 //router.get('/agency/download', generateReport.generateAgencyReportCsv);
 
@@ -9,7 +13,11 @@ router.get('/orders/cancelled', reportController.getCancelledOrders);
 router.get('/orders/returned', reportController.getReturnedOrders);
 
 router.get('/sales/daily', reportController.getDailySales);
-router.get('/sales/weekly', reportController.getWeeklySales);
+// Weekly sales graph
+router.get('/sales/weekly', getWeeklySales);
+
+// Order status pie chart
+router.get('/order-status-distribution', getOrderStatusDistribution);
 router.get('/sales/monthly', reportController.getMonthlySales);
 router.get('/shop-sales', reportController.getShopWiseSales);
 

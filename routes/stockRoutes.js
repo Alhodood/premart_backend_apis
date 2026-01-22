@@ -2,24 +2,19 @@ const express = require('express');
 const router = express.Router();
 const stockController = require('../controllers/stockController');
 
-// View all stock for a shop
+// Get all stock for shop
 router.get('/shop/:shopId', stockController.getStockByShop);
 
-// View stock for one product in shop
+// Get stock for one product
 router.get('/shop/:shopId/product/:productId', stockController.getStockByProduct);
 
-// Add or update stock
-router.post('/manage', stockController.addOrUpdateStock);
+// Set stock directly
+router.patch('/product/:productId/stock', stockController.updateStock);
 
-// Adjust stock (add or subtract)
-router.put('/adjust', stockController.adjustStock);
+// Adjust stock (+/-)
+router.patch('/product/:productId/adjust', stockController.adjustStock);
 
-// Get low stock alerts
-router.get('/shop/:shopId/low-stock', stockController.getLowStockItems);
-
-// Delete stock item
-router.delete('/:stockId', stockController.deleteStockItem);
-
-router.get('/shop/:shopId/search', stockController.searchAndFilterStock);
+// Low stock
+router.get('/shop/:shopId/low-stock', stockController.getLowStock);
 
 module.exports = router;

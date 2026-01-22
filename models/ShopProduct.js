@@ -12,6 +12,7 @@ const shopProductSchema = new mongoose.Schema({
   isAvailable: { type: Boolean, default: true },
 
 }, { timestamps: true });
+shopProductSchema.index({ shopId: 1, part: 1 }, { unique: true });
 
 // Indexes for performance optimization
 shopProductSchema.index({ part: 1, isAvailable: 1 });
