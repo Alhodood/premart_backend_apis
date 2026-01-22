@@ -38,6 +38,7 @@ const { ROLES } = require('../constants/roles');
 router.post('/register', rbacAuth.register);
 router.post('/login', rbacAuth.login);
 router.post('/verify-otp', rbacAuth.verifyOtp);
+router.post('/send-otp', rbacAuth.sendOtp);
 router.get('/getUsers',rbacAuth.getAllCustomers
 );
 

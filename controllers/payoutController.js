@@ -50,17 +50,35 @@ exports.multiShopPayoutSummary = async (req, res) => {
       const commission = (shopData.totalSales * PLATFORM_COMMISSION_PERCENT) / 100;
       const netPayable = shopData.totalSales - commission;
 
-      // ✅ CREATE PAYOUT RECORD
-      const payout = await ShopPayout.create({
+      // ✅ CHECK IF PAYOUT ALREADY EXISTS FOR THIS DATE RANGE
+      const existingPayout = await ShopPayout.findOne({
         shopId,
-        totalOrders: shopData.totalOrders,
-        totalSales: shopData.totalSales,
-        platformCommission: commission,
-        netPayable,
-        from,
-        to,
-        status: 'Pending'
+        from: { $lte: new Date(to) },
+        to: { $gte: new Date(from) },
+        status: { $in: ['Pending', 'Processing'] } // Only check unpaid payouts
       });
+
+      let payout;
+      if (existingPayout) {
+        // Update existing pending payout
+        existingPayout.totalOrders = shopData.totalOrders;
+        existingPayout.totalSales = shopData.totalSales;
+        existingPayout.platformCommission = commission;
+        existingPayout.netPayable = netPayable;
+        payout = await existingPayout.save();
+      } else {
+        // Create new payout record (only if no pending/processing payout exists)
+        payout = await ShopPayout.create({
+          shopId,
+          totalOrders: shopData.totalOrders,
+          totalSales: shopData.totalSales,
+          platformCommission: commission,
+          netPayable,
+          from,
+          to,
+          status: 'Pending'
+        });
+      }
 
       payoutReport.push({
         payoutId: payout._id,
@@ -69,7 +87,7 @@ exports.multiShopPayoutSummary = async (req, res) => {
         totalSales: shopData.totalSales.toFixed(2),
         platformCommission: commission.toFixed(2),
         netPayableToShop: netPayable.toFixed(2),
-        status: 'Pending'
+        status: payout.status
       });
     }
 
@@ -253,6 +271,15 @@ exports.markAgencyPayoutAsPaid = async (req, res) => {
       });
     }
 
+    // ✅ PREVENT UPDATING ALREADY PAID PAYOUTS
+    if (payout.status === 'Paid') {
+      return res.status(400).json({
+        message: 'This payout has already been marked as paid',
+        success: false,
+        data: payout
+      });
+    }
+
     payout.status = 'Paid';
     payout.paidAt = new Date();
     if (transactionId) payout.transactionId = transactionId;
@@ -402,6 +429,15 @@ exports.markShopPayoutAsPaid = async (req, res) => {
       return res.status(404).json({
         message: 'Payout not found',
         success: false
+      });
+    }
+
+    // ✅ PREVENT UPDATING ALREADY PAID PAYOUTS
+    if (payout.status === 'Paid') {
+      return res.status(400).json({
+        message: 'This payout has already been marked as paid',
+        success: false,
+        data: payout
       });
     }
 

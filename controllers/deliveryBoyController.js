@@ -494,6 +494,7 @@ exports.viewAssignedOrders = async (req, res) => {
 
     // ✅ 3. Fetch assigned orders (use 'status' not 'orderStatus')
     const allowedStatuses = [
+      "Delivery Boy Assigned",  
       "Accepted by Delivery Boy",
       "Order Accepted By Delivery Boy",
       "Reached Pickup",
@@ -1471,18 +1472,17 @@ exports.getNearbyTopOrderAreas = async (req, res) => {
 exports.getDeliveryEarningsHistory = async (req, res) => {
   try {
     const deliveryBoyId = req.params.deliveryBoyId;
-
+    
+    // ✅ Changed from orderStatus to status
     const orders = await Order.find({
       assignedDeliveryBoy: deliveryBoyId,
-      orderStatus: 'Delivered'
+      status: 'Delivered'  // ✅ FIXED - using 'status' field
     });
 
     const result = {};
-
     orders.forEach(order => {
       const date = moment(order.updatedAt);
       let label;
-
       if (date.isSame(moment(), 'day')) {
         label = 'Today';
       } else if (date.isSame(moment().subtract(1, 'days'), 'day')) {
@@ -1492,7 +1492,6 @@ exports.getDeliveryEarningsHistory = async (req, res) => {
       }
 
       if (!result[label]) result[label] = [];
-
       result[label].push({
         orderId: order._id,
         date: date.format('DD/MM/YYYY'),
@@ -1505,7 +1504,6 @@ exports.getDeliveryEarningsHistory = async (req, res) => {
       success: true,
       data: result
     });
-
   } catch (error) {
     console.error('Earning History Error:', error);
     res.status(500).json({
@@ -1532,9 +1530,16 @@ exports.getDeliveryOrderHistory = async (req, res) => {
     }
 
     // 2. Fetch all assigned orders
-    const orders = await Order.find({ assignedDeliveryBoy: deliveryBoyId }).sort({ createdAt: -1 });
+    const orders = await Order.find({
+      assignedDeliveryBoy: deliveryBoyId
+    }).sort({ createdAt: -1 });
+
     if (!orders.length) {
-      return res.status(200).json({ message: 'No orders found', success: true, data: [] });
+      return res.status(200).json({
+        message: 'No orders found',
+        success: true,
+        data: []
+      });
     }
 
     // 3. Enrich with date formatting and payment info
@@ -1544,7 +1549,6 @@ exports.getDeliveryOrderHistory = async (req, res) => {
         const createdAt = moment(order.createdAt);
         const today = moment();
         const yesterday = moment().subtract(1, 'day');
-
         let label = createdAt.isSame(today, 'day')
           ? 'Today'
           : createdAt.isSame(yesterday, 'day')
@@ -1555,10 +1559,10 @@ exports.getDeliveryOrderHistory = async (req, res) => {
           orderId: order._id,
           date: createdAt.format('DD/MM/YYYY'),
           day: label,
-          orderStatus: order.orderStatus,
+          orderStatus: order.status,  // ✅ Changed from order.orderStatus
           earning: parseFloat(order.deliveryEarning || 0),
           paymentType: order.paymentType || 'N/A',
-          deliveryAddress: `${order.deliveryAddress.flatNumber}, ${order.deliveryAddress.area}, ${order.deliveryAddress.place}`,
+          deliveryAddress: `${order.deliveryAddress.flatNumber || ''}, ${order.deliveryAddress.area || ''}, ${order.deliveryAddress.place || ''}`,
         };
       })
     );
@@ -1568,7 +1572,6 @@ exports.getDeliveryOrderHistory = async (req, res) => {
       success: true,
       data: formatted,
     });
-
   } catch (error) {
     console.error('Order History Error:', error);
     return res.status(500).json({
