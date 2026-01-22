@@ -39,6 +39,8 @@ router.post('/createDummy/:userId', orderController.seedDummyOrder);
 
  router.get('/generateInvoice/:orderId', orderController.generateInvoice);
 
+ router.get('/getOrderById/:orderId', orderController.getOrderById);
+
 
 
 module.exports = router;

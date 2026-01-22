@@ -296,6 +296,126 @@ exports.getSuperAdminDashboard = async (req, res) => {
   }
 };
 
+// Add this new function to dashboardController.js
+exports.getWeeklySales = async (req, res) => {
+  try {
+    console.log('📊 Fetching Weekly Sales Data');
+    
+    const now = new Date();
+    const sevenDaysAgo = new Date(now);
+    sevenDaysAgo.setDate(now.getDate() - 7);
+
+    // Get orders from last 7 days grouped by day
+    const weeklySales = await Order.aggregate([
+      {
+        $match: {
+          status: 'Delivered', // Only count delivered orders
+          createdAt: { $gte: sevenDaysAgo }
+        }
+      },
+      {
+        $group: {
+          _id: {
+            $dateToString: { format: '%Y-%m-%d', date: '$createdAt' }
+          },
+          totalSales: {
+            $sum: {
+              $cond: [
+                { $eq: [{ $type: '$totalPayable' }, 'string'] },
+                { $toDouble: '$totalPayable' },
+                { $ifNull: ['$totalPayable', 0] }
+              ]
+            }
+          },
+          orderCount: { $sum: 1 }
+        }
+      },
+      {
+        $sort: { _id: 1 }
+      }
+    ]);
+
+    // Create array for last 7 days with zero values
+    const salesByDay = [];
+    for (let i = 6; i >= 0; i--) {
+      const date = new Date(now);
+      date.setDate(now.getDate() - i);
+      const dateStr = date.toISOString().split('T')[0];
+      
+      const existingData = weeklySales.find(s => s._id === dateStr);
+      
+      salesByDay.push({
+        date: dateStr,
+        day: date.toLocaleDateString('en-US', { weekday: 'short' }),
+        totalSales: existingData ? Math.round(existingData.totalSales) : 0,
+        orderCount: existingData ? existingData.orderCount : 0
+      });
+    }
+
+    console.log('✅ Weekly sales data:', salesByDay);
+
+    res.status(200).json({
+      message: 'Weekly sales fetched successfully',
+      success: true,
+      data: salesByDay
+    });
+
+  } catch (err) {
+    console.error('❌ Weekly Sales Error:', err);
+    res.status(500).json({
+      message: 'Failed to fetch weekly sales',
+      success: false,
+      error: err.message
+    });
+  }
+};
+
+// Add this to dashboardController.js
+exports.getOrderStatusDistribution = async (req, res) => {
+  try {
+    console.log('📊 Fetching Order Status Distribution');
+
+    const orderStatuses = await Order.aggregate([
+      {
+        $group: {
+          _id: '$status',
+          count: { $sum: 1 }
+        }
+      },
+      {
+        $sort: { count: -1 }
+      }
+    ]);
+
+    const formattedData = orderStatuses.map(item => ({
+      status: item._id || 'Unknown',
+      count: item.count,
+      percentage: 0 // Will calculate on frontend
+    }));
+
+    const total = formattedData.reduce((sum, item) => sum + item.count, 0);
+    formattedData.forEach(item => {
+      item.percentage = total > 0 ? Math.round((item.count / total) * 100) : 0;
+    });
+
+    console.log('✅ Order status distribution:', formattedData);
+
+    res.status(200).json({
+      message: 'Order status distribution fetched successfully',
+      success: true,
+      data: formattedData
+    });
+
+  } catch (err) {
+    console.error('❌ Order Status Distribution Error:', err);
+    res.status(500).json({
+      message: 'Failed to fetch order status distribution',
+      success: false,
+      error: err.message
+    });
+  }
+};
+
 // Export other functions as needed
 exports.getShopDashboardByShopId = async (req, res) => {
   // Keep existing implementation

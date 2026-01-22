@@ -1,8 +1,11 @@
 const jwt = require('jsonwebtoken');
 const roleModelMap = require('../constants/roleModelMap');
 
-const User = require('../models/User');
+const { Shop } = require('../models/Shop');
 const { ROLES } = require('../constants/roles');
+   const User = require('../models/User');
+    const DeliveryBoy = require('../models/DeliveryBoy');
+   const { ShopAdmin } = require('../models/Shop');
 
 const JWT_SECRET = process.env.JWT_SECRET;
 const JWT_EXPIRE = '7d';
@@ -10,35 +13,158 @@ const JWT_EXPIRE = '7d';
 const generateToken = (payload) =>
   jwt.sign(payload, JWT_SECRET, { expiresIn: JWT_EXPIRE });
 
+// controllers/rbacAuthController.js
+
 exports.register = async (req, res) => {
   try {
-    const { role, ...payload } = req.body;
-    if ([ROLES.SUPER_ADMIN, ROLES.SHOP_ADMIN, ROLES.AGENCY].includes(role)) {
-  return res.status(403).json({ message: 'Role cannot be self-registered' });
-}
+    const { 
+      name, 
+      email, 
+      dob, 
+      phone, 
+      password, 
+      countryCode, 
+      role, 
+      latitude,      // ✅ Add this
+      longitude,     // ✅ Add this
+      agencyId       // For delivery boys
+    } = req.body;
 
-    if (!role || !roleModelMap[role]) {
-      return res.status(400).json({ success: false, message: 'Invalid role' });
+    // Validate required fields
+    if (!phone || !password || !countryCode) {
+      return res.status(400).json({
+        success: false,
+        message: 'Phone, password, and country code are required'
+      });
     }
 
-    const Model = roleModelMap[role];
+    // ✅ Validate location for DELIVERY_BOY
+    if (role === ROLES.DELIVERY_BOY) {
+      if (latitude === undefined || longitude === undefined) {
+        return res.status(400).json({
+          success: false,
+          message: 'Latitude and longitude are required for delivery boy registration'
+        });
+      }
 
-    const exists = await Model.findOne({ email: payload.email });
-    if (exists) {
-      return res.status(400).json({ success: false, message: 'Already registered' });
+      // Validate coordinate format
+      if (typeof latitude !== 'number' || typeof longitude !== 'number') {
+        return res.status(400).json({
+          success: false,
+          message: 'Latitude and longitude must be numbers'
+        });
+      }
+
+      // Validate range (for UAE/Dubai area)
+      if (latitude < 24 || latitude > 26 || longitude < 54 || longitude > 56) {
+        return res.status(400).json({
+          success: false,
+          message: 'Coordinates out of valid range for UAE',
+          hint: 'UAE coordinates: latitude 24-26, longitude 54-56'
+        });
+      }
+
+      // Validate agencyId if provided
+      if (agencyId) {
+        const { DeliveryAgency } = require('../models/DeliveryAgency');
+        const agencyExists = await DeliveryAgency.findById(agencyId);
+        if (!agencyExists) {
+          return res.status(404).json({
+            success: false,
+            message: 'Invalid agency ID'
+          });
+        }
+      }
     }
 
-    const user = await Model.create({ ...payload, role });
+ 
+ 
 
-    const token = generateToken({ id: user._id, role });
+    let existingUser;
+    if (role === ROLES.CUSTOMER) {
+      existingUser = await User.findOne({ phone });
+    } else if (role === ROLES.DELIVERY_BOY) {
+      existingUser = await DeliveryBoy.findOne({ phone });
+    } else if (role === ROLES.SHOP_ADMIN) {
+      existingUser = await ShopAdmin.findOne({ phone });
+    }
 
-    res.status(201).json({
+    if (existingUser) {
+      return res.status(400).json({
+        success: false,
+        message: 'User with this phone number already exists'
+      });
+    }
+
+    // Create user based on role
+    let newUser;
+
+    if (role === ROLES.CUSTOMER) {
+      newUser = await User.create({
+        name,
+        email,
+        phone,
+        password,
+        countryCode,
+        role: ROLES.CUSTOMER
+      });
+    } else if (role === ROLES.DELIVERY_BOY) {
+      // ✅ Include latitude and longitude
+      newUser = await DeliveryBoy.create({
+        name: name || 'New Delivery Boy',
+        email,
+        phone,
+        password,
+        countryCode,
+        dob,  
+        latitude,      // ✅ Store location
+        longitude,     // ✅ Store location
+        availability: true,  // ✅ Default to available
+        isOnline: false,
+        role: ROLES.DELIVERY_BOY,
+        agencyId: agencyId || null
+      });
+    } else if (role === ROLES.SHOP_ADMIN) {
+      newUser = await ShopAdmin.create({
+        name,
+        email,
+        phone,
+        password,
+        countryCode,
+        role: ROLES.SHOP_ADMIN
+      });
+    } else {
+      return res.status(400).json({
+        success: false,
+        message: 'Invalid role specified'
+      });
+    }
+
+    // Generate OTP and send
+    // ... (your existing OTP logic)
+
+    return res.status(201).json({
       success: true,
-      message: 'Registered successfully',
-      data: { id: user._id, role, token }
+      message: 'Registration successful. OTP sent to phone.',
+      data: {
+        userId: newUser._id,
+        phone: newUser.phone,
+        role: newUser.role,
+        ...(role === ROLES.DELIVERY_BOY && {
+          location: {
+            latitude: newUser.latitude,
+            longitude: newUser.longitude
+          }
+        })
+      }
     });
   } catch (err) {
-    res.status(500).json({ success: false, message: err.message });
+    console.error('Registration Error:', err);
+    return res.status(500).json({
+      success: false,
+      message: 'Registration failed',
+      error: err.message
+    });
   }
 };
 
@@ -50,8 +176,46 @@ exports.login = async (req, res) => {
       return res.status(400).json({ success: false, message: 'Invalid role' });
     }
 
+    let user;
+
+    // =======================
+    // AGENCY LOGIN (FIXED)
+    // =======================
+    if (role === ROLES.AGENCY) {
+      const { DeliveryAgency } = require('../models/DeliveryAgency');
+
+      user = await DeliveryAgency.findOne({
+        'agencyDetails.email': email
+      });
+
+      if (!user) {
+        return res.status(401).json({ success: false, message: 'Invalid credentials' });
+      }
+
+      const match = await user.comparePassword(password);
+      if (!match) {
+        return res.status(401).json({ success: false, message: 'Invalid credentials' });
+      }
+
+      const token = generateToken({ id: user._id, role });
+
+      return res.json({
+        success: true,
+        message: 'Login successful',
+        data: {
+          id: user._id,
+          role,
+          token,
+          agencyId: user._id
+        }
+      });
+    }
+
+    // =======================
+    // ALL OTHER ROLES
+    // =======================
     const Model = roleModelMap[role];
-    const user = await Model.findOne({ email });
+    user = await Model.findOne({ email });
 
     if (!user || !user.comparePassword) {
       return res.status(401).json({ success: false, message: 'Invalid credentials' });
@@ -64,12 +228,24 @@ exports.login = async (req, res) => {
 
     const token = generateToken({ id: user._id, role });
 
+    const response = {
+      id: user._id,
+      role,
+      token
+    };
+
+    if (role === ROLES.SHOP_ADMIN) {
+      response.shopId = user.shopId;
+    }
+
     res.json({
       success: true,
       message: 'Login successful',
-      data: { id: user._id, role, token }
+      data: response
     });
+
   } catch (err) {
+    console.error('Login Error:', err);
     res.status(500).json({ success: false, message: err.message });
   }
 };
@@ -220,31 +396,176 @@ exports.createShopAdmin = async (req, res) => {
 
     const Model = roleModelMap[ROLES.SHOP_ADMIN];
 
-    if (!Model) {
-      return res.status(500).json({ success: false, message: 'ShopAdmin model not registered in roleModelMap' });
-    }
-
+    // Prevent duplicates
     const exists = await Model.findOne({ email });
     if (exists) {
-      return res.status(400).json({ success: false, message: 'Already exists' });
+      return res.status(400).json({ success: false, message: 'Shop admin already exists' });
     }
 
+    // 1. Create real shop entity
+    const shop = await Shop.create({
+      shopeDetails: {
+        shopName: name,
+        shopMail: email,
+        shopContact: phone
+      }
+    });
+
+    // 2. Create shop admin linked to shop
     const admin = await Model.create({
       name,
       email,
       password,
       phone,
-      role: ROLES.SHOP_ADMIN
+      role: ROLES.SHOP_ADMIN,
+      shopId: shop._id
     });
 
-    res.status(201).json({
+    return res.status(201).json({
       success: true,
-      message: 'Shop admin created successfully',
-      data: admin
+      message: 'Shop admin and shop created successfully',
+      data: {
+        adminId: admin._id,
+        shopId: shop._id
+      }
     });
 
   } catch (err) {
     console.error('Create Shop Admin Error:', err);
+    return res.status(500).json({ success: false, message: err.message });
+  }
+};
+
+exports.createAgency = async (req, res) => {
+  try {
+    const { agencyDetails } = req.body;
+
+    if (!agencyDetails?.agencyName || !agencyDetails?.agencyMail) {
+      return res.status(400).json({ success: false, message: 'Missing agency fields' });
+    }
+
+    const Model = roleModelMap[ROLES.AGENCY];
+
+    const exists = await Model.findOne({
+      'agencyDetails.email': agencyDetails.email
+    });
+
+    if (exists) {
+      return res.status(400).json({ success: false, message: 'Agency already exists' });
+    }
+
+    const agency = await Model.create({
+      agencyDetails: {
+        ...agencyDetails,
+        role: ROLES.AGENCY,
+        email: agencyDetails.email,
+        password: agencyDetails.password || 'Temp@123'
+      }
+    });
+
+    return res.status(201).json({
+      success: true,
+      message: 'Agency created successfully',
+      data: {
+        agencyId: agency._id
+      }
+    });
+
+  } catch (err) {
+    console.error('Create Agency Error:', err);
     res.status(500).json({ success: false, message: err.message });
+  }
+};
+
+// controllers/rbacAuthController.js
+
+exports.getCustomerDetailsById = async (req, res) => {
+  try {
+    const { userId } = req.params;
+
+    console.log('========== GET CUSTOMER DETAILS ==========');
+    console.log('Requested userId:', userId);
+
+    const User = require('../models/User');
+    
+    // Check if userId is a valid MongoDB ObjectId
+    const mongoose = require('mongoose');
+    if (!mongoose.Types.ObjectId.isValid(userId)) {
+      console.log('Invalid ObjectId format');
+      return res.status(400).json({
+        success: false,
+        message: 'Invalid customer ID format'
+      });
+    }
+
+    const customer = await User.findById(userId)
+      .select('-password -__v')
+      .lean();
+
+    if (!customer) {
+      console.log('Customer not found');
+      return res.status(404).json({
+        success: false,
+        message: 'Customer not found'
+      });
+    }
+
+    console.log('Customer found:', customer.name || customer.email);
+    console.log('Customer data:', JSON.stringify(customer, null, 2));
+
+    return res.status(200).json({
+      success: true,
+      message: 'Customer details fetched successfully',
+      data: customer
+    });
+  } catch (err) {
+    console.error('Get Customer Details Error:', err);
+    return res.status(500).json({
+      success: false,
+      message: 'Failed to fetch customer details',
+      error: err.message
+    });
+  }
+};
+
+// controllers/rbacAuthController.js
+
+exports.getCustomerOrders = async (req, res) => {
+  try {
+    const { userId } = req.params;
+
+    console.log('========== GET CUSTOMER ORDERS ==========');
+    console.log('Requested userId:', userId);
+
+    const mongoose = require('mongoose');
+    if (!mongoose.Types.ObjectId.isValid(userId)) {
+      return res.status(400).json({
+        success: false,
+        message: 'Invalid customer ID format'
+      });
+    }
+
+    // Import your Order model (adjust path as needed)
+    const Order = require('../models/Order');
+
+    const orders = await Order.find({ userId: userId })
+      .sort({ createdAt: -1 })
+      .lean();
+
+    console.log(`Found ${orders.length} orders for customer ${userId}`);
+
+    return res.status(200).json({
+      success: true,
+      message: 'Customer orders fetched successfully',
+      count: orders.length,
+      data: orders
+    });
+  } catch (err) {
+    console.error('Get Customer Orders Error:', err);
+    return res.status(500).json({
+      success: false,
+      message: 'Failed to fetch customer orders',
+      error: err.message
+    });
   }
 };

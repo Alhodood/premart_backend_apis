@@ -47,27 +47,37 @@ const getLatLngFromAddress = async (addressString) => {
   }
 };
 
+
 exports.createOrder = async (req, res) => {
   try {
     const { couponCode, paymentType, transactionId } = req.body;
     const userId = req.user?._id || req.params.userId;
-
+    
     if (!userId) {
-      return res.status(400).json({ message: 'User ID is required', success: false });
+      return res.status(400).json({ 
+        message: 'User ID is required', 
+        success: false 
+      });
     }
 
+    // ========================
+    // 1. GET USER DATA
+    // ========================
     const User = require('../models/User');
     const userData = await User.findById(userId);
-
+    
     if (!userData) {
-      return res.status(400).json({ message: 'User not found', success: false });
+      return res.status(400).json({ 
+        message: 'User not found', 
+        success: false 
+      });
     }
 
-    // -----------------------------
-    // Resolve delivery address
-    // -----------------------------
+    // ========================
+    // 2. RESOLVE DELIVERY ADDRESS
+    // ========================
     let deliveryAddress = req.body.deliveryAddress;
-
+    
     if (deliveryAddress?.name && deliveryAddress?.address) {
       deliveryAddress = {
         ...deliveryAddress,
@@ -79,9 +89,11 @@ exports.createOrder = async (req, res) => {
     } else {
       const defaultAddress = userData.address?.find(a => a.default);
       if (!defaultAddress) {
-        return res.status(400).json({ message: 'No delivery address found', success: false });
+        return res.status(400).json({ 
+          message: 'No delivery address found', 
+          success: false 
+        });
       }
-
       deliveryAddress = {
         ...defaultAddress.toObject(),
         latitude: defaultAddress.latitude || userData.latitude,
@@ -89,25 +101,38 @@ exports.createOrder = async (req, res) => {
       };
     }
 
-    // -----------------------------
-    // Fetch cart using new structure
-    // -----------------------------
+    // ========================
+    // 3. FETCH CART
+    // ========================
     const cart = await Cart.findOne({ userId })
       .populate({
         path: 'items.shopProductId',
         populate: {
           path: 'part',
-          populate: ['category', 'subCategory'] // PartsCatalog doesn't have brand/model directly
+          populate: [
+            { path: 'category', select: 'categoryName' },
+            { path: 'subCategory', select: 'subCategoryName' },
+            { 
+              path: 'compatibleVehicleConfigs',
+              populate: [
+                { path: 'brand', select: 'brandName' },
+                { path: 'model', select: 'modelName' }
+              ]
+            }
+          ]
         }
       });
 
     if (!cart || cart.items.length === 0) {
-      return res.status(400).json({ message: 'Cart is empty', success: false });
+      return res.status(400).json({ 
+        message: 'Cart is empty', 
+        success: false 
+      });
     }
 
-    // -----------------------------
-    // Normalize products
-    // -----------------------------
+    // ========================
+    // 4. NORMALIZE CART ITEMS
+    // ========================
     const allProducts = cart.items.map(item => ({
       shopProductId: item.shopProductId._id,
       shopId: item.shopProductId.shopId,
@@ -116,9 +141,9 @@ exports.createOrder = async (req, res) => {
       part: item.shopProductId.part
     }));
 
-    // -----------------------------
-    // Group by shopId
-    // -----------------------------
+    // ========================
+    // 5. GROUP BY SHOP
+    // ========================
     const productsByShop = {};
     allProducts.forEach(p => {
       const sId = p.shopId.toString();
@@ -126,41 +151,88 @@ exports.createOrder = async (req, res) => {
       productsByShop[sId].push(p);
     });
 
-    // -----------------------------
-    // CALCULATION LOGIC (UNCHANGED)
-    // -----------------------------
+    // ========================
+    // 6. CALCULATE TOTALS
+    // ========================
     let originalTotal = 0;
     for (const p of allProducts) {
       originalTotal += p.price * p.quantity;
     }
 
+    // ========================
+    // 7. APPLY COUPON
+    // ========================
     let couponDiscount = 0;
     let appliedCoupon = null;
 
     if (couponCode) {
-      const coupon = await Coupon.findOne({ code: couponCode, isActive: true });
-      if (!coupon) return res.status(400).json({ message: 'Invalid coupon', success: false });
+      const coupon = await Coupon.findOne({ 
+        code: couponCode, 
+        isActive: true 
+      });
 
-      couponDiscount = coupon.discountType === 'percent'
-        ? (originalTotal * coupon.discountValue) / 100
-        : coupon.discountValue;
+      if (!coupon) {
+        return res.status(400).json({ 
+          message: 'Invalid coupon', 
+          success: false 
+        });
+      }
+
+      // Check expiry
+      if (coupon.expiryDate && new Date() > coupon.expiryDate) {
+        return res.status(400).json({ 
+          message: 'Coupon has expired', 
+          success: false 
+        });
+      }
+
+      // Check usage limit
+      if (coupon.usageLimit && coupon.usedCount >= coupon.usageLimit) {
+        return res.status(400).json({ 
+          message: 'Coupon usage limit reached', 
+          success: false 
+        });
+      }
+
+      // Check minimum order amount
+      if (coupon.minOrderAmount && originalTotal < coupon.minOrderAmount) {
+        return res.status(400).json({ 
+          message: `Minimum order amount is ${coupon.minOrderAmount}`, 
+          success: false 
+        });
+      }
+
+      // Calculate discount
+      if (coupon.discountType === 'percent') {
+        couponDiscount = (originalTotal * coupon.discountValue) / 100;
+      } else if (coupon.discountType === 'flat' || coupon.discountType === 'amount') {
+        couponDiscount = coupon.discountValue;
+      }
 
       appliedCoupon = {
         code: coupon.code,
         discountType: coupon.discountType,
         discountValue: coupon.discountValue
       };
+
+      // Update coupon usage
+      coupon.usedCount += 1;
+      if (!coupon.userId) coupon.userId = [];
+      coupon.userId.push(userId);
+      await coupon.save();
     }
 
     const totalDiscount = couponDiscount;
     const totalAmount = +(originalTotal - totalDiscount).toFixed(2);
+    
+    // Master delivery charge (applies to entire order if < 500)
     const deliverycharge = originalTotal < 500;
-    const masterDeliveryCharge = originalTotal < 500 ? 30 : 0;
+    const masterDeliveryCharge = deliverycharge ? 30 : 0;
     const finalPayable = totalAmount + masterDeliveryCharge;
 
-    // -----------------------------
-    // Create Master Order
-    // -----------------------------
+    // ========================
+    // 8. CREATE MASTER ORDER
+    // ========================
     const masterOrder = await MasterOrder.create({
       userId,
       totalAmount: originalTotal,
@@ -172,86 +244,122 @@ exports.createOrder = async (req, res) => {
       } : null
     });
 
-    // -----------------------------
-    // Per shop order creation
-    // -----------------------------
+    // ========================
+    // 9. CREATE PER-SHOP ORDERS
+    // ========================
     const perShopResults = [];
 
     for (const shopId of Object.keys(productsByShop)) {
       const shop = await Shop.findById(shopId);
       const shopProducts = productsByShop[shopId];
 
+      // Calculate shop subtotal
       let shopTotal = 0;
-      shopProducts.forEach(p => shopTotal += p.price * p.quantity);
+      shopProducts.forEach(p => {
+        shopTotal += p.price * p.quantity;
+      });
 
-      const shopLatLng = shop?.shopeDetails?.shopLocation?.split(',').map(Number);
-      let deliveryDistance = 0;
-      let deliveryEarning = 0;
-
-      if (shopLatLng?.length === 2 && deliveryAddress.latitude && deliveryAddress.longitude) {
-        deliveryDistance = geolib.getDistance(
-          { latitude: shopLatLng[0], longitude: shopLatLng[1] },
-          { latitude: deliveryAddress.latitude, longitude: deliveryAddress.longitude }
-        ) / 1000;
-
-        deliveryEarning = +(PER_KM_RATE * deliveryDistance).toFixed(2);
+      // ✅ Calculate proportional discount for this shop
+      let shopDiscount = 0;
+      if (couponDiscount > 0 && originalTotal > 0) {
+        shopDiscount = +(couponDiscount * (shopTotal / originalTotal)).toFixed(2);
       }
 
-      // Reduce stock from ShopProduct
+      // ✅ Calculate delivery distance and earning
+      const shopLatLng = shop?.shopeDetails?.shopLocation?.split(',').map(Number);
+let deliveryDistance = 0;
+let deliveryEarning = 0;
+
+if (shopLatLng?.length === 2 && deliveryAddress.latitude && deliveryAddress.longitude) {
+  // 🔥 FIX: Explicitly convert to numbers
+  const shopLat = Number(shopLatLng[0]);
+  const shopLng = Number(shopLatLng[1]);
+  const deliveryLat = Number(deliveryAddress.latitude);
+  const deliveryLng = Number(deliveryAddress.longitude);
+  
+  // Validate that all coordinates are valid numbers
+  if (!isNaN(shopLat) && !isNaN(shopLng) && !isNaN(deliveryLat) && !isNaN(deliveryLng)) {
+    const distanceInMeters = geolib.getDistance(
+      { latitude: shopLat, longitude: shopLng },
+      { latitude: deliveryLat, longitude: deliveryLng }
+    );
+    
+    deliveryDistance = +(distanceInMeters / 1000).toFixed(2); // Convert to KM
+    deliveryEarning = +(PER_KM_RATE * deliveryDistance).toFixed(2);
+    
+    console.log(`📍 Distance calculated: ${deliveryDistance} km, Earning: ${deliveryEarning} AED`);
+  } else {
+    console.error('❌ Invalid coordinates:', { shopLat, shopLng, deliveryLat, deliveryLng });
+  }
+}
+
+      // ✅ Calculate shop's delivery charge (30 if master order < 500)
+      const shopDeliveryCharge = deliverycharge ? 30 : 0;
+
+      // ✅ Calculate final payable for this shop
+      const shopFinalPayable = shopTotal - shopDiscount + shopDeliveryCharge;
+
+      // ✅ Reduce stock from ShopProduct
       for (const p of shopProducts) {
         await ShopProduct.findByIdAndUpdate(p.shopProductId, {
           $inc: { stock: -p.quantity }
         });
       }
 
+      // ✅ Create order with correct calculations
       const createdOrder = await Order.create({
-  userId,
-  shopId,
-  masterOrderId: masterOrder._id,
-
-  items: shopProducts.map(p => ({
-    shopProductId: p.shopProductId,
-    quantity: p.quantity,
-    snapshot: {
-      partNumber: p.part.partNumber,
-      partName: p.part.partName,
-      brand: p.part.brand,
-      model: p.part.model,
-      category: p.part.category,
-      price: p.price,
-      discountedPrice: null,
-      image: p.part.images?.[0] || null
-    }
-  })),
-
-  deliveryAddress,
-
-  subtotal: shopTotal,
-  discount: 0,
-  deliveryCharge: deliverycharge ? 30 : 0,
-  totalPayable: shopTotal + (deliverycharge ? 30 : 0),
-
-  coupon: appliedCoupon ? {
-    ...appliedCoupon,
-    discountAmount: totalDiscount
-  } : null,
-
-  paymentType,
-  transactionId,
-
-  deliveryDistance,
-  deliveryEarning,
-
-  status: 'Pending',
-  statusHistory: [{ status: 'Pending', date: new Date() }]
-});
+        userId,
+        shopId,
+        masterOrderId: masterOrder._id,
+        items: shopProducts.map(p => {
+          const firstConfig = p.part.compatibleVehicleConfigs?.[0];
+          return {
+            shopProductId: p.shopProductId,
+            quantity: p.quantity,
+            snapshot: {
+              partNumber: p.part.partNumber,
+              partName: p.part.partName,
+              brand: firstConfig?.brand || null,
+              model: firstConfig?.model || null,
+              category: p.part.category,
+              price: p.price,
+              discountedPrice: null,
+              image: p.part.images?.[0] || null
+            }
+          };
+        }),
+        deliveryAddress,
+        subtotal: shopTotal,
+        discount: shopDiscount,              // ✅ FIX: Now includes discount
+        deliveryCharge: shopDeliveryCharge,
+        totalPayable: shopFinalPayable,      // ✅ FIX: Correct calculation
+        coupon: appliedCoupon ? {
+          code: appliedCoupon.code,
+          discountType: appliedCoupon.discountType,
+          discountValue: appliedCoupon.discountValue,
+          discountAmount: shopDiscount       // ✅ Per-shop discount amount
+        } : null,
+        paymentType,
+        transactionId: transactionId || null,
+        deliveryDistance,
+        deliveryEarning,
+        status: 'Pending',                   // ✅ Changed from orderStatus
+        statusHistory: [
+          { status: 'Pending', date: new Date() }
+        ]
+      });
 
       perShopResults.push(createdOrder);
     }
 
-    // Clear cart
+    // ========================
+    // 10. CLEAR CART
+    // ========================
     await Cart.updateOne({ userId }, { $set: { items: [] } });
 
+    // ========================
+    // 11. RETURN RESPONSE
+    // ========================
     return res.status(201).json({
       success: true,
       message: 'Order placed successfully',
@@ -260,18 +368,207 @@ exports.createOrder = async (req, res) => {
         originalTotal,
         totalAmount,
         finalPayable,
-        deliverycharge,
+        deliverycharge: masterDeliveryCharge,
         appliedCoupon,
         masterOrderId: masterOrder._id
       }
     });
 
   } catch (err) {
-    console.error(err);
-    res.status(500).json({ message: 'Order failed', success: false });
+    console.error('Create Order Error:', err);
+    res.status(500).json({
+      message: 'Failed to place order',
+      success: false,
+      error: err.message
+    });
   }
 };
 
+// controllers/orderController.js - Add this method
+
+// GET ORDER BY ID WITH FULL POPULATION
+exports.getOrderById = async (req, res) => {
+  try {
+    const { orderId } = req.params;
+
+    console.log('📦 Fetching order:', orderId);
+
+    const order = await Order.findById(orderId)
+      .populate('userId', 'name email phone')
+      .populate('shopId', 'shopName shopAddress contactNumber')
+      .populate('assignedDeliveryBoy', 'name phoneNumber')
+      .populate({
+        path: 'productId.productId',  // Populate the productId reference inside the array
+        model: 'ShopProduct',
+        populate: {
+          path: 'part',
+          model: 'PartsCatalog',
+          select: 'partName partNumber images category brand model'
+        }
+      })
+      .populate({
+        path: 'items.shopProductId',
+        populate: {
+          path: 'part',
+          select: 'partName partNumber images category brand model'
+        }
+      })
+      .lean();
+
+    if (!order) {
+      return res.status(404).json({
+        success: false,
+        message: 'Order not found'
+      });
+    }
+
+    console.log('✅ Order found:', order._id);
+    console.log('📦 Order productId:', JSON.stringify(order.productId, null, 2));
+    console.log('📦 Order items:', JSON.stringify(order.items, null, 2));
+
+    // Format response - prioritize the structure that exists
+    const formattedOrder = {
+      ...order,
+      orderStatus: order.status || order.orderStatus || 'pending',
+      
+      // Ensure these fields are present
+      totalAmount: order.subtotal || order.totalAmount || 0,
+      finalPayable: order.totalPayable || order.finalPayable || 0,
+      quantity: order.quantity || 
+                (order.items?.reduce((sum, item) => sum + (item.quantity || 1), 0)) ||
+                (order.productId?.reduce((sum, item) => sum + (item.quantity || 1), 0)) ||
+                1,
+      
+      // Include both structures for compatibility
+      productId: order.productId || [],
+      items: order.items || []
+    };
+
+    console.log('✅ Formatted order response');
+    console.log('💰 Total Amount:', formattedOrder.totalAmount);
+    console.log('💰 Final Payable:', formattedOrder.finalPayable);
+
+    res.json({
+      success: true,
+      data: formattedOrder
+    });
+
+  } catch (err) {
+    console.error('❌ Get Order Error:', err);
+    res.status(500).json({
+      success: false,
+      message: 'Failed to fetch order',
+      error: err.message
+    });
+  }
+};
+
+
+// GET ALL ORDERS WITH PROPER POPULATION (for table view)
+exports.getAllOrders = async (req, res) => {
+  try {
+    const { 
+      page = 1, 
+      limit = 10, 
+      status, 
+      shopId,
+      startDate,
+      endDate 
+    } = req.query;
+
+    const filter = {};
+    
+    if (status) filter.status = status;
+    if (shopId) filter.shopId = shopId;
+    
+    if (startDate || endDate) {
+      filter.createdAt = {};
+      if (startDate) filter.createdAt.$gte = new Date(startDate);
+      if (endDate) filter.createdAt.$lte = new Date(endDate);
+    }
+
+    const skip = (page - 1) * limit;
+
+    const [orders, total] = await Promise.all([
+      Order.find(filter)
+        .populate('userId', 'name email phone')
+        .populate('shopId', 'shopName')
+        .populate('assignedDeliveryBoy', 'name')
+        .populate({
+          path: 'items.shopProductId',
+          populate: {
+            path: 'part',
+            select: 'partName images'
+          }
+        })
+        .sort({ createdAt: -1 })
+        .skip(skip)
+        .limit(parseInt(limit))
+        .lean(),
+      Order.countDocuments(filter)
+    ]);
+
+    // Format orders for table view
+    const formattedOrders = orders.map(order => ({
+      _id: order._id,
+      orderNumber: order.orderNumber || order._id,
+      createdAt: order.createdAt,
+      
+      // Customer
+      customerName: order.deliveryAddress?.name || order.userId?.name || '-',
+      customerPhone: order.deliveryAddress?.contact || order.userId?.phone || '-',
+      
+      // Status
+      orderStatus: order.status || order.orderStatus || 'pending',
+      
+      // First item details (for preview)
+      productName: order.items?.[0]?.snapshot?.partName || 
+                   order.items?.[0]?.shopProductId?.part?.partName || 
+                   'Product',
+      productImage: order.items?.[0]?.snapshot?.image || 
+                    order.items?.[0]?.shopProductId?.part?.images?.[0] || 
+                    null,
+      
+      // Counts
+      itemCount: order.items?.length || 0,
+      quantity: order.items?.reduce((sum, item) => sum + (item.quantity || 1), 0) || 1,
+      
+      // Financial
+      totalAmount: order.subtotal || order.totalAmount || 0,
+      finalPayable: order.totalPayable || order.finalPayable || 0,
+      
+      // Delivery
+      deliveryAddress: order.deliveryAddress,
+      deliveryBoy: order.assignedDeliveryBoy?.name || 'Not Assigned',
+      
+      // Shop
+      shopName: order.shopId?.shopName || 'Unknown Shop',
+      
+      // Payment
+      paymentMethod: order.paymentType || order.paymentMethod || 'Cash',
+      paymentStatus: order.paymentStatus || 'Pending'
+    }));
+
+    res.json({
+      success: true,
+      data: formattedOrders,
+      pagination: {
+        page: parseInt(page),
+        limit: parseInt(limit),
+        total,
+        pages: Math.ceil(total / limit)
+      }
+    });
+
+  } catch (err) {
+    console.error('❌ Get All Orders Error:', err);
+    res.status(500).json({
+      success: false,
+      message: 'Failed to fetch orders',
+      error: err.message
+    });
+  }
+};
 
 
 // exports.createOrder = async (req, res) => {
