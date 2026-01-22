@@ -250,29 +250,63 @@ exports.login = async (req, res) => {
   }
 };
 
+exports.sendOtp = async (req, res) => {
+  const { phone } = req.body;
+
+  if (!phone) {
+    return res.status(400).json({
+      success: false,
+      message: 'Phone is required'
+    });
+  }
+
+  return res.status(200).json({
+    success: true,
+    message: 'OTP sent successfully (bypass enabled)'
+  });
+};
+
 exports.verifyOtp = async (req, res) => {
   try {
-    const { phone, code, role } = req.body;
+    const { phone, role, countryCode, latitude, longitude, agencyId } = req.body;
 
-    if (![ROLES.CUSTOMER, ROLES.DELIVERY_BOY].includes(role)) {
-  return res.status(403).json({ message: 'OTP login not allowed for this role' });
-}
+    if (!phone || !role) {
+      return res.status(400).json({
+        success: false,
+        message: 'phone and role are required'
+      });
+    }
 
-    if (!role || !roleModelMap[role]) {
-      return res.status(400).json({ success: false, message: 'Invalid role' });
+    if (role !== ROLES.DELIVERY_BOY) {
+      return res.status(403).json({
+        success: false,
+        message: 'Only delivery boy supported in this flow'
+      });
     }
 
     const Model = roleModelMap[role];
 
-    // DEV bypass
-    if (code !== '123456') {
-      return res.status(401).json({ success: false, message: 'Invalid OTP (DEV MODE)' });
-    }
-
+    // Find or create delivery boy
     let user = await Model.findOne({ phone });
 
     if (!user) {
-      user = await Model.create({ phone, role });
+      user = await Model.create({
+        phone,
+        role,
+        countryCode,
+        latitude,
+        longitude,
+        agencyId: agencyId || null,
+        isOnline: false,
+        availability: true,
+      });
+    } else {
+      // Update values if already exists
+      user.countryCode = countryCode ?? user.countryCode;
+      user.latitude = latitude ?? user.latitude;
+      user.longitude = longitude ?? user.longitude;
+      user.agencyId = agencyId ?? user.agencyId;
+      await user.save();
     }
 
     const token = jwt.sign(
@@ -281,14 +315,22 @@ exports.verifyOtp = async (req, res) => {
       { expiresIn: '7d' }
     );
 
-    res.json({
+    return res.status(200).json({
       success: true,
-      message: 'OTP login success',
-      data: { id: user._id, role, token }
+      message: 'Login success (OTP bypass)',
+      data: {
+        id: user._id,
+        role,
+        token
+      }
     });
 
   } catch (err) {
-    res.status(500).json({ success: false, message: err.message });
+    console.error('Verify OTP Error:', err);
+    return res.status(500).json({
+      success: false,
+      message: err.message
+    });
   }
 };
 
