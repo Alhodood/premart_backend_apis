@@ -27,7 +27,42 @@ exports.createNotification = async (req, res) => {
 
     await notification.save();
 
-    res.status(201).json({
+    // ============================
+    // 🔥 SOCKET EMIT LOGIC
+    // ============================
+    const io = global.io;
+
+    if (!isScheduled) {
+      // Case 1: Send to specific users
+      if (recipientIds.length > 0) {
+        recipientIds.forEach(userId => {
+          io.to(userId.toString()).emit("new_notification", {
+            id: notification._id,
+            title,
+            message,
+            image,
+            type: notification.type,
+            createdAt: notification.createdAt,
+          });
+        });
+      }
+
+      // Case 2: Broadcast to role (deliveryBoy)
+      else if (role === 'deliveryBoy') {
+        Object.keys(global.connectedUsers).forEach(userId => {
+          io.to(userId).emit("new_notification", {
+            id: notification._id,
+            title,
+            message,
+            image,
+            type: notification.type,
+            createdAt: notification.createdAt,
+          });
+        });
+      }
+    }
+
+    return res.status(201).json({
       message: 'In-app notification created successfully',
       success: true,
       data: notification

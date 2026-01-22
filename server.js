@@ -45,6 +45,9 @@ const Product = require('./models/_deprecated/Product.js');
 const { extractKeyAndBucket } = require('./helper/s3');
 const engineRoutes = require('./routes/engineRoutes');
 const transmissionRoutes = require('./routes/transmissionRoutes');
+const superAdminSettingsRoutes = require('./routes/superAdminSettingsRoutes');
+
+
 
 const app = express();
 
@@ -127,6 +130,8 @@ app.use('/api', productUpload);
 app.use('/api/engine', engineRoutes);
 app.use('/api/transmission', transmissionRoutes);
 app.use('/api/vehicle-config', require('./routes/vehicleConfigurationRoutes'));
+app.use('/api/super-admin', superAdminSettingsRoutes);
+
 
 
 // Basic route
