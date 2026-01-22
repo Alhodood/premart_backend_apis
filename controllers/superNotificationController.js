@@ -1,4 +1,5 @@
 const Notification = require('../models/superNotification');
+const socketService = require('../sockets/socket');
 
 
 exports.createNotification = async (req, res) => {
@@ -20,42 +21,47 @@ exports.createNotification = async (req, res) => {
       recipientIds,
       isScheduled,
       scheduledAt: isScheduled && scheduledAt ? new Date(scheduledAt) : null,
-      sentAt: isScheduled && scheduledAt ? new Date(scheduledAt) : new Date(),
+      sentAt: new Date(),
       createdBy: req.params.creatorId,
       image
     });
 
     await notification.save();
 
-    // ============================
-    // 🔥 SOCKET EMIT LOGIC
-    // ============================
-    const io = global.io;
+    console.log("🟡 Notification saved:", notification._id);
+
+    const io = socketService.getIO();
+    const connectedUsers = socketService.getConnectedUsers();
+
+    console.log("🟡 Active users:", connectedUsers);
 
     if (!isScheduled) {
-      // Case 1: Send to specific users
+
+      // Targeted
       if (recipientIds.length > 0) {
-        recipientIds.forEach(userId => {
-          io.to(userId.toString()).emit("new_notification", {
+        recipientIds.forEach(uid => {
+          console.log("🟢 Emit to:", uid);
+
+          io.to(uid.toString()).emit("new_notification", {
             id: notification._id,
             title,
             message,
             image,
-            type: notification.type,
             createdAt: notification.createdAt,
           });
         });
       }
 
-      // Case 2: Broadcast to role (deliveryBoy)
+      // Role broadcast
       else if (role === 'deliveryBoy') {
-        Object.keys(global.connectedUsers).forEach(userId => {
-          io.to(userId).emit("new_notification", {
+        Object.keys(connectedUsers).forEach(uid => {
+          console.log("🟢 Broadcast to:", uid);
+
+          io.to(uid).emit("new_notification", {
             id: notification._id,
             title,
             message,
             image,
-            type: notification.type,
             createdAt: notification.createdAt,
           });
         });
@@ -63,16 +69,17 @@ exports.createNotification = async (req, res) => {
     }
 
     return res.status(201).json({
-      message: 'In-app notification created successfully',
       success: true,
+      message: 'Notification created',
       data: notification
     });
 
-  } catch (error) {
-    res.status(500).json({
-      message: 'Failed to create notification',
+  } catch (err) {
+    console.error("❌ Create notification failed:", err);
+    return res.status(500).json({
       success: false,
-      data: error.message
+      message: 'Failed to create notification',
+      error: err.message
     });
   }
 };
