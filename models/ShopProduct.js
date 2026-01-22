@@ -12,5 +12,6 @@ const shopProductSchema = new mongoose.Schema({
   isAvailable: { type: Boolean, default: true },
 
 }, { timestamps: true });
+shopProductSchema.index({ shopId: 1, part: 1 }, { unique: true });
 
 module.exports = mongoose.model('ShopProduct', shopProductSchema);

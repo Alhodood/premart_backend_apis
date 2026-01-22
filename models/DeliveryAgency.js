@@ -1,5 +1,6 @@
 const mongoose = require('mongoose');
 const { ROLES } = require('../constants/roles');
+const bcrypt = require('bcrypt');
 const agencyBankDetailsSchema = new mongoose.Schema({
   bankName: { type: String },
   accountNumber: { type: String },
@@ -47,10 +48,24 @@ const agencyPaymentSchema = new mongoose.Schema({
   status: { type: String, enum: ['Paid', 'Pending', 'Failed'], default: 'Paid' }
 }, { timestamps: true });
 
+
 const deliveryAgencySchema = new mongoose.Schema({
   agencyDetails: agencyDetailsSchema,
   paymentRecords: [agencyPaymentSchema]
 }, { timestamps: true });
+
+deliveryAgencySchema.pre('save', async function(next) {
+  if (!this.agencyDetails.password) return next();
+  if (!this.isModified('agencyDetails.password')) return next();
+
+  const salt = await bcrypt.genSalt(10);
+  this.agencyDetails.password = await bcrypt.hash(this.agencyDetails.password, salt);
+  next();
+});
+
+deliveryAgencySchema.methods.comparePassword = function(candidate) {
+  return bcrypt.compare(candidate, this.agencyDetails.password);
+};
 
 const DeliveryAgency = mongoose.model('DeliveryAgency', deliveryAgencySchema);
 
