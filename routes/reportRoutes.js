@@ -45,4 +45,95 @@ router.get('/stock/low/by-shop', reportController.getShopLowStockParts);
 router.get('/stock/out-of-stock/by-shop', reportController.getShopOutOfStockParts);
 router.get('/orders/pending/by-shop', reportController.getShopPendingOrders);
 
+router.get(
+  '/orders/pending/by-shop',
+ 
+  reportController.getShopPendingOrders
+);
+
+// Shop Cancelled Orders
+router.get(
+  '/orders/cancelled/by-shop',
+ 
+  reportController.getShopCancelledOrders
+);
+
+// Shop Returned Orders
+router.get(
+  '/orders/returned/by-shop',
+ 
+  reportController.getShopReturnedOrders
+);
+
+// ========================================
+// SHOP SALES REPORTS
+// ========================================
+
+// Shop Daily Sales
+router.get(
+  '/sales/daily/by-shop',
+  
+  reportController.getShopDailySales
+);
+
+// Shop Weekly Sales
+router.get(
+  '/sales/weekly/by-shop',
+ 
+  reportController.getShopWeeklySales
+);
+
+// Shop Monthly Sales
+router.get(
+  '/sales/monthly/by-shop',
+ 
+  reportController.getShopMonthlySales
+);
+
+// Shop Sales Overview (by shop ID)
+router.get(
+  '/shop-sales/by-id',
+
+  reportController.getShopSalesById
+);
+
+// ========================================
+// SHOP PRODUCT PERFORMANCE REPORTS
+// ========================================
+
+// Shop Top Selling Products
+router.get(
+  '/products/top-selling/by-shop',
+ 
+  reportController.getShopTopSellingProducts
+);
+
+// Shop Low Selling Products
+router.get(
+  '/products/low-selling/by-shop',
+ 
+  reportController.getShopLowSellingProducts
+);
+
+// ========================================
+// SHOP INVENTORY REPORTS
+// ========================================
+
+// Shop Low Stock Products
+router.get(
+  '/stock/low/by-shop',
+
+  reportController.getShopLowStockProducts
+);
+
+// Shop Out of Stock Products
+router.get(
+  '/stock/out-of-stock/by-shop',
+
+  reportController.getShopOutOfStockProducts
+);
+
 module.exports = router;
+
+
+

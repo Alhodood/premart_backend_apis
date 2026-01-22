@@ -93,70 +93,55 @@ exports.getSuperAdminDashboard = async (req, res) => {
     });
 
     console.log(`✅ Coupons: Current=${couponOrdersThisMonth}, Previous=${couponOrdersLastMonth}`);
+// ==================== AGENCY PAYABLE ====================
+console.log('💵 Calculating agency payables...');
+let payableThisMonth = 0;
+let payableLastMonth = 0;
 
-    // ==================== AGENCY PAYABLE ====================
-    console.log('💵 Calculating agency payables...');
-    let payableThisMonth = 0;
-    let payableLastMonth = 0;
-
-    try {
-      const agencyPayThisMonth = await DeliveryAgency.aggregate([
-        { $unwind: '$paymentRecords' },
-        {
-          $match: {
-            $expr: {
-              $gte: [
-                { $toDate: '$paymentRecords.paymentDate' },
-                currentMonthStart
-              ]
-            },
-            'paymentRecords.status': { $in: ['Unpaid', 'Pending', 'Paid'] }
-          }
-        },
-        {
-          $group: {
-            _id: null,
-            total: { $sum: '$paymentRecords.amount' }
-          }
-        }
-      ]);
-
-      const agencyPayLastMonth = await DeliveryAgency.aggregate([
-        { $unwind: '$paymentRecords' },
-        {
-          $match: {
-            $expr: {
-              $and: [
-                {
-                  $gte: [
-                    { $toDate: '$paymentRecords.paymentDate' },
-                    lastMonthStart
-                  ]
-                },
-                {
-                  $lt: [
-                    { $toDate: '$paymentRecords.paymentDate' },
-                    currentMonthStart
-                  ]
-                }
-              ]
-            },
-            'paymentRecords.status': { $in: ['Unpaid', 'Pending', 'Paid'] }
-          }
-        },
-        {
-          $group: {
-            _id: null,
-            total: { $sum: '$paymentRecords.amount' }
-          }
-        }
-      ]);
-
-      payableThisMonth = agencyPayThisMonth[0]?.total || 0;
-      payableLastMonth = agencyPayLastMonth[0]?.total || 0;
-    } catch (error) {
-      console.log('⚠️ Agency payable calculation failed:', error.message);
+try {
+  const AgencyPayout = require('../models/AgencyPayout'); // Add this model import at top
+  
+  const agencyPayThisMonth = await AgencyPayout.aggregate([
+    { 
+      $match: { 
+        createdAt: { $gte: currentMonthStart },
+        status: { $in: ['Unpaid', 'Pending', 'Paid'] }
+      } 
+    },
+    { 
+      $group: { 
+        _id: null, 
+        total: { $sum: '$totalEarnings' } 
+      } 
     }
+  ]);
+
+  const agencyPayLastMonth = await AgencyPayout.aggregate([
+    { 
+      $match: { 
+        createdAt: { 
+          $gte: lastMonthStart, 
+          $lt: currentMonthStart 
+        },
+        status: { $in: ['Unpaid', 'Pending', 'Paid'] }
+      } 
+    },
+    { 
+      $group: { 
+        _id: null, 
+        total: { $sum: '$totalEarnings' } 
+      } 
+    }
+  ]);
+
+  payableThisMonth = agencyPayThisMonth[0]?.total || 0;
+  payableLastMonth = agencyPayLastMonth[0]?.total || 0;
+  
+} catch (error) {
+  console.log('⚠️ Agency payable calculation failed:', error.message);
+}
+
+console.log(`✅ Agency Payable: Current=${payableThisMonth}, Previous=${payableLastMonth}`);
 
     console.log(`✅ Agency Payable: Current=${payableThisMonth}, Previous=${payableLastMonth}`);
 

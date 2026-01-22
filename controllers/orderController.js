@@ -384,28 +384,15 @@ if (shopLatLng?.length === 2 && deliveryAddress.latitude && deliveryAddress.long
   }
 };
 
-// controllers/orderController.js - Add this method
-
-// GET ORDER BY ID WITH FULL POPULATION
 exports.getOrderById = async (req, res) => {
   try {
     const { orderId } = req.params;
-
     console.log('📦 Fetching order:', orderId);
 
     const order = await Order.findById(orderId)
       .populate('userId', 'name email phone')
       .populate('shopId', 'shopName shopAddress contactNumber')
       .populate('assignedDeliveryBoy', 'name phoneNumber')
-      .populate({
-        path: 'productId.productId',  // Populate the productId reference inside the array
-        model: 'ShopProduct',
-        populate: {
-          path: 'part',
-          model: 'PartsCatalog',
-          select: 'partName partNumber images category brand model'
-        }
-      })
       .populate({
         path: 'items.shopProductId',
         populate: {
@@ -423,36 +410,80 @@ exports.getOrderById = async (req, res) => {
     }
 
     console.log('✅ Order found:', order._id);
-    console.log('📦 Order productId:', JSON.stringify(order.productId, null, 2));
     console.log('📦 Order items:', JSON.stringify(order.items, null, 2));
 
-    // Format response - prioritize the structure that exists
+    // Format response with correct field names matching Flutter expectations
     const formattedOrder = {
-      ...order,
-      orderStatus: order.status || order.orderStatus || 'pending',
+      _id: order._id,
+      createdAt: order.createdAt,
       
-      // Ensure these fields are present
-      totalAmount: order.subtotal || order.totalAmount || 0,
-      finalPayable: order.totalPayable || order.finalPayable || 0,
-      quantity: order.quantity || 
-                (order.items?.reduce((sum, item) => sum + (item.quantity || 1), 0)) ||
-                (order.productId?.reduce((sum, item) => sum + (item.quantity || 1), 0)) ||
-                1,
+      // Status
+      orderStatus: order.status || 'pending',
       
-      // Include both structures for compatibility
-      productId: order.productId || [],
-      items: order.items || []
+      // Financial fields
+      totalAmount: order.subtotal || 0,
+      finalPayable: order.totalPayable || 0,
+      discount: order.discount || 0,
+      deliverycharge: order.deliveryCharge > 0,
+      deliveryEarning: order.deliveryEarning || 0,
+      additionalcharges: 0,
+      
+      // Quantity calculation
+      quantity: order.items?.reduce((sum, item) => sum + (item.quantity || 1), 0) || 1,
+      
+      // Customer info
+      deliveryAddress: order.deliveryAddress,
+      customerName: order.deliveryAddress?.name || order.userId?.name || '-',
+      customerPhone: order.deliveryAddress?.contact || order.userId?.phone || '-',
+      
+      // Payment
+      paymentMethod: order.paymentType || 'Cash',
+      paymentStatus: order.paymentStatus || 'Pending',
+      transactionId: order.transactionId,
+      
+      // Shop info
+      shopId: order.shopId,
+      
+      // ✅ FIX: Properly format items with images
+      items: order.items?.map(item => {
+        console.log('🔍 Processing item:', item.shopProductId?._id);
+        console.log('📸 Snapshot image:', item.snapshot?.image);
+        console.log('📸 Part images:', item.shopProductId?.part?.images);
+        
+        return {
+          shopProductId: item.shopProductId?._id,
+          quantity: item.quantity,
+          partName: item.snapshot?.partName || item.shopProductId?.part?.partName || 'Product',
+          partNumber: item.snapshot?.partNumber || item.shopProductId?.part?.partNumber,
+          price: item.snapshot?.price || 0,
+          // ✅ Include images from both snapshot and populated part
+          images: item.snapshot?.image 
+            ? [item.snapshot.image] 
+            : (item.shopProductId?.part?.images || []),
+          snapshot: item.snapshot, // Keep full snapshot for reference
+          brand: item.snapshot?.brand,
+          model: item.snapshot?.model,
+          category: item.snapshot?.category
+        };
+      }) || [],
+      
+      // Delivery boy
+      assignedDeliveryBoy: order.assignedDeliveryBoy,
+      
+      // Coupon
+      coupon: order.coupon
     };
 
     console.log('✅ Formatted order response');
     console.log('💰 Total Amount:', formattedOrder.totalAmount);
     console.log('💰 Final Payable:', formattedOrder.finalPayable);
+    console.log('📦 Items count:', formattedOrder.items.length);
+    console.log('🖼️ First item images:', formattedOrder.items[0]?.images);
 
     res.json({
       success: true,
       data: formattedOrder
     });
-
   } catch (err) {
     console.error('❌ Get Order Error:', err);
     res.status(500).json({
