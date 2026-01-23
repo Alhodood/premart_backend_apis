@@ -433,51 +433,97 @@ exports.getAllCustomers = async (req, res) => {
 
 exports.createShopAdmin = async (req, res) => {
   try {
+    console.log('========== CREATE SHOP ADMIN REQUEST ==========');
+    console.log('Request body:', JSON.stringify(req.body, null, 2));
+    
     const { name, email, password, phone } = req.body;
 
+    // Validate required fields
     if (!name || !email || !password) {
-      return res.status(400).json({ success: false, message: 'Missing fields' });
+      console.log('❌ Missing required fields');
+      return res.status(400).json({ 
+        success: false, 
+        message: 'Name, email, and password are required' 
+      });
     }
 
     const Model = roleModelMap[ROLES.SHOP_ADMIN];
-
-    // Prevent duplicates
+    
+    // Check if shop admin already exists
+    console.log('🔍 Checking for existing shop admin with email:', email);
     const exists = await Model.findOne({ email });
+    
     if (exists) {
-      return res.status(400).json({ success: false, message: 'Shop admin already exists' });
+      console.log('❌ Shop admin already exists');
+      return res.status(400).json({ 
+        success: false, 
+        message: 'Shop admin with this email already exists' 
+      });
     }
 
-    // 1. Create real shop entity
-    const shop = await Shop.create({
-      shopeDetails: {
-        shopName: name,
-        shopMail: email,
-        shopContact: phone
-      }
+    console.log('✅ No duplicate found, creating shop...');
+
+    // STEP 1: Create shop entity
+    const shop = await Shop.create({ 
+      shopeDetails: { 
+        shopName: name, 
+        shopMail: email, 
+        shopContact: phone || '' 
+      } 
     });
 
-    // 2. Create shop admin linked to shop
-    const admin = await Model.create({
-      name,
-      email,
-      password,
-      phone,
-      role: ROLES.SHOP_ADMIN,
-      shopId: shop._id
+    console.log('✅ Shop created successfully');
+    console.log('Shop ID:', shop._id.toString());
+    console.log('Shop details:', JSON.stringify(shop.shopeDetails, null, 2));
+
+    // STEP 2: Create shop admin linked to shop
+    console.log('Creating shop admin...');
+    const admin = await Model.create({ 
+      name, 
+      email, 
+      password, 
+      phone: phone || '',
+      role: ROLES.SHOP_ADMIN, 
+      shopId: shop._id 
     });
 
-    return res.status(201).json({
+    console.log('✅ Shop admin created successfully');
+    console.log('Admin ID:', admin._id.toString());
+    console.log('Admin shopId:', admin.shopId?.toString());
+
+    // ✅ CRITICAL FIX: Return proper response format that Flutter expects
+    const response = {
       success: true,
       message: 'Shop admin and shop created successfully',
       data: {
-        adminId: admin._id,
-        shopId: shop._id
+        adminId: admin._id.toString(),
+        shopId: shop._id.toString(), // ✅ Ensure it's a string
+        email: admin.email,
+        name: admin.name,
+        phone: admin.phone,
+        role: admin.role
       }
-    });
+    };
+
+    console.log('========== RESPONSE ==========');
+    console.log(JSON.stringify(response, null, 2));
+    console.log('==============================');
+
+    return res.status(201).json(response);
 
   } catch (err) {
-    console.error('Create Shop Admin Error:', err);
-    return res.status(500).json({ success: false, message: err.message });
+    console.error('========== CREATE SHOP ADMIN ERROR ==========');
+    console.error('Error name:', err.name);
+    console.error('Error message:', err.message);
+    console.error('Error stack:', err.stack);
+    console.error('===========================================');
+    
+    return res.status(500).json({ 
+      success: false, 
+      message: 'Failed to create shop admin',
+      error: err.message,
+      errorDetails: err.toString()
+    });
   }
 };
 
