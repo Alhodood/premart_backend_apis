@@ -1,9 +1,10 @@
-const express = require('express');
+
 const mongoose = require('mongoose');
 const http = require('http');
 const socketIo = require('socket.io');
 const cors = require('cors');
 require('dotenv').config();
+const express = require('express');
 const axios = require("axios");
 const authRoutes = require('./routes/authRoutes');
 const productRoutes = require('./routes/_deprecated/productRoutes.js');
