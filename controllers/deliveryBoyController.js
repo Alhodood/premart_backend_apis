@@ -423,6 +423,36 @@ exports.getAllDeliveryBoys = async (req, res) => {
     }
   };
 
+  exports.getDeliveryBoyById = async (req, res) => {
+  try {
+    const { deliveryBoyId } = req.params;
+
+    const deliveryBoy = await DeliveryBoy.findById(deliveryBoyId);
+
+    if (!deliveryBoy) {
+      return res.status(404).json({
+        success: false,
+        message: "Delivery boy not found",
+        data: null,
+      });
+    }
+
+    res.status(200).json({
+      success: true,
+      message: "Delivery boy fetched successfully",
+      data: deliveryBoy,
+    });
+
+  } catch (error) {
+    console.error("Get delivery boy error:", error);
+    res.status(500).json({
+      success: false,
+      message: "Server error",
+      error: error.message,
+    });
+  }
+};
+
 
   exports.updateLiveLocation = async (req, res) => {
     try {
