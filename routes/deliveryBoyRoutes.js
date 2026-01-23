@@ -58,4 +58,6 @@ router.patch('/update/:deliveryBoyId', deliveryBoyController.updateDeliveryBoyDe
 
 router.get('/ongoing/:deliveryBoyId', deliveryBoyController.getOngoingOrdersForDeliveryBoy);
 
+router.get('/getById/:deliveryBoyId', deliveryBoyController.getDeliveryBoyById);
+
 module.exports = router;
