@@ -542,8 +542,8 @@ exports.getAllOrders = async (req, res) => {
     // Format orders for table view
     const formattedOrders = orders.map(order => ({
       _id: order._id,
-      orderNumber: order.orderNumber || order._id,
-      createdAt: order.createdAt,
+      // orderNumber: order.orderNumber || order._id,
+     
       
       // Customer
       customerName: order.deliveryAddress?.name || order.userId?.name || '-',
@@ -559,10 +559,11 @@ exports.getAllOrders = async (req, res) => {
       productImage: order.items?.[0]?.snapshot?.image || 
                     order.items?.[0]?.shopProductId?.part?.images?.[0] || 
                     null,
-      
-      // Counts
-      itemCount: order.items?.length || 0,
+                      itemCount: order.items?.length || 0,
       quantity: order.items?.reduce((sum, item) => sum + (item.quantity || 1), 0) || 1,
+       createdAt: order.createdAt,
+      // Counts
+    
       
       // Financial
       totalAmount: order.subtotal || order.totalAmount || 0,
@@ -1153,80 +1154,80 @@ exports.viewMyOrders = async (req, res) => {
   }
 };
 
-  exports.getAllOrders = async (req, res) => {
-    try {
-      const {
-        search,
-        status,
-        shopId,
-        userId,
-        deliveryBoyId,
-        from,
-        to,
-        page = 1,
-        limit = 10,
-        sort = 'desc',
-        sortBy = 'createdAt'
-      } = req.query;
+  // exports.getAllOrders = async (req, res) => {
+  //   try {
+  //     const {
+  //       search,
+  //       status,
+  //       shopId,
+  //       userId,
+  //       deliveryBoyId,
+  //       from,
+  //       to,
+  //       page = 1,
+  //       limit = 10,
+  //       sort = 'desc',
+  //       sortBy = 'createdAt'
+  //     } = req.query;
   
-      let filter = {};
+  //     let filter = {};
   
-      if (search) {
-        filter.$or = [
-          { _id: search },
-          { availableCoupon: { $regex: search, $options: 'i' } },
-          { offers: { $regex: search, $options: 'i' } }
-        ];
-      }
+  //     if (search) {
+  //       filter.$or = [
+  //         { _id: search },
+  //         { availableCoupon: { $regex: search, $options: 'i' } },
+  //         { offers: { $regex: search, $options: 'i' } }
+  //       ];
+  //     }
   
-      if (status) {
-        filter.orderStatus = status;
-      }
+  //     if (status) {
+  //       filter.orderStatus = status;
+  //     }
   
-      if (shopId) {
-        filter.shopId = shopId;
-      }
+  //     if (shopId) {
+  //       filter.shopId = shopId;
+  //     }
   
-      if (userId) {
-        filter.userId = userId;
-      }
+  //     if (userId) {
+  //       filter.userId = userId;
+  //     }
   
-      if (deliveryBoyId) {
-        filter.assignedDeliveryBoy = deliveryBoyId;
-      }
+  //     if (deliveryBoyId) {
+  //       filter.assignedDeliveryBoy = deliveryBoyId;
+  //     }
   
-      if (from && to) {
-        filter.createdAt = {
-          $gte: new Date(from),
-          $lte: new Date(to)
-        };
-      }
+  //     if (from && to) {
+  //       filter.createdAt = {
+  //         $gte: new Date(from),
+  //         $lte: new Date(to)
+  //       };
+  //     }
   
-      const orders = await Order.find(filter)
-        .sort({ [sortBy]: sort === 'asc' ? 1 : -1 })
-        .skip((page - 1) * limit)
-        .limit(parseInt(limit));
+  //     const orders = await Order.find(filter)
+  //       .sort({ [sortBy]: sort === 'asc' ? 1 : -1 })
+  //       .skip((page - 1) * limit)
+  //       .limit(parseInt(limit));
   
-      const total = await Order.countDocuments(filter);
+  //     const total = await Order.countDocuments(filter);
   
-      return res.status(200).json({
-        message: 'Orders fetched successfully',
-        success: true,
-        total,
-        page: parseInt(page),
-        limit: parseInt(limit),
-        data: orders
-      });
+  //     return res.status(200).json({
+  //       message: 'Orders fetched successfully',
+  //       success: true,
+  //       total,
+  //       page: parseInt(page),
+  //       limit: parseInt(limit),
+  //       data: orders
+  //     });
   
-    } catch (error) {
-      console.error('Get Orders Error:', error);
-      return res.status(500).json({
-        message: 'Failed to fetch orders',
-        success: false,
-        data: error.message
-      });
-    }
-  };
+  //   } catch (error) {
+  //     console.error('Get Orders Error:', error);
+  //     return res.status(500).json({
+  //       message: 'Failed to fetch orders',
+  //       success: false,
+  //       data: error.message
+  //     });
+  //   }
+  // };
 
 // 2. View Orders By Shop (Shop Admin)
 exports.viewOrdersByShopAdmin = async (req, res) => {
