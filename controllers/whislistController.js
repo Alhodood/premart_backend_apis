@@ -1,6 +1,7 @@
 const mongoose = require('mongoose');
 const WishList = require('../models/WishList');
 const Product = require('../models/_deprecated/Product');
+const ShopProduct = require('../models/ShopProduct');
 
 exports.addToWishList = async (req, res) => {
   try {
@@ -109,7 +110,7 @@ exports.getWishList = async (req, res) => {
         message: 'User not found',
         success: true,
         data: [],
-        productIds: [] // Return empty array for product IDs
+        // productIds: [] // Return empty array for product IDs
       });
     }
 
@@ -120,8 +121,9 @@ exports.getWishList = async (req, res) => {
     return res.status(200).json({
       message: 'Wishlist found with products',
       success: true,
-      data: products,
-      productIds: wishList.wishListProduct // Return product IDs array for easy checking
+      // data: products,
+      // productIds: wishList.wishListProduct // Return product IDs array for easy checking
+      data: wishList.wishListProduct,
     });
 
   } catch (e) {
@@ -163,7 +165,8 @@ exports.checkWishlistStatus = async (req, res) => {
     return res.status(200).json({
       success: true,
       isInWishlist: isInWishlist,
-      productID: productID,
+      // productID: productID,
+      data: productID,
       message: isInWishlist ? 'Product is in wishlist' : 'Product is not in wishlist'
     });
 
@@ -172,6 +175,71 @@ exports.checkWishlistStatus = async (req, res) => {
     return res.status(500).json({
       success: false,
       message: 'Internal server error',
+      error: e.message
+    });
+  }
+};
+
+/**
+ * GET /api/wishlist/products/:userId
+ * Returns wishlist with all products populated (ShopProduct + part + shop).
+ * Wishlist stores ShopProduct IDs; fetches from ShopProduct, cart-like format.
+ */
+function formatWishlistProduct(sp) {
+  if (!sp) return null;
+  const shop = sp.shopId;
+  const sd = shop?.shopeDetails;
+  const shopInfo = shop && sd ? {
+    _id: shop._id,
+    shopName: sd.shopName || null,
+    shopAddress: sd.shopAddress || null,
+    shopContact: sd.shopContact || null,
+    shopMail: sd.shopMail || null,
+    shopLocation: sd.shopLocation || null
+  } : null;
+  return {
+    shopProductId: sp._id,
+    price: sp.price,
+    discountedPrice: sp.discountedPrice,
+    stock: sp.stock,
+    part: sp.part,
+    shop: shopInfo
+  };
+}
+
+exports.getWishListWithProducts = async (req, res) => {
+  try {
+    const userId = req.params.userId;
+    const wishList = await WishList.findOne({ userId });
+
+    if (!wishList || !wishList.wishListProduct.length) {
+      return res.status(200).json({
+        message: 'Wishlist not found or empty',
+        success: true,
+        data: [],
+        productIds: []
+      });
+    }
+
+    const productIds = wishList.wishListProduct.map((id) => new mongoose.Types.ObjectId(id));
+    const shopProducts = await ShopProduct.find({ _id: { $in: productIds } })
+      .populate({ path: 'part', populate: ['category', 'subCategory'] })
+      .populate({ path: 'shopId', select: 'shopeDetails' })
+      .lean();
+
+    const data = shopProducts.map(formatWishlistProduct).filter(Boolean);
+
+    return res.status(200).json({
+      message: 'Wishlist found with products',
+      success: true,
+      data,
+      productIds: wishList.wishListProduct
+    });
+  } catch (e) {
+    console.error('Error fetching wishlist with products:', e);
+    res.status(500).json({
+      message: 'Internal server error',
+      success: false,
       error: e.message
     });
   }
@@ -186,7 +254,8 @@ exports.getWishlistProductIds = async (req, res) => {
     if (!wishList) {
       return res.status(200).json({
         success: true,
-        productIds: [],
+        // productIds: [],
+        data: [],
         count: 0,
         message: 'Wishlist not found'
       });
@@ -194,7 +263,8 @@ exports.getWishlistProductIds = async (req, res) => {
 
     return res.status(200).json({
       success: true,
-      productIds: wishList.wishListProduct,
+      // productIds: wishList.wishListProduct,
+      data: wishList.wishListProduct,
       count: wishList.wishListProduct.length,
       message: 'Wishlist product IDs retrieved'
     });
