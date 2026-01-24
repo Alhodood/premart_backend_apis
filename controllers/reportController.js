@@ -313,6 +313,7 @@ exports.getTopSellingProducts = async (req, res) => {
           partNumber: { $first: '$items.snapshot.partNumber' }
         }
       },
+        { $sort: { totalSold: -1 } },
       {
         $lookup: {
           from: 'shopproducts',
@@ -345,7 +346,7 @@ exports.getTopSellingProducts = async (req, res) => {
           currentStock: '$productInfo.stock'
         }
       },
-      { $sort: { totalSold: -1 } },
+    
       { $limit: 20 }
     ]);
 
@@ -379,6 +380,7 @@ exports.getLowSellingProducts = async (req, res) => {
           partNumber: { $first: '$items.snapshot.partNumber' }
         }
       },
+      { $sort: { totalSold: 1 } }, 
       {
         $lookup: {
           from: 'shopproducts',
@@ -411,7 +413,7 @@ exports.getLowSellingProducts = async (req, res) => {
           currentStock: '$productInfo.stock'
         }
       },
-      { $sort: { totalSold: 1 } },
+     
       { $limit: 20 }
     ]);
 

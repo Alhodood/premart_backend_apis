@@ -201,7 +201,6 @@ exports.getAllAgencyPayouts = async (req, res) => {
   }
 };
 
-// Get specific agency payout
 exports.getAgencyPayoutById = async (req, res) => {
   try {
     const { agencyId } = req.params;
@@ -213,46 +212,49 @@ exports.getAgencyPayoutById = async (req, res) => {
 
     const payouts = await AgencyPayout.find(filter)
       .populate('agencyId', 'agencyDetails')
-      .populate('deliveryBoyId', 'name phone email')
       .sort({ createdAt: -1 });
 
-    if (!payouts || payouts.length === 0) {
+    if (!payouts.length) {
       return res.status(404).json({
-        message: 'No payouts found for this agency',
-        success: false
+        success: false,
+        message: 'No payouts found'
       });
     }
 
-    // Calculate totals
-    const totalEarnings = payouts.reduce((sum, p) => sum + p.totalEarnings, 0);
-    const totalOrders = payouts.reduce((sum, p) => sum + p.totalOrders, 0);
-    const totalPending = payouts.filter(p => p.status === 'Pending').reduce((sum, p) => sum + p.totalEarnings, 0);
-    const totalPaid = payouts.filter(p => p.status === 'Paid').reduce((sum, p) => sum + p.totalEarnings, 0);
+    const agency = payouts[0].agencyId?.agencyDetails || {};
+
+    const totalEarnings = payouts.reduce((s, p) => s + (p.totalEarnings || 0), 0);
+    const totalOrders = payouts.reduce((s, p) => s + (p.totalOrders || 0), 0);
+    const totalPending = payouts.filter(p => p.status === 'Pending')
+                                .reduce((s, p) => s + (p.totalEarnings || 0), 0);
+    const totalPaid = payouts.filter(p => p.status === 'Paid')
+                             .reduce((s, p) => s + (p.totalEarnings || 0), 0);
+
+    const response = {
+      agencyId: payouts[0].agencyId?._id,
+      agencyName: agency.agencyName || 'N/A',
+      email: agency.email || 'N/A',
+      contactNumber: agency.contactNumber || 'N/A',
+
+      totalOrders,
+      totalEarnings: Number(totalEarnings.toFixed(2)),
+      totalPending: Number(totalPending.toFixed(2)),
+      totalPaid: Number(totalPaid.toFixed(2)),
+
+      from: payouts[payouts.length - 1]?.createdAt,
+      to: payouts[0]?.createdAt
+    };
 
     return res.status(200).json({
-      message: 'Agency payouts fetched successfully',
       success: true,
-      data: {
-        agencyId: payouts[0].agencyId._id,
-        agencyName: payouts[0].agencyId?.agencyDetails?.agencyName || 'N/A',
-        contactNumber: payouts[0].agencyId?.agencyDetails?.contactNumber || 'N/A',
-        email: payouts[0].agencyId?.agencyDetails?.email || 'N/A',
-        summary: {
-          totalEarnings: totalEarnings.toFixed(2),
-          totalOrders,
-          totalPending: totalPending.toFixed(2),
-          totalPaid: totalPaid.toFixed(2)
-        },
-        payouts
-      }
+      data: [response] // wrapped as array for table compatibility
     });
 
   } catch (error) {
-    console.error('Get Agency Payout Error:', error);
+    console.error('Agency payout error:', error);
     return res.status(500).json({
-      message: 'Failed to fetch agency payout',
       success: false,
-      error: error.message
+      message: 'Server error'
     });
   }
 };
