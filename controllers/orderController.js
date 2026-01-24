@@ -395,21 +395,14 @@ exports.getOrderById = async (req, res) => {
 
     const order = await Order.findById(orderId)
       .populate('userId', 'name email phone')
-      .populate('shopId', 'shopName shopAddress contactNumber')
-      .populate('assignedDeliveryBoy', 'name phoneNumber')
+      .populate('shopId')
+      .populate('assignedDeliveryBoy', 'name phone')
       .populate({
-        path: 'productId.productId',  // Populate the productId reference inside the array
+        path: 'items.shopProductId',
         model: 'ShopProduct',
         populate: {
           path: 'part',
           model: 'PartsCatalog',
-          select: 'partName partNumber images category brand model'
-        }
-      })
-      .populate({
-        path: 'items.shopProductId',
-        populate: {
-          path: 'part',
           select: 'partName partNumber images category brand model'
         }
       })
@@ -423,10 +416,9 @@ exports.getOrderById = async (req, res) => {
     }
 
     console.log('✅ Order found:', order._id);
-    console.log('📦 Order productId:', JSON.stringify(order.productId, null, 2));
     console.log('📦 Order items:', JSON.stringify(order.items, null, 2));
 
-    // Format response - prioritize the structure that exists
+    // Format response
     const formattedOrder = {
       ...order,
       orderStatus: order.status || order.orderStatus || 'pending',
@@ -434,13 +426,9 @@ exports.getOrderById = async (req, res) => {
       // Ensure these fields are present
       totalAmount: order.subtotal || order.totalAmount || 0,
       finalPayable: order.totalPayable || order.finalPayable || 0,
-      quantity: order.quantity || 
-                (order.items?.reduce((sum, item) => sum + (item.quantity || 1), 0)) ||
-                (order.productId?.reduce((sum, item) => sum + (item.quantity || 1), 0)) ||
-                1,
+      quantity: order.items?.reduce((sum, item) => sum + (item.quantity || 1), 0) || 0,
       
-      // Include both structures for compatibility
-      productId: order.productId || [],
+      // Include items array
       items: order.items || []
     };
 
@@ -930,6 +918,8 @@ exports.getAllOrders = async (req, res) => {
 // };
 
 // Create Order From Direct Buy API Handler
+
+
 exports.createOrderFromDirectBuy = async (req, res) => {
   try {
     // Accept productId, quantity, transactionId, paymentType from req.body
@@ -1262,15 +1252,24 @@ exports.updateOrderStatus = async (req, res) => {
       });
     }
 
-    // 🔔 Emit real-time status update
+    // 🔔 Emit real-time status update to customer
     let io;
     try {
       io = require('../sockets/socket').getIO();
-      io.emit('orderStatusUpdated', {
+      const statusUpdate = {
         shopId: updatedOrder.shopId.toString(),
         orderId: updatedOrder._id.toString(),
-        newStatus: updatedOrder.orderStatus
-      });
+        newStatus: updatedOrder.status || updatedOrder.orderStatus
+      };
+      
+      // Emit to the specific customer who owns the order
+      if (updatedOrder.userId) {
+        io.to(updatedOrder.userId.toString()).emit('orderStatusUpdated', statusUpdate);
+        console.log(`📤 Emitted order status update to customer: ${updatedOrder.userId}`);
+      } else {
+        // Fallback: broadcast if userId is missing
+        io.emit('orderStatusUpdated', statusUpdate);
+      }
     } catch (err) {
       console.error('Socket.IO emit failed:', err.message);
     }
