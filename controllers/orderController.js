@@ -384,25 +384,19 @@ if (shopLatLng?.length === 2 && deliveryAddress.latitude && deliveryAddress.long
   }
 };
 
-// controllers/orderController.js - Add this method
-
-// GET ORDER BY ID WITH FULL POPULATION
 exports.getOrderById = async (req, res) => {
   try {
     const { orderId } = req.params;
-
     console.log('📦 Fetching order:', orderId);
 
     const order = await Order.findById(orderId)
       .populate('userId', 'name email phone')
-      .populate('shopId')
-      .populate('assignedDeliveryBoy', 'name phone')
+      .populate('shopId', 'shopName shopAddress contactNumber')
+      .populate('assignedDeliveryBoy', 'name phoneNumber')
       .populate({
         path: 'items.shopProductId',
-        model: 'ShopProduct',
         populate: {
           path: 'part',
-          model: 'PartsCatalog',
           select: 'partName partNumber images category brand model'
         }
       })
@@ -418,29 +412,78 @@ exports.getOrderById = async (req, res) => {
     console.log('✅ Order found:', order._id);
     console.log('📦 Order items:', JSON.stringify(order.items, null, 2));
 
-    // Format response
+    // Format response with correct field names matching Flutter expectations
     const formattedOrder = {
-      ...order,
-      orderStatus: order.status || order.orderStatus || 'pending',
+      _id: order._id,
+      createdAt: order.createdAt,
       
-      // Ensure these fields are present
-      totalAmount: order.subtotal || order.totalAmount || 0,
-      finalPayable: order.totalPayable || order.finalPayable || 0,
-      quantity: order.items?.reduce((sum, item) => sum + (item.quantity || 1), 0) || 0,
+      // Status
+      orderStatus: order.status || 'pending',
       
-      // Include items array
-      items: order.items || []
+      // Financial fields
+      totalAmount: order.subtotal || 0,
+      finalPayable: order.totalPayable || 0,
+      discount: order.discount || 0,
+      deliverycharge: order.deliveryCharge > 0,
+      deliveryEarning: order.deliveryEarning || 0,
+      additionalcharges: 0,
+      
+      // Quantity calculation
+      quantity: order.items?.reduce((sum, item) => sum + (item.quantity || 1), 0) || 1,
+      
+      // Customer info
+      deliveryAddress: order.deliveryAddress,
+      customerName: order.deliveryAddress?.name || order.userId?.name || '-',
+      customerPhone: order.deliveryAddress?.contact || order.userId?.phone || '-',
+      
+      // Payment
+      paymentMethod: order.paymentType || 'Cash',
+      paymentStatus: order.paymentStatus || 'Pending',
+      transactionId: order.transactionId,
+      
+      // Shop info
+      shopId: order.shopId,
+      
+      // ✅ FIX: Properly format items with images
+      items: order.items?.map(item => {
+        console.log('🔍 Processing item:', item.shopProductId?._id);
+        console.log('📸 Snapshot image:', item.snapshot?.image);
+        console.log('📸 Part images:', item.shopProductId?.part?.images);
+        
+        return {
+          shopProductId: item.shopProductId?._id,
+          quantity: item.quantity,
+          partName: item.snapshot?.partName || item.shopProductId?.part?.partName || 'Product',
+          partNumber: item.snapshot?.partNumber || item.shopProductId?.part?.partNumber,
+          price: item.snapshot?.price || 0,
+          // ✅ Include images from both snapshot and populated part
+          images: item.snapshot?.image 
+            ? [item.snapshot.image] 
+            : (item.shopProductId?.part?.images || []),
+          snapshot: item.snapshot, // Keep full snapshot for reference
+          brand: item.snapshot?.brand,
+          model: item.snapshot?.model,
+          category: item.snapshot?.category
+        };
+      }) || [],
+      
+      // Delivery boy
+      assignedDeliveryBoy: order.assignedDeliveryBoy,
+      
+      // Coupon
+      coupon: order.coupon
     };
 
     console.log('✅ Formatted order response');
     console.log('💰 Total Amount:', formattedOrder.totalAmount);
     console.log('💰 Final Payable:', formattedOrder.finalPayable);
+    console.log('📦 Items count:', formattedOrder.items.length);
+    console.log('🖼️ First item images:', formattedOrder.items[0]?.images);
 
     res.json({
       success: true,
       data: formattedOrder
     });
-
   } catch (err) {
     console.error('❌ Get Order Error:', err);
     res.status(500).json({
@@ -499,8 +542,8 @@ exports.getAllOrders = async (req, res) => {
     // Format orders for table view
     const formattedOrders = orders.map(order => ({
       _id: order._id,
-      orderNumber: order.orderNumber || order._id,
-      createdAt: order.createdAt,
+      // orderNumber: order.orderNumber || order._id,
+     
       
       // Customer
       customerName: order.deliveryAddress?.name || order.userId?.name || '-',
@@ -516,10 +559,11 @@ exports.getAllOrders = async (req, res) => {
       productImage: order.items?.[0]?.snapshot?.image || 
                     order.items?.[0]?.shopProductId?.part?.images?.[0] || 
                     null,
-      
-      // Counts
-      itemCount: order.items?.length || 0,
+                      itemCount: order.items?.length || 0,
       quantity: order.items?.reduce((sum, item) => sum + (item.quantity || 1), 0) || 1,
+       createdAt: order.createdAt,
+      // Counts
+    
       
       // Financial
       totalAmount: order.subtotal || order.totalAmount || 0,
@@ -1112,80 +1156,80 @@ exports.viewMyOrders = async (req, res) => {
   }
 };
 
-  exports.getAllOrders = async (req, res) => {
-    try {
-      const {
-        search,
-        status,
-        shopId,
-        userId,
-        deliveryBoyId,
-        from,
-        to,
-        page = 1,
-        limit = 10,
-        sort = 'desc',
-        sortBy = 'createdAt'
-      } = req.query;
+  // exports.getAllOrders = async (req, res) => {
+  //   try {
+  //     const {
+  //       search,
+  //       status,
+  //       shopId,
+  //       userId,
+  //       deliveryBoyId,
+  //       from,
+  //       to,
+  //       page = 1,
+  //       limit = 10,
+  //       sort = 'desc',
+  //       sortBy = 'createdAt'
+  //     } = req.query;
   
-      let filter = {};
+  //     let filter = {};
   
-      if (search) {
-        filter.$or = [
-          { _id: search },
-          { availableCoupon: { $regex: search, $options: 'i' } },
-          { offers: { $regex: search, $options: 'i' } }
-        ];
-      }
+  //     if (search) {
+  //       filter.$or = [
+  //         { _id: search },
+  //         { availableCoupon: { $regex: search, $options: 'i' } },
+  //         { offers: { $regex: search, $options: 'i' } }
+  //       ];
+  //     }
   
-      if (status) {
-        filter.orderStatus = status;
-      }
+  //     if (status) {
+  //       filter.orderStatus = status;
+  //     }
   
-      if (shopId) {
-        filter.shopId = shopId;
-      }
+  //     if (shopId) {
+  //       filter.shopId = shopId;
+  //     }
   
-      if (userId) {
-        filter.userId = userId;
-      }
+  //     if (userId) {
+  //       filter.userId = userId;
+  //     }
   
-      if (deliveryBoyId) {
-        filter.assignedDeliveryBoy = deliveryBoyId;
-      }
+  //     if (deliveryBoyId) {
+  //       filter.assignedDeliveryBoy = deliveryBoyId;
+  //     }
   
-      if (from && to) {
-        filter.createdAt = {
-          $gte: new Date(from),
-          $lte: new Date(to)
-        };
-      }
+  //     if (from && to) {
+  //       filter.createdAt = {
+  //         $gte: new Date(from),
+  //         $lte: new Date(to)
+  //       };
+  //     }
   
-      const orders = await Order.find(filter)
-        .sort({ [sortBy]: sort === 'asc' ? 1 : -1 })
-        .skip((page - 1) * limit)
-        .limit(parseInt(limit));
+  //     const orders = await Order.find(filter)
+  //       .sort({ [sortBy]: sort === 'asc' ? 1 : -1 })
+  //       .skip((page - 1) * limit)
+  //       .limit(parseInt(limit));
   
-      const total = await Order.countDocuments(filter);
+  //     const total = await Order.countDocuments(filter);
   
-      return res.status(200).json({
-        message: 'Orders fetched successfully',
-        success: true,
-        total,
-        page: parseInt(page),
-        limit: parseInt(limit),
-        data: orders
-      });
+  //     return res.status(200).json({
+  //       message: 'Orders fetched successfully',
+  //       success: true,
+  //       total,
+  //       page: parseInt(page),
+  //       limit: parseInt(limit),
+  //       data: orders
+  //     });
   
-    } catch (error) {
-      console.error('Get Orders Error:', error);
-      return res.status(500).json({
-        message: 'Failed to fetch orders',
-        success: false,
-        data: error.message
-      });
-    }
-  };
+  //   } catch (error) {
+  //     console.error('Get Orders Error:', error);
+  //     return res.status(500).json({
+  //       message: 'Failed to fetch orders',
+  //       success: false,
+  //       data: error.message
+  //     });
+  //   }
+  // };
 
 // 2. View Orders By Shop (Shop Admin)
 exports.viewOrdersByShopAdmin = async (req, res) => {

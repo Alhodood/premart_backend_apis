@@ -89,3 +89,4 @@ coverage/
 # Ignore database files (if any local dev database is used)
 *.sqlite
 *.sqlite3.env
+.env
