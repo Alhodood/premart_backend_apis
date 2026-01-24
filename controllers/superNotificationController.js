@@ -1,4 +1,5 @@
 const Notification = require('../models/superNotification');
+const socketService = require('../sockets/socket');
 
 
 exports.createNotification = async (req, res) => {
@@ -20,24 +21,65 @@ exports.createNotification = async (req, res) => {
       recipientIds,
       isScheduled,
       scheduledAt: isScheduled && scheduledAt ? new Date(scheduledAt) : null,
-      sentAt: isScheduled && scheduledAt ? new Date(scheduledAt) : new Date(),
+      sentAt: new Date(),
       createdBy: req.params.creatorId,
       image
     });
 
     await notification.save();
 
-    res.status(201).json({
-      message: 'In-app notification created successfully',
+    console.log("🟡 Notification saved:", notification._id);
+
+    const io = socketService.getIO();
+    const connectedUsers = socketService.getConnectedUsers();
+
+    console.log("🟡 Active users:", connectedUsers);
+
+    if (!isScheduled) {
+
+      // Targeted
+      if (recipientIds.length > 0) {
+        recipientIds.forEach(uid => {
+          console.log("🟢 Emit to:", uid);
+
+          io.to(uid.toString()).emit("new_notification", {
+            id: notification._id,
+            title,
+            message,
+            image,
+            createdAt: notification.createdAt,
+          });
+        });
+      }
+
+      // Role broadcast
+      else if (role === 'deliveryBoy') {
+        Object.keys(connectedUsers).forEach(uid => {
+          console.log("🟢 Broadcast to:", uid);
+
+          io.to(uid).emit("new_notification", {
+            id: notification._id,
+            title,
+            message,
+            image,
+            createdAt: notification.createdAt,
+          });
+        });
+      }
+    }
+
+    return res.status(201).json({
       success: true,
+      message: 'Notification created',
       data: notification
     });
 
-  } catch (error) {
-    res.status(500).json({
-      message: 'Failed to create notification',
+  } catch (err) {
+    console.error("❌ Create notification failed:", err);
+    return res.status(500).json({
       success: false,
-      data: error.message
+      message: 'Failed to create notification',
+      error: err.message
     });
   }
 };

@@ -30,6 +30,7 @@ const deliveryAgencyAuthController = require('../controllers/_deprecated/deliver
 const { protect, mustBeOwner } = require('../middleware/authMiddleware');
 const authorize = require('../middleware/authorize');
 const { ROLES } = require('../constants/roles');
+const superAdminSettingsController = require('../controllers/superAdminSettingsController');
 
 
 // ==========================
@@ -42,6 +43,9 @@ router.post('/send-otp', rbacAuth.sendOtp);
 router.get('/getUsers',rbacAuth.getAllCustomers
 );
 
+
+router.post('/shop-admin/register', rbacAuth.registerShopAdmin);
+router.post('/agency/register', rbacAuth.registerAgency);
 
 router.post('/bootstrap/super-admin', rbacAuth.createSuperAdmin);
 router.post(
@@ -193,8 +197,6 @@ router.put(
 router.get(
   '/super-admin/settings/:adminId',
   protect,
-  authorize(ROLES.SUPER_ADMIN),
-  mustBeOwner('adminId'),
   adminAuthController.getSuperAdminSettings
 );
 
@@ -204,9 +206,6 @@ router.get(
 // ==========================
 router.put(
   '/shop/:shopId/update-details',
-  protect,
-  authorize(ROLES.SHOP_ADMIN),
-  mustBeOwner('shopId'),
   adminAuthController.updateShopDetails
 );
 

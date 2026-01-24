@@ -1,9 +1,10 @@
-const express = require('express');
+
 const mongoose = require('mongoose');
 const http = require('http');
 const socketIo = require('socket.io');
 const cors = require('cors');
 require('dotenv').config();
+const express = require('express');
 const axios = require("axios");
 const authRoutes = require('./routes/authRoutes');
 const productRoutes = require('./routes/_deprecated/productRoutes.js');
@@ -45,6 +46,9 @@ const Product = require('./models/_deprecated/Product.js');
 const { extractKeyAndBucket } = require('./helper/s3');
 const engineRoutes = require('./routes/engineRoutes');
 const transmissionRoutes = require('./routes/transmissionRoutes');
+const superAdminSettingsRoutes = require('./routes/superAdminSettingsRoutes');
+
+
 
 const app = express();
 
@@ -58,7 +62,7 @@ const allowedOrigins = [
   "https://d29n203b886yvl.cloudfront.net",
   "http://10.0.2.2:3005",
   "https://n8fd2gwd-3005.inc1.devtunnels.ms",
-  "http://localhost:56378"
+  "http://premart2026.s3-website-us-east-1.amazonaws.com"
  
 ];
 
@@ -128,6 +132,8 @@ app.use('/api', productUpload);
 app.use('/api/engine', engineRoutes);
 app.use('/api/transmission', transmissionRoutes);
 app.use('/api/vehicle-config', require('./routes/vehicleConfigurationRoutes'));
+app.use('/api/super-admin', superAdminSettingsRoutes);
+
 
 
 // Basic route
@@ -168,7 +174,7 @@ app.get('/generatePresignedDownloadUrl', async (req, res) => {
     }
     const params = {
       Bucket: process.env.AWS_BUCKET_NAME,
-      Key: `uploads/${filename}`,
+      Key:  filename,
     };
     const command = new GetObjectCommand(params);
     const signedUrl = await getSignedUrl(s3, command, { expiresIn: 3600 });
@@ -281,15 +287,30 @@ app.post('/api/upload-url', async (req, res) => {
   try {
     const { fileName, fileType } = req.body;
 
+    if (!fileName || !fileType) {
+      return res.status(400).json({ message: "fileName and fileType are required" });
+    }
+
+    const bucket = process.env.AWS_BUCKET_NAME;
+    const region = process.env.AWS_REGION;
+
+    const key = `uploads/${fileName}`;
+
     const command = new PutObjectCommand({
-      Bucket: process.env.AWS_BUCKET_NAME,
-      Key: `uploads/${fileName}`,
+      Bucket: bucket,
+      Key: key,
       ContentType: fileType,
-     
     });
 
-    const url = await getSignedUrl(s3, command, { expiresIn: 300 }); // 1 minute expiry
-    return res.json({ url });
+    const uploadUrl = await getSignedUrl(s3, command, { expiresIn: 300 });
+
+    const fileUrl = `https://${bucket}.s3.${region}.amazonaws.com/${key}`;
+
+    return res.json({
+      uploadUrl,   // used only for PUT
+      fileUrl      // stored in MongoDB & used in UI
+    });
+
   } catch (error) {
     console.error('Presigned URL error:', error);
     return res.status(500).json({ message: 'Failed to generate URL', error: error.message });
