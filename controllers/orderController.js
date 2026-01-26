@@ -1635,18 +1635,24 @@ exports.autoAssignDeliveryBoyWithin5km = async (req, res) => {
 
     const nearbyDeliveryBoys = deliveryBoys
       .map(boy => {
-        const pickupDistance = calculateDistance(shopLatitude, shopLongitude, boy.latitude, boy.longitude);
-        const dropDistance = calculateDistance(shopLatitude, shopLongitude, customerLat, customerLng);
-        // Estimated time: assume average speed of 30 km/h → time = distance / speed × 60
-        const pickupTime = Math.ceil((pickupDistance / 30) * 60); // in minutes
-        const dropTime = Math.ceil((dropDistance / 30) * 60); // in minutes
-        return {
-          ...boy._doc,
-          pickupDistance: +pickupDistance.toFixed(2),
-          dropDistance: +dropDistance.toFixed(2),
-          pickupTime: `${pickupTime} mins`,
-          dropTime: `${dropTime} mins`
-        };
+      const pickupDistance = calculateDistance(shopLatitude, shopLongitude, boy.latitude, boy.longitude);
+const dropDistance = calculateDistance(shopLatitude, shopLongitude, customerLat, customerLng);
+
+// Earnings based on DROP distance
+const earning = +(dropDistance * PER_KM_RATE).toFixed(2);
+
+// Estimated time (30 km/h)
+const pickupTime = Math.ceil((pickupDistance / 30) * 60);
+const dropTime = Math.ceil((dropDistance / 30) * 60);
+
+return {
+  ...boy._doc,
+  pickupDistance: +pickupDistance.toFixed(2),
+  dropDistance: +dropDistance.toFixed(2),
+  pickupTime: `${pickupTime} mins`,
+  dropTime: `${dropTime} mins`,
+  earning   // 🔥 THIS IS WHAT YOUR UI NEEDS
+};
       })
       .filter(boy => boy.pickupDistance <= 5)
       .sort((a, b) => a.pickupDistance - b.pickupDistance);

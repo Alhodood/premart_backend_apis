@@ -8,7 +8,7 @@ const shopProductController = require('../controllers/shopProductController');
 router.post('/catalog', partsController.createPart);
 router.get('/getParts', partsController.getAllParts);
 router.patch('/catalog/:id', partsController.updatePart);
-router.get('/catalog/:id', partsController.getPartById);
+router.get('/catalog/getPartsById/:id', partsController.getPartById);
 router.get('/catalog/search/query', partsController.searchParts);
 router.get('/catalog/search/part-number', partsController.searchByPartNumber); // Part number search
 
