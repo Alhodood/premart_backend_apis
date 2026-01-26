@@ -218,8 +218,17 @@ exports.login = async (req, res) => {
     // ALL OTHER ROLES
     // =======================
     const Model = roleModelMap[role];
-    user = await Model.findOne({ email });
 
+if (role === ROLES.CUSTOMER) {
+  user = await Model.findOne({
+    $or: [
+      { email: email },
+      { phone: email } // allows phone entered in email field
+    ]
+  });
+} else {
+  user = await Model.findOne({ email });
+}
     if (!user || !user.comparePassword) {
       return res.status(401).json({ success: false, message: 'Invalid credentials' });
     }
