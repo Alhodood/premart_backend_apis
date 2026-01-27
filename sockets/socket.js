@@ -1,3 +1,4 @@
+const DeliveryBoy = require('../models/DeliveryBoy');
 let io;
 const connectedUsers = {};
 
@@ -12,6 +13,29 @@ module.exports = {
     });
 
     io.on('connection', (socket) => {
+
+      socket.on("live_location", async (data) => {
+  try {
+    const { deliveryBoyId, latitude, longitude } = data;
+
+    if (!deliveryBoyId || latitude == null || longitude == null) return;
+
+    await DeliveryBoy.findByIdAndUpdate(
+      deliveryBoyId,
+      {
+        latitude,
+        longitude,
+        updatedAt: new Date(),
+      },
+      { new: true }
+    );
+
+    console.log(`📍 Location updated for ${deliveryBoyId}:`, latitude, longitude);
+
+  } catch (err) {
+    console.error("Live location socket error:", err.message);
+  }
+});
       console.log('🟢 Client connected:', socket.id);
 
       const userId = socket.handshake.query.userId;

@@ -280,7 +280,15 @@ exports.sendOtp = async (req, res) => {
 
 exports.verifyOtp = async (req, res) => {
   try {
-    const { phone, role, countryCode, latitude, longitude, agencyId } = req.body;
+    const { phone, role, countryCode, latitude, longitude, agencyId, code } = req.body;
+
+    // Hard OTP enforcement
+    if (code !== "123456") {
+      return res.status(400).json({
+        success: false,
+        message: 'Invalid OTP'
+      });
+    }
 
     if (!phone || !role) {
       return res.status(400).json({
@@ -289,16 +297,15 @@ exports.verifyOtp = async (req, res) => {
       });
     }
 
-    if (role !== ROLES.DELIVERY_BOY) {
+    if (role !== 'DELIVERY_BOY') {
       return res.status(403).json({
         success: false,
-        message: 'Only delivery boy supported in this flow'
+        message: 'Only delivery boy supported'
       });
     }
 
     const Model = roleModelMap[role];
 
-    // Find or create delivery boy
     let user = await Model.findOne({ phone });
 
     if (!user) {
@@ -312,13 +319,6 @@ exports.verifyOtp = async (req, res) => {
         isOnline: false,
         availability: true,
       });
-    } else {
-      // Update values if already exists
-      user.countryCode = countryCode ?? user.countryCode;
-      user.latitude = latitude ?? user.latitude;
-      user.longitude = longitude ?? user.longitude;
-      user.agencyId = agencyId ?? user.agencyId;
-      await user.save();
     }
 
     const token = jwt.sign(
@@ -338,11 +338,8 @@ exports.verifyOtp = async (req, res) => {
     });
 
   } catch (err) {
-    console.error('Verify OTP Error:', err);
-    return res.status(500).json({
-      success: false,
-      message: err.message
-    });
+    console.error(err);
+    return res.status(500).json({ success: false, message: err.message });
   }
 };
 
