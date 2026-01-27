@@ -725,9 +725,9 @@ exports.getNearbyAssignedOrders = async (req, res) => {
       const deliveryDetails = {
         deliveryBoyId: order.assignedDeliveryBoy || null,
         orderStatus: order.status,  // ✅ Using 'status' field
-        pickupDistance: `${pickupDistance.toFixed(2)} km`,
+        pickupDistance: `${pickupDistance.toFixed(2)}`,
         pickupTime,
-        dropDistance: `${dropDistance ? dropDistance.toFixed(2) : '0.00'} km`,
+        dropDistance: `${dropDistance ? dropDistance.toFixed(2) : '0.00'}`,
         dropTime,
         deliveryEarnings: order.deliveryEarning || 0,
       };
@@ -768,33 +768,102 @@ exports.getNearbyAssignedOrders = async (req, res) => {
   }
 };
 
+// ============================================
+// FIX: Get Ongoing Orders - Populate Shop Details
+// ============================================
+
 exports.getOngoingOrdersForDeliveryBoy = async (req, res) => {
   try {
     const { deliveryBoyId } = req.params;
 
     if (!deliveryBoyId) {
-      return res.status(400).json({ 
-        success: false, 
-        message: 'Delivery Boy ID is required' 
+      return res.status(400).json({
+        success: false,
+        message: 'Delivery Boy ID is required'
       });
     }
 
+    console.log(`🔍 Fetching ongoing orders for delivery boy: ${deliveryBoyId}`);
+
+    // ✅ Find ongoing orders for this delivery boy
     const ongoingOrders = await Order.find({
-      assignedDeliveryBoy: deliveryBoyId,  // ✅ Changed from deliveryBoyId
-      status: { $nin: ['Delivered', 'Cancelled'] }  // ✅ Changed from orderStatus
+      assignedDeliveryBoy: deliveryBoyId,
+      status: { $nin: ['Delivered', 'Cancelled'] }
     }).sort({ updatedAt: -1 });
+
+    console.log(`📦 Found ${ongoingOrders.length} ongoing orders`);
+
+    // ✅ Populate shop details for each order
+    const ordersWithDetails = await Promise.all(
+      ongoingOrders.map(async (order) => {
+        const shop = await Shop.findById(order.shopId);
+        
+        // Get delivery boy location for distance calculation
+        const deliveryBoy = await DeliveryBoy.findById(deliveryBoyId);
+        
+        let pickupDistance = 'N/A';
+        let pickupTime = 'N/A';
+        let dropDistance = 'N/A';
+        let dropTime = 'N/A';
+
+        if (shop && shop.shopeDetails && shop.shopeDetails.shopLocation && deliveryBoy) {
+          const [shopLat, shopLng] = shop.shopeDetails.shopLocation.split(',').map(Number);
+          const boyLat = deliveryBoy.latitude;
+          const boyLng = deliveryBoy.longitude;
+
+          if (!isNaN(shopLat) && !isNaN(shopLng) && boyLat && boyLng) {
+            // Calculate pickup distance (delivery boy to shop)
+            const pickupDist = geolib.getDistance(
+              { latitude: boyLat, longitude: boyLng },
+              { latitude: shopLat, longitude: shopLng }
+            ) / 1000;
+
+            pickupDistance = `${pickupDist.toFixed(2)} km`;
+            pickupTime = `${Math.ceil((pickupDist / 30) * 60)} mins`;
+
+            // Calculate drop distance (shop to customer)
+            const customerLat = order.deliveryAddress?.latitude;
+            const customerLng = order.deliveryAddress?.longitude;
+
+            if (customerLat && customerLng) {
+              const dropDist = geolib.getDistance(
+                { latitude: shopLat, longitude: shopLng },
+                { latitude: customerLat, longitude: customerLng }
+              ) / 1000;
+
+              dropDistance = `${dropDist.toFixed(2)} km`;
+              dropTime = `${Math.ceil((dropDist / 30) * 60)} mins`;
+            }
+          }
+        }
+
+        return {
+          ...order._doc,
+          shopDetails: shop ? {
+            shopName: shop.shopeDetails?.shopName || 'Unknown Shop',
+            shopAddress: shop.shopeDetails?.shopAddress || '',
+            shopContact: shop.shopeDetails?.shopContact || '',
+            shopLocation: shop.shopeDetails?.shopLocation || ''
+          } : null,
+          pickupDistance,
+          pickupTime,
+          dropDistance,
+          dropTime
+        };
+      })
+    );
 
     return res.status(200).json({
       success: true,
       message: 'Ongoing orders fetched successfully',
-      data: ongoingOrders,
+      data: ordersWithDetails
     });
   } catch (err) {
-    console.error(err);
+    console.error('❌ Get Ongoing Orders Error:', err);
     return res.status(500).json({
       success: false,
       message: 'Server error while fetching ongoing orders',
-      error: err.message,
+      error: err.message
     });
   }
 };
@@ -1387,7 +1456,7 @@ exports.toggleAvailability = async (req, res) => {
 
     const deliveryBoy = await DeliveryBoy.findById(deliveryBoyId);
     console.log('Fetched Delivery Boy:', deliveryBoy);
-    if (!deliveryBoy || (deliveryBoy.role?.toLowerCase() !== 'deliveryboy')) {
+  if (!deliveryBoy || deliveryBoy.role !== 'DELIVERY_BOY') {
       console.log('Validation failed - either not found or role mismatch:', deliveryBoy?.role);
       return res.status(404).json({
         success: false,
@@ -1499,43 +1568,111 @@ exports.getNearbyTopOrderAreas = async (req, res) => {
 };
 
 
+// ============================================
+// ENHANCED EARNINGS API WITH STATISTICS
+// ============================================
+
 exports.getDeliveryEarningsHistory = async (req, res) => {
   try {
     const deliveryBoyId = req.params.deliveryBoyId;
-    
-    // ✅ Changed from orderStatus to status
-    const orders = await Order.find({
-      assignedDeliveryBoy: deliveryBoyId,
-      status: 'Delivered'  // ✅ FIXED - using 'status' field
-    });
 
-    const result = {};
-    orders.forEach(order => {
+    // ✅ Get all delivered orders
+    const deliveredOrders = await Order.find({
+      assignedDeliveryBoy: deliveryBoyId,
+      status: 'Delivered'
+    }).sort({ updatedAt: -1 });
+
+    // ✅ Calculate statistics
+    const totalEarnings = deliveredOrders.reduce(
+      (sum, order) => sum + (order.deliveryEarning || 0),
+      0
+    );
+
+    const todayStart = moment().startOf('day');
+    const todayEnd = moment().endOf('day');
+    const weekStart = moment().startOf('week');
+    const monthStart = moment().startOf('month');
+
+    const todayOrders = deliveredOrders.filter(order =>
+      moment(order.updatedAt).isBetween(todayStart, todayEnd, null, '[]')
+    );
+
+    const weekOrders = deliveredOrders.filter(order =>
+      moment(order.updatedAt).isAfter(weekStart)
+    );
+
+    const monthOrders = deliveredOrders.filter(order =>
+      moment(order.updatedAt).isAfter(monthStart)
+    );
+
+    const todayEarnings = todayOrders.reduce(
+      (sum, order) => sum + (order.deliveryEarning || 0),
+      0
+    );
+
+    const weekEarnings = weekOrders.reduce(
+      (sum, order) => sum + (order.deliveryEarning || 0),
+      0
+    );
+
+    const monthEarnings = monthOrders.reduce(
+      (sum, order) => sum + (order.deliveryEarning || 0),
+      0
+    );
+
+    // ✅ Group orders by date
+    const groupedOrders = {};
+
+    deliveredOrders.forEach(order => {
       const date = moment(order.updatedAt);
       let label;
+
       if (date.isSame(moment(), 'day')) {
         label = 'Today';
       } else if (date.isSame(moment().subtract(1, 'days'), 'day')) {
         label = 'Yesterday';
+      } else if (date.isAfter(moment().subtract(7, 'days'))) {
+        label = 'This Week';
+      } else if (date.isAfter(moment().subtract(30, 'days'))) {
+        label = 'This Month';
       } else {
-        label = date.format('DD MMM YYYY');
+        label = date.format('MMMM YYYY');
       }
 
-      if (!result[label]) result[label] = [];
-      result[label].push({
+      if (!groupedOrders[label]) {
+        groupedOrders[label] = [];
+      }
+
+      groupedOrders[label].push({
         orderId: order._id,
         date: date.format('DD/MM/YYYY'),
-        earning: `${order.deliveryEarning} AED`
+        time: date.format('hh:mm A'),
+        earning: order.deliveryEarning || 0,
+        distance: order.deliveryDistance || 0,
+        paymentType: order.paymentType || 'N/A'
       });
     });
 
+    // ✅ Response with statistics
     res.status(200).json({
       message: 'Earning history fetched successfully',
       success: true,
-      data: result
+      data: {
+        statistics: {
+          totalEarnings: parseFloat(totalEarnings.toFixed(2)),
+          todayEarnings: parseFloat(todayEarnings.toFixed(2)),
+          weekEarnings: parseFloat(weekEarnings.toFixed(2)),
+          monthEarnings: parseFloat(monthEarnings.toFixed(2)),
+          totalOrders: deliveredOrders.length,
+          todayOrders: todayOrders.length,
+          weekOrders: weekOrders.length,
+          monthOrders: monthOrders.length
+        },
+        orders: groupedOrders
+      }
     });
   } catch (error) {
-    console.error('Earning History Error:', error);
+    console.error('❌ Earning History Error:', error);
     res.status(500).json({
       message: 'Failed to fetch earnings',
       success: false,
@@ -1544,6 +1681,10 @@ exports.getDeliveryEarningsHistory = async (req, res) => {
   }
 };
 
+
+// ============================================
+// ENHANCED HISTORY API WITH RICH ORDER DATA
+// ============================================
 
 exports.getDeliveryOrderHistory = async (req, res) => {
   try {
@@ -1555,59 +1696,134 @@ exports.getDeliveryOrderHistory = async (req, res) => {
       return res.status(404).json({
         message: 'Delivery boy not found',
         success: false,
-        data: [],
+        data: []
       });
     }
 
-    // 2. Fetch all assigned orders
+    // 2. Fetch all orders assigned to this delivery boy
     const orders = await Order.find({
       assignedDeliveryBoy: deliveryBoyId
-    }).sort({ createdAt: -1 });
+    }).sort({ updatedAt: -1 });
 
     if (!orders.length) {
       return res.status(200).json({
         message: 'No orders found',
         success: true,
-        data: []
+        data: {
+          statistics: {
+            totalOrders: 0,
+            delivered: 0,
+            cancelled: 0,
+            totalEarnings: 0,
+            totalDistance: 0
+          },
+          orders: {}
+        }
       });
     }
 
-    // 3. Enrich with date formatting and payment info
-    const formatted = await Promise.all(
-      orders.map(async (order) => {
-        const payment = await Payment.findOne({ orderId: order._id });
-        const createdAt = moment(order.createdAt);
-        const today = moment();
-        const yesterday = moment().subtract(1, 'day');
-        let label = createdAt.isSame(today, 'day')
-          ? 'Today'
-          : createdAt.isSame(yesterday, 'day')
-          ? 'Yesterday'
-          : createdAt.format('dddd');
+    // 3. Calculate statistics
+    const statistics = {
+      totalOrders: orders.length,
+      delivered: orders.filter(o => o.status === 'Delivered').length,
+      cancelled: orders.filter(o => o.status === 'Cancelled').length,
+      totalEarnings: orders
+        .filter(o => o.status === 'Delivered')
+        .reduce((sum, o) => sum + (o.deliveryEarning || 0), 0),
+      totalDistance: orders
+        .reduce((sum, o) => sum + (o.deliveryDistance || 0), 0)
+    };
 
-        return {
-          orderId: order._id,
-          date: createdAt.format('DD/MM/YYYY'),
-          day: label,
-          orderStatus: order.status,  // ✅ Changed from order.orderStatus
-          earning: parseFloat(order.deliveryEarning || 0),
-          paymentType: order.paymentType || 'N/A',
-          deliveryAddress: `${order.deliveryAddress.flatNumber || ''}, ${order.deliveryAddress.area || ''}, ${order.deliveryAddress.place || ''}`,
-        };
-      })
-    );
+    // 4. Group orders by date with rich data
+    const groupedOrders = {};
+
+    for (const order of orders) {
+      // Fetch shop details
+      const shop = await Shop.findById(order.shopId);
+
+      const createdAt = moment(order.updatedAt);
+      const today = moment();
+      const yesterday = moment().subtract(1, 'day');
+
+      let label;
+      if (createdAt.isSame(today, 'day')) {
+        label = 'Today';
+      } else if (createdAt.isSame(yesterday, 'day')) {
+        label = 'Yesterday';
+      } else if (createdAt.isAfter(moment().subtract(7, 'days'))) {
+        label = 'This Week';
+      } else if (createdAt.isAfter(moment().subtract(30, 'days'))) {
+        label = 'This Month';
+      } else {
+        label = createdAt.format('MMMM YYYY');
+      }
+
+      if (!groupedOrders[label]) {
+        groupedOrders[label] = [];
+      }
+
+      // Get status badge color
+      let statusColor = 'grey';
+      let statusIcon = 'clock';
+      
+      switch (order.status) {
+        case 'Delivered':
+          statusColor = 'green';
+          statusIcon = 'check-circle';
+          break;
+        case 'Cancelled':
+          statusColor = 'red';
+          statusIcon = 'x-circle';
+          break;
+        case 'Accepted by Delivery Boy':
+        case 'Reached Pickup':
+        case 'Order Picked':
+        case 'Reached Drop':
+          statusColor = 'blue';
+          statusIcon = 'truck';
+          break;
+        default:
+          statusColor = 'orange';
+          statusIcon = 'clock';
+      }
+
+      groupedOrders[label].push({
+        orderId: order._id,
+        date: createdAt.format('DD/MM/YYYY'),
+        time: createdAt.format('hh:mm A'),
+        status: order.status,
+        statusColor,
+        statusIcon,
+        earning: parseFloat((order.deliveryEarning || 0).toFixed(2)),
+        distance: parseFloat((order.deliveryDistance || 0).toFixed(2)),
+        paymentType: order.paymentType || 'N/A',
+        totalAmount: order.totalPayable || 0,
+        shop: shop ? {
+          name: shop.shopeDetails?.shopName || 'Unknown Shop',
+          address: shop.shopeDetails?.shopAddress || 'N/A'
+        } : null,
+        customer: {
+          name: order.deliveryAddress?.name || 'N/A',
+          address: `${order.deliveryAddress?.address || ''}, ${order.deliveryAddress?.area || ''}, ${order.deliveryAddress?.place || ''}`.trim(),
+          contact: order.deliveryAddress?.contact || 'N/A'
+        }
+      });
+    }
 
     return res.status(200).json({
       message: 'Order history fetched successfully',
       success: true,
-      data: formatted,
+      data: {
+        statistics,
+        orders: groupedOrders
+      }
     });
   } catch (error) {
-    console.error('Order History Error:', error);
+    console.error('❌ Order History Error:', error);
     return res.status(500).json({
       message: 'Failed to fetch delivery order history',
       success: false,
-      data: error.message,
+      data: error.message
     });
   }
 };
