@@ -419,6 +419,7 @@ exports.getOrderById = async (req, res) => {
       
       // Status
       orderStatus: order.status || 'pending',
+      statusHistory: order.statusHistory || [],
       
       // Financial fields
       totalAmount: order.subtotal || 0,

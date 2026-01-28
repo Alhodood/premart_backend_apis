@@ -243,7 +243,16 @@ if (role === ROLES.CUSTOMER) {
     const response = {
       id: user._id,
       role,
-      token
+      token,
+      user: {
+        name: user.name,
+        email: user.email,
+        phone: user.phone,
+        
+        accountVerify: user.accountVerify,
+        dob: user.dob,
+
+      }
     };
 
     if (role === ROLES.SHOP_ADMIN) {
