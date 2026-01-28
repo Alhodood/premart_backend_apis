@@ -13,6 +13,7 @@ const partsCatalogSchema = new mongoose.Schema({
     ref: 'VehicleConfiguration'
   }],
 
+  
   madeIn: String,
   weight: Number,
 
