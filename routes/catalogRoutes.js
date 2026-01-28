@@ -17,5 +17,7 @@ router.post('/shop-product/:shopId', shopProductController.addShopProduct);
 router.get('/shop-product/:shopId', shopProductController.getShopProducts);
 router.patch('/shop-product/:id', shopProductController.updateShopProduct);
 router.delete('/shop-product/:id', shopProductController.deleteShopProduct);
+// correct
+router.get('/details/:productId', partsController.getProductDetailsByProductId);
 
 module.exports = router;

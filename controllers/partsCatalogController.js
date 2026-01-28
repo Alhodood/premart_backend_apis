@@ -710,3 +710,82 @@ exports.searchByPartNumber = async (req, res) => {
     res.status(500).json({ success: false, error: err.message });
   }
 };
+
+exports.getProductDetailsByProductId = async (req, res) => {
+  try {
+    const { productId } = req.params;
+
+    if (!mongoose.Types.ObjectId.isValid(productId)) {
+      return res.status(400).json({
+        success: false,
+        message: 'Invalid productId'
+      });
+    }
+
+    // 1. Get product
+    const product = await PartsCatalog.findById(productId)
+      .populate('category', 'categoryName categoryImage')
+      .populate('subCategory', 'subCategoryName subCategoryImage')
+      .populate({
+        path: 'compatibleVehicleConfigs',
+        populate: [
+          { path: 'brand', select: 'brandName' },
+          { path: 'model', select: 'modelName' }
+        ]
+      });
+
+    if (!product || !product.isActive) {
+      return res.status(404).json({
+        success: false,
+        message: 'Product not found'
+      });
+    }
+
+    // 2. Get all shop products for this product
+    const shopProducts = await ShopProduct.find({
+      part: productId,
+      isAvailable: true
+    }).populate({
+      path: 'shopId',
+      select: 'shopeDetails.shopName shopeDetails.shopAddress shopeDetails.shopContact shopeDetails.shopLocation shopeDetails.supportMail shopeDetails.supportNumber'
+    });
+
+    // 3. Format shops
+    const shops = shopProducts.map(sp => {
+      const shop = sp.shopId?.shopeDetails || {};
+
+      return {
+        shopProductId: sp._id,
+        shopId: sp.shopId?._id,
+        shopName: shop.shopName || '',
+        shopAddress: shop.shopAddress || '',
+        shopContact: shop.shopContact || '',
+        shopLocation: shop.shopLocation || '',
+        supportMail: shop.supportMail || '',
+        supportNumber: shop.supportNumber || '',
+        price: sp.price,
+        discountedPrice: sp.discountedPrice,
+        finalPrice: sp.discountedPrice || sp.price,
+        stock: sp.stock,
+        isAvailable: sp.isAvailable
+      };
+    });
+
+    // 4. Final response
+    res.json({
+      success: true,
+      data: {
+        product,
+        shops,
+        shopCount: shops.length,
+        minPrice: shops.length ? Math.min(...shops.map(s => s.finalPrice)) : null,
+        maxPrice: shops.length ? Math.max(...shops.map(s => s.finalPrice)) : null,
+        inStock: shops.some(s => s.stock > 0)
+      }
+    });
+
+  } catch (err) {
+    console.error('Product details error:', err);
+    res.status(500).json({ success: false, error: err.message });
+  }
+};
