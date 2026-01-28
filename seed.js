@@ -704,7 +704,7 @@ const seedData = async () => {
     const agencies = await DeliveryAgency.insertMany(
       agencyNames.map((name, i) => ({
         agencyDetails: {
-          email: `agency${i + 1}@delivery.ae`,
+          email: `agency${agency + 1}@delivery.ae`,
           password: agencyPassword,
           profileImage: `https://via.placeholder.com/200x200/FF6600/FFFFFF?text=Agency+${i + 1}`,
           agencyName: name,

@@ -273,7 +273,49 @@ exports.getPartById = async (req, res) => {
       return res.status(404).json({ success: false, message: 'Part not found' });
     }
 
-    res.json({ success: true, data: part });
+    // Get all shop products for this part
+    const shopProducts = await ShopProduct.find({
+      part: req.params.id,
+      isAvailable: true
+    }).populate({
+      path: 'shopId',
+      select: 'shopeDetails.shopName shopeDetails.shopAddress shopeDetails.shopContact shopeDetails.shopLocation shopeDetails.supportMail shopeDetails.supportNumber'
+    });
+
+    // Format shops array
+    const shops = shopProducts.map(sp => {
+      const shop = sp.shopId?.shopeDetails || {};
+
+      return {
+        shopProductId: sp._id,
+        shopId: sp.shopId?._id,
+        shopName: shop.shopName || '',
+        shopAddress: shop.shopAddress || '',
+        shopContact: shop.shopContact || '',
+        shopLocation: shop.shopLocation || '',
+        supportMail: shop.supportMail || '',
+        supportNumber: shop.supportNumber || '',
+        price: sp.price,
+        discountedPrice: sp.discountedPrice,
+        finalPrice: sp.discountedPrice || sp.price,
+        stock: sp.stock,
+        isAvailable: sp.isAvailable,
+        hasDiscount: sp.discountedPrice !== null && sp.discountedPrice < sp.price
+      };
+    });
+
+    // Return part with shop details
+    res.json({ 
+      success: true, 
+      data: {
+        ...part.toObject(),
+        shops: shops,
+        shopCount: shops.length,
+        minPrice: shops.length > 0 ? Math.min(...shops.map(s => s.finalPrice)) : null,
+        maxPrice: shops.length > 0 ? Math.max(...shops.map(s => s.finalPrice)) : null,
+        inStock: shops.some(s => s.stock > 0)
+      }
+    });
 
   } catch (err) {
     console.error('Get Part Error:', err);
