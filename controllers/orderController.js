@@ -1584,27 +1584,14 @@ exports.updateOrderStatus = async (req, res) => {
 
 
 
-// Helper function to calculate distance using Haversine Formula
-function calculateDistance(lat1, lon1, lat2, lon2) {
-  const toRad = (value) => (value * Math.PI) / 180;
-  const R = 6371; // Radius of Earth in KM
 
-  const dLat = toRad(lat2 - lat1);
-  const dLon = toRad(lon2 - lon1);
-  const a =
-    Math.sin(dLat / 2) * Math.sin(dLat / 2) +
-    Math.cos(toRad(lat1)) * Math.cos(toRad(lat2)) *
-    Math.sin(dLon / 2) * Math.sin(dLon / 2);
-
-  const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
-  const distance = R * c;
-  return distance; // Distance in KM
-}
 
 
 // ============================================
-// FIX 1: Auto Assign - Fix status field and save earning
+// IMPROVED AUTO ASSIGN DELIVERY BOY API
 // ============================================
+
+
 
 exports.autoAssignDeliveryBoyWithin5km = async (req, res) => {
   try {
@@ -1618,6 +1605,18 @@ exports.autoAssignDeliveryBoyWithin5km = async (req, res) => {
         message: 'Order not found',
         success: false,
         data: []
+      });
+    }
+
+    // ✅ CHECK: If order is already assigned, don't reassign
+    if (order.assignedDeliveryBoy) {
+      return res.status(409).json({
+        message: 'Order already assigned to a delivery boy',
+        success: false,
+        data: {
+          assignedTo: order.assignedDeliveryBoy,
+          status: order.status
+        }
       });
     }
 
@@ -1649,53 +1648,73 @@ exports.autoAssignDeliveryBoyWithin5km = async (req, res) => {
     const customerLat = order.deliveryAddress.latitude;
     const customerLng = order.deliveryAddress.longitude;
 
-    const nearbyDeliveryBoys = deliveryBoys
-      .map(boy => {
-        const pickupDistance = calculateDistance(
-          shopLatitude,
-          shopLongitude,
-          boy.latitude,
-          boy.longitude
-        );
-        const dropDistance = calculateDistance(
-          shopLatitude,
-          shopLongitude,
-          customerLat,
-          customerLng
-        );
+    // ✅ FIX 1: Calculate distances for all delivery boys
+    const deliveryBoysWithDistances = deliveryBoys.map(boy => {
+      const pickupDistance = calculateDistance(
+        shopLatitude,
+        shopLongitude,
+        boy.latitude,
+        boy.longitude
+      );
+      const dropDistance = calculateDistance(
+        shopLatitude,
+        shopLongitude,
+        customerLat,
+        customerLng
+      );
 
-        // Earnings based on DROP distance
-        const earning = +(dropDistance * PER_KM_RATE).toFixed(2);
+      // Earnings based on DROP distance
+      const earning = +(dropDistance * PER_KM_RATE).toFixed(2);
 
-        // Estimated time (30 km/h)
-        const pickupTime = Math.ceil((pickupDistance / 30) * 60);
-        const dropTime = Math.ceil((dropDistance / 30) * 60);
+      // Estimated time (30 km/h)
+      const pickupTime = Math.ceil((pickupDistance / 30) * 60);
+      const dropTime = Math.ceil((dropDistance / 30) * 60);
 
-        return {
-          ...boy._doc,
-          pickupDistance: +pickupDistance.toFixed(2),
-          dropDistance: +dropDistance.toFixed(2),
-          pickupTime: `${pickupTime} mins`,
-          dropTime: `${dropTime} mins`,
-          earning
-        };
-      })
-      .filter(boy => boy.pickupDistance <= 5)
-      .sort((a, b) => a.pickupDistance - b.pickupDistance);
+      return {
+        ...boy._doc,
+        pickupDistance: +pickupDistance.toFixed(2),
+        dropDistance: +dropDistance.toFixed(2),
+        pickupTime: `${pickupTime} mins`,
+        dropTime: `${dropTime} mins`,
+        earning
+      };
+    }).sort((a, b) => a.pickupDistance - b.pickupDistance);
+
+    // ✅ FIX 1: FALLBACK RADIUS LOGIC - Try 3km → 5km → 10km → 15km
+    const radiusOptions = [3, 5, 10, 15];
+    let nearbyDeliveryBoys = [];
+    let usedRadius = 0;
+
+    for (const radius of radiusOptions) {
+      nearbyDeliveryBoys = deliveryBoysWithDistances.filter(
+        boy => boy.pickupDistance <= radius
+      );
+
+      if (nearbyDeliveryBoys.length > 0) {
+        usedRadius = radius;
+        console.log(`✅ Found ${nearbyDeliveryBoys.length} delivery boys within ${radius} km`);
+        break;
+      }
+    }
 
     if (nearbyDeliveryBoys.length === 0) {
       return res.status(404).json({
-        message: 'No delivery boy found within 5 km',
-        success: false
+        message: 'No delivery boy found within 15 km radius',
+        success: false,
+        data: {
+          searchedRadiuses: radiusOptions,
+          totalAvailableDeliveryBoys: deliveryBoys.length
+        }
       });
     }
 
-    // ✅ FIX: Calculate and save delivery earning to order
+    // ✅ Calculate and save delivery earning to order
     const firstDeliveryBoy = nearbyDeliveryBoys[0];
     order.deliveryEarning = firstDeliveryBoy.earning;
     order.deliveryDistance = firstDeliveryBoy.dropDistance;
+    order.searchRadius = usedRadius; // Track which radius was used
 
-    // ✅ FIX: Update 'status' field (not orderStatus)
+    // ✅ Update 'status' field
     order.status = 'Delivery Boy Assigned';
     await order.save();
 
@@ -1722,7 +1741,10 @@ exports.autoAssignDeliveryBoyWithin5km = async (req, res) => {
           orderId: order._id.toString(),
           data: {
             nearbyDeliveryBoys,
-            order,
+            order: {
+              ...order._doc,
+              searchRadius: usedRadius // Include radius info
+            },
             shop: {
               id: shop._id,
               shopeDetails: shop.shopeDetails
@@ -1735,14 +1757,21 @@ exports.autoAssignDeliveryBoyWithin5km = async (req, res) => {
     }
 
     return res.status(200).json({
-      message: 'Order assignment request sent to all nearby delivery boys',
+      message: `Order assignment request sent to ${nearbyDeliveryBoys.length} delivery boys within ${usedRadius} km`,
       success: true,
       data: {
         nearbyDeliveryBoys,
-        order,
+        order: {
+          ...order._doc,
+          searchRadius: usedRadius
+        },
         shop: {
           id: shop._id,
           shopeDetails: shop.shopeDetails
+        },
+        searchInfo: {
+          usedRadius: `${usedRadius} km`,
+          totalDeliveryBoysNotified: nearbyDeliveryBoys.length
         }
       }
     });
@@ -1755,6 +1784,27 @@ exports.autoAssignDeliveryBoyWithin5km = async (req, res) => {
     });
   }
 };
+
+// ============================================
+// HELPER FUNCTION: Calculate distance
+// ============================================
+function calculateDistance(lat1, lon1, lat2, lon2) {
+  const R = 6371; // Radius of Earth in kilometers
+  const dLat = toRad(lat2 - lat1);
+  const dLon = toRad(lon2 - lon1);
+  const a =
+    Math.sin(dLat / 2) * Math.sin(dLat / 2) +
+    Math.cos(toRad(lat1)) *
+      Math.cos(toRad(lat2)) *
+      Math.sin(dLon / 2) *
+      Math.sin(dLon / 2);
+  const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+  return R * c;
+}
+
+function toRad(degrees) {
+  return degrees * (Math.PI / 180);
+}
 
 // ============================================
 // FIX 2: Get Nearby Assigned Orders - No changes needed

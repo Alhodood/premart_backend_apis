@@ -884,6 +884,14 @@ exports.getOngoingOrdersForDeliveryBoy = async (req, res) => {
 
   // Find this function in your file and replace it completely
 
+// ============================================
+// IMPROVED DELIVERY BOY ACCEPT/REJECT API
+// ============================================
+
+// ============================================
+// IMPROVED DELIVERY BOY ACCEPT/REJECT API
+// ============================================
+
 exports.deliveryBoyAcceptOrReject = async (req, res) => {
   try {
     const orderId = req.params.orderId;
@@ -930,14 +938,15 @@ exports.deliveryBoyAcceptOrReject = async (req, res) => {
     // 4. PROCESS ACTION
     // ========================
     if (action === "accept") {
-      // Check if already assigned to another delivery boy
+      // ✅ FIX 3: Check if already assigned to another delivery boy
       if (order.assignedDeliveryBoy && 
           order.assignedDeliveryBoy.toString() !== deliveryBoyId.toString()) {
         return res.status(409).json({
           message: 'Order already accepted by another delivery boy',
           success: false,
           data: {
-            assignedTo: order.assignedDeliveryBoy
+            assignedTo: order.assignedDeliveryBoy,
+            alreadyTaken: true
           }
         });
       }
@@ -976,11 +985,11 @@ exports.deliveryBoyAcceptOrReject = async (req, res) => {
       console.log(`💰 Order earning: ${order.deliveryEarning} AED`);
       console.log(`📍 Delivery distance: ${order.deliveryDistance} km`);
 
-      // ✅ Emit Socket.IO event
+      // ✅ FIX 3: Emit Socket.IO events
       try {
-        const io = getIO();
+        const io = require('../sockets/socket').getIO();
         
-        // Notify shop
+        // 1. Notify shop
         io.emit('order_accepted', {
           orderId: order._id,
           deliveryBoyId: deliveryBoy._id,
@@ -989,25 +998,36 @@ exports.deliveryBoyAcceptOrReject = async (req, res) => {
           status: order.status
         });
 
-        // Notify delivery boy
+        // 2. Notify accepting delivery boy
         io.to(deliveryBoyId.toString()).emit('order_accepted_confirmation', {
           orderId: order._id,
           message: 'Order accepted successfully',
           deliveryEarning: order.deliveryEarning
         });
+
+        // 3. ✅ FIX 3: Broadcast to ALL delivery boys that this order is taken
+        // This will dismiss the dialog from other delivery boys' screens
+        io.emit('order_taken_by_another', {
+          orderId: order._id.toString(),
+          takenBy: deliveryBoyId.toString(),
+          message: 'This order has been accepted by another delivery boy'
+        });
+
+        console.log(`📢 Broadcasted order_taken_by_another for order ${orderId}`);
+
       } catch (socketErr) {
         console.warn('Socket.IO emit failed:', socketErr.message);
       }
 
-      // ✅ FIX: Return complete order data with all fields
+      // ✅ Return complete order data
       return res.status(200).json({
         message: 'Order accepted successfully',
         success: true,
         data: {
           orderId: order._id,
           status: order.status,
-          deliveryDistance: order.deliveryDistance,      // ✅ Include this
-          deliveryEarning: order.deliveryEarning,        // ✅ Include this
+          deliveryDistance: order.deliveryDistance,
+          deliveryEarning: order.deliveryEarning,
           totalPayable: order.totalPayable,
           deliveryAddress: order.deliveryAddress,
           assignedDeliveryBoy: {
@@ -1029,7 +1049,8 @@ exports.deliveryBoyAcceptOrReject = async (req, res) => {
       }
       order.statusHistory.push({
         status: 'Rejected by Delivery Boy',
-        date: new Date()
+        date: new Date(),
+        rejectedBy: deliveryBoyId
       });
       
       await order.save();
@@ -1047,7 +1068,7 @@ exports.deliveryBoyAcceptOrReject = async (req, res) => {
 
       // ✅ Emit Socket.IO event
       try {
-        const io = getIO();
+        const io = require('../sockets/socket').getIO();
         
         // Notify shop that order needs reassignment
         io.emit('order_rejected', {
@@ -1056,6 +1077,10 @@ exports.deliveryBoyAcceptOrReject = async (req, res) => {
           shopId: order.shopId,
           status: order.status
         });
+
+        // ✅ You could also trigger auto-reassignment here
+        // autoAssignDeliveryBoyWithin5km({ params: { orderId } }, res);
+
       } catch (socketErr) {
         console.warn('Socket.IO emit failed:', socketErr.message);
       }
