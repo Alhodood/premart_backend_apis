@@ -1112,8 +1112,8 @@ exports.deliveryBoyAcceptOrReject = async (req, res) => {
     });
   }
 };
-  
-  
+
+
 exports.deliveryBoyUpdateOrderStatus = async (req, res) => {
   try {
     const orderId = req.params.orderId;
