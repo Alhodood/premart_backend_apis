@@ -1594,6 +1594,12 @@ exports.updateOrderStatus = async (req, res) => {
 
 
 
+// ============================================
+// IMPROVED AUTO ASSIGN DELIVERY BOY API
+// ============================================
+// ============================================
+// ENHANCED AUTO ASSIGN WITH SOCKET DEBUGGING
+// ============================================
 exports.autoAssignDeliveryBoyWithin5km = async (req, res) => {
   try {
     console.log('🚀 API hit: autoAssignDeliveryBoyWithin5km');
@@ -1631,32 +1637,90 @@ exports.autoAssignDeliveryBoyWithin5km = async (req, res) => {
       });
     }
 
-    const [shopLatitude, shopLongitude] = shop.shopeDetails.shopLocation
-      .split(',')
-      .map(Number);
-
-    if (!shopLatitude || !shopLongitude) {
+    // ✅ FIX: Validate and parse shop location coordinates
+    const shopLocationString = shop.shopeDetails.shopLocation.toString().trim();
+    console.log(`📍 Raw shop location: "${shopLocationString}"`);
+    
+    const coords = shopLocationString.split(',').map(str => str.trim());
+    
+    if (coords.length !== 2) {
+      console.error(`❌ Invalid shop location format: ${shopLocationString}`);
       return res.status(400).json({
         message: 'Invalid shop location coordinates',
-        success: false
+        success: false,
+        error: `Expected "lat,lng" format, got: ${shopLocationString}`
       });
     }
 
+    const shopLatitude = parseFloat(coords[0]);
+    const shopLongitude = parseFloat(coords[1]);
+
+    // ✅ FIX: Validate parsed coordinates
+    if (isNaN(shopLatitude) || isNaN(shopLongitude)) {
+      console.error(`❌ Failed to parse coordinates: lat="${coords[0]}", lng="${coords[1]}"`);
+      return res.status(400).json({
+        message: 'Invalid shop location coordinates',
+        success: false,
+        error: `Could not parse lat="${coords[0]}" or lng="${coords[1]}" as numbers`
+      });
+    }
+
+    // ✅ FIX: Validate coordinate ranges
+    if (shopLatitude < -90 || shopLatitude > 90) {
+      console.error(`❌ Invalid latitude: ${shopLatitude}`);
+      return res.status(400).json({
+        message: 'Invalid shop location coordinates',
+        success: false,
+        error: `Latitude must be between -90 and 90, got: ${shopLatitude}`
+      });
+    }
+
+    if (shopLongitude < -180 || shopLongitude > 180) {
+      console.error(`❌ Invalid longitude: ${shopLongitude}`);
+      return res.status(400).json({
+        message: 'Invalid shop location coordinates',
+        success: false,
+        error: `Longitude must be between -180 and 180, got: ${shopLongitude}`
+      });
+    }
+
+    console.log(`✅ Valid shop coordinates: lat=${shopLatitude}, lng=${shopLongitude}`);
+
     // 3️⃣ Fetch available delivery boys
     const deliveryBoys = await DeliveryBoy.find({ availability: true });
+    
+    if (deliveryBoys.length === 0) {
+      return res.status(404).json({
+        message: 'No available delivery boys found',
+        success: false,
+        data: {
+          totalDeliveryBoys: await DeliveryBoy.countDocuments(),
+          availableDeliveryBoys: 0
+        }
+      });
+    }
+
+    console.log(`📦 Found ${deliveryBoys.length} available delivery boys`);
 
     // Get customer coordinates from order
     const customerLat = order.deliveryAddress.latitude;
     const customerLng = order.deliveryAddress.longitude;
 
-    // ✅ FIX 1: Calculate distances for all delivery boys
+    // ✅ Calculate distances for all delivery boys
     const deliveryBoysWithDistances = deliveryBoys.map(boy => {
+      // ✅ Validate delivery boy coordinates
+      if (!boy.latitude || !boy.longitude || isNaN(boy.latitude) || isNaN(boy.longitude)) {
+        console.warn(`⚠️ Skipping delivery boy ${boy._id} - invalid coordinates`);
+        return null;
+      }
+
       const pickupDistance = calculateDistance(
         shopLatitude,
         shopLongitude,
         boy.latitude,
         boy.longitude
       );
+
       const dropDistance = calculateDistance(
         shopLatitude,
         shopLongitude,
@@ -1679,10 +1743,23 @@ exports.autoAssignDeliveryBoyWithin5km = async (req, res) => {
         dropTime: `${dropTime} mins`,
         earning
       };
-    }).sort((a, b) => a.pickupDistance - b.pickupDistance);
+    })
+    .filter(boy => boy !== null)
+    .sort((a, b) => a.pickupDistance - b.pickupDistance);
 
-    // ✅ FIX 1: FALLBACK RADIUS LOGIC - Try 3km → 5km → 10km → 15km
-    const radiusOptions = [3, 5, 10, 15];
+    if (deliveryBoysWithDistances.length === 0) {
+      return res.status(404).json({
+        message: 'No delivery boys with valid coordinates found',
+        success: false,
+        data: {
+          totalDeliveryBoys: deliveryBoys.length,
+          deliveryBoysWithValidCoords: 0
+        }
+      });
+    }
+
+    // ✅ FALLBACK RADIUS LOGIC
+    const radiusOptions = [3, 5, 10, 50];
     let nearbyDeliveryBoys = [];
     let usedRadius = 0;
 
@@ -1700,11 +1777,12 @@ exports.autoAssignDeliveryBoyWithin5km = async (req, res) => {
 
     if (nearbyDeliveryBoys.length === 0) {
       return res.status(404).json({
-        message: 'No delivery boy found within 15 km radius',
+        message: 'No delivery boy found within 50 km radius',
         success: false,
         data: {
           searchedRadiuses: radiusOptions,
-          totalAvailableDeliveryBoys: deliveryBoys.length
+          totalAvailableDeliveryBoys: deliveryBoys.length,
+          closestDeliveryBoyDistance: deliveryBoysWithDistances[0]?.pickupDistance || 'N/A'
         }
       });
     }
@@ -1713,9 +1791,9 @@ exports.autoAssignDeliveryBoyWithin5km = async (req, res) => {
     const firstDeliveryBoy = nearbyDeliveryBoys[0];
     order.deliveryEarning = firstDeliveryBoy.earning;
     order.deliveryDistance = firstDeliveryBoy.dropDistance;
-    order.searchRadius = usedRadius; // Track which radius was used
+    order.searchRadius = usedRadius;
 
-    // ✅ Update 'status' field
+    // ✅ Update status
     order.status = 'Delivery Boy Assigned';
     await order.save();
 
@@ -1729,33 +1807,78 @@ exports.autoAssignDeliveryBoyWithin5km = async (req, res) => {
       }
     });
 
-    // 4️⃣ Notify all nearby delivery boys via Socket.IO
+    // ✅ ENHANCED: Notify delivery boys with better logging
+    console.log('\n🔔 ========== SOCKET EMISSION START ==========');
+    const { getIO, isUserConnected } = require('../sockets/socket');
+    
     let io;
-    try {
-      io = require('../sockets/socket').getIO();
-      nearbyDeliveryBoys.forEach(boy => {
-        const deliveryBoyId = boy._id.toString();
-        console.log(`📢 Emitting to userId room: ${deliveryBoyId}`);
+    let successfulEmissions = 0;
+    let failedEmissions = 0;
 
-        io.to(deliveryBoyId).emit('new_order_assigned', {
-          message: 'You have a new order to accept or reject',
-          orderId: order._id.toString(),
-          data: {
-            nearbyDeliveryBoys,
-            order: {
-              ...order._doc,
-              searchRadius: usedRadius // Include radius info
-            },
-            shop: {
-              id: shop._id,
-              shopeDetails: shop.shopeDetails
-            }
+    try {
+      io = getIO();
+      console.log('✅ Socket.IO instance retrieved');
+
+      const emissionData = {
+        message: 'You have a new order to accept or reject',
+        orderId: order._id.toString(),
+        data: {
+          nearbyDeliveryBoys,
+          order: {
+            ...order._doc,
+            searchRadius: usedRadius
+          },
+          shop: {
+            id: shop._id,
+            shopeDetails: shop.shopeDetails
           }
-        });
+        }
+      };
+
+      console.log(`\n📋 Emission Data Summary:`);
+      console.log(`   Order ID: ${order._id}`);
+      console.log(`   Delivery Earning: ${order.deliveryEarning} AED`);
+      console.log(`   Search Radius: ${usedRadius} km`);
+      console.log(`   Nearby Delivery Boys: ${nearbyDeliveryBoys.length}`);
+
+      nearbyDeliveryBoys.forEach((boy, index) => {
+        const deliveryBoyId = boy._id.toString();
+        
+        console.log(`\n📤 [${index + 1}/${nearbyDeliveryBoys.length}] Emitting to delivery boy:`);
+        console.log(`   ID: ${deliveryBoyId}`);
+        console.log(`   Name: ${boy.name || 'N/A'}`);
+        console.log(`   Phone: ${boy.phone || 'N/A'}`);
+        console.log(`   Distance: ${boy.pickupDistance} km`);
+        console.log(`   Connected: ${isUserConnected(deliveryBoyId) ? '✅ YES' : '❌ NO'}`);
+
+        try {
+          // Emit to the delivery boy's room
+          io.to(deliveryBoyId).emit('new_order_assigned', emissionData);
+          
+          if (isUserConnected(deliveryBoyId)) {
+            console.log(`   Status: ✅ Emission successful`);
+            successfulEmissions++;
+          } else {
+            console.log(`   Status: ⚠️ Emitted but user not in connected list`);
+            failedEmissions++;
+          }
+        } catch (emitError) {
+          console.error(`   Status: ❌ Emission failed: ${emitError.message}`);
+          failedEmissions++;
+        }
       });
+
+      console.log('\n📊 Emission Summary:');
+      console.log(`   ✅ Successful: ${successfulEmissions}`);
+      console.log(`   ❌ Failed: ${failedEmissions}`);
+      console.log(`   📱 Total attempted: ${nearbyDeliveryBoys.length}`);
+
     } catch (err) {
-      console.error('Socket.IO emit failed:', err.message);
+      console.error('❌ Socket.IO error:', err.message);
+      console.error('Stack:', err.stack);
     }
+
+    console.log('🔔 ========== SOCKET EMISSION END ==========\n');
 
     return res.status(200).json({
       message: `Order assignment request sent to ${nearbyDeliveryBoys.length} delivery boys within ${usedRadius} km`,
@@ -1772,12 +1895,15 @@ exports.autoAssignDeliveryBoyWithin5km = async (req, res) => {
         },
         searchInfo: {
           usedRadius: `${usedRadius} km`,
-          totalDeliveryBoysNotified: nearbyDeliveryBoys.length
+          totalDeliveryBoysNotified: nearbyDeliveryBoys.length,
+          successfulEmissions,
+          failedEmissions
         }
       }
     });
   } catch (error) {
-    console.error('Auto Assign Delivery Boy Error:', error);
+    console.error('❌ Auto Assign Delivery Boy Error:', error);
+    console.error('Stack:', error.stack);
     return res.status(500).json({
       message: 'Failed to auto assign delivery boy',
       success: false,
@@ -1787,10 +1913,10 @@ exports.autoAssignDeliveryBoyWithin5km = async (req, res) => {
 };
 
 // ============================================
-// HELPER FUNCTION: Calculate distance
+// HELPER FUNCTIONS
 // ============================================
 function calculateDistance(lat1, lon1, lat2, lon2) {
-  const R = 6371; // Radius of Earth in kilometers
+  const R = 6371;
   const dLat = toRad(lat2 - lat1);
   const dLon = toRad(lon2 - lon1);
   const a =

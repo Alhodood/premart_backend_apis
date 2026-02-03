@@ -43,6 +43,8 @@ router.post('/send-otp', rbacAuth.sendOtp);
 router.get('/getUsers',rbacAuth.getAllCustomers
 );
 
+router.post('/forgot-password', rbacAuth.forgotPassword);
+router.post('/reset-password', rbacAuth.resetPassword);
 
 router.post('/shop-admin/register', rbacAuth.registerShopAdmin);
 router.post('/agency/register', rbacAuth.registerAgency);

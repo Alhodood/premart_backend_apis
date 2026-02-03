@@ -9,6 +9,6 @@ router.get('/search', controller.searchConfigs);
 router.get('/search/vin', controller.searchByVin); // VIN pattern search
 router.get('/:id', controller.getConfigById);
 router.put('/:id', controller.updateConfig);
-router.delete('/:id', controller.deactivateConfig);
+router.delete('/delete/:id', controller.deleteConfig);
 
 module.exports = router;
