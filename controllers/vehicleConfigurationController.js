@@ -134,36 +134,61 @@ exports.updateConfig = async (req, res) => {
 };
 
 
-// SOFT DELETE
-exports.deactivateConfig = async (req, res) => {
+exports.deleteConfig = async (req, res) => {
   try {
-    const config = await VehicleConfiguration.findByIdAndUpdate(
-      req.params.id,
-      { isActive: false },
-      { new: true }
-    );
+    console.log('========== DELETE REQUEST ==========');
+    console.log('Request ID:', req.params.id);
+    console.log('Request Method:', req.method);
+    console.log('Request URL:', req.originalUrl);
+    
+    // Validate MongoDB ObjectId format
+    const mongoose = require('mongoose');
+    if (!mongoose.Types.ObjectId.isValid(req.params.id)) {
+      console.log('❌ Invalid ObjectId format');
+      return res.status(400).json({
+        success: false,
+        message: 'Invalid ID format'
+      });
+    }
+    
+    const config = await VehicleConfiguration.findByIdAndDelete(req.params.id);
 
     if (!config) {
+      console.log('❌ Vehicle config not found in database');
       return res.status(404).json({
         success: false,
-        message: 'Config not found'
+        message: 'Vehicle configuration not found'
       });
     }
 
-    res.json({ success: true, data: config });
+    console.log('✅ Vehicle config deleted successfully');
+    console.log('Deleted config:', {
+      id: config._id,
+      brand: config.brand,
+      model: config.model
+    });
+
+    return res.status(200).json({ 
+      success: true, 
+      message: 'Vehicle configuration deleted successfully',
+      data: config 
+    });
 
   } catch (err) {
-    console.error('Deactivate VehicleConfig Error:', err.message);
-    res.status(500).json({ success: false, error: err.message });
+    console.error('❌ Delete VehicleConfig Error:', err.message);
+    console.error('Error stack:', err.stack);
+    return res.status(500).json({ 
+      success: false, 
+      message: 'Failed to delete vehicle configuration',
+      error: err.message 
+    });
   }
 };
 
-
-// SEARCH BY VIN PATTERN
 exports.searchByVin = async (req, res) => {
   try {
     const { vin } = req.query;
-
+    
     if (!vin) {
       return res.status(400).json({
         success: false,
@@ -173,53 +198,74 @@ exports.searchByVin = async (req, res) => {
 
     // Normalize VIN (uppercase, remove spaces)
     const normalizedVin = vin.trim().toUpperCase().replace(/\s+/g, '');
-
-    if (normalizedVin.length < 4) {
+    
+    // ✅ Allow minimum 3 characters
+    if (normalizedVin.length < 3) {
       return res.status(400).json({
         success: false,
-        message: 'VIN must be at least 4 characters'
+        message: 'VIN must be at least 3 characters'
       });
     }
+
+    console.log('🔍 Searching for VIN:', normalizedVin);
 
     // Get all active vehicle configurations
     const allConfigs = await VehicleConfiguration.find({ isActive: true })
       .populate('brand model');
 
-    // Filter configurations where VIN matches any vinPattern
+    console.log('📦 Total active configs:', allConfigs.length);
+
+    // ✅ SIMPLIFIED MATCHING: Just check if any vinPattern starts with the user input
     const matchingConfigs = allConfigs.filter(config => {
       if (!config.vinPatterns || config.vinPatterns.length === 0) {
         return false;
       }
 
-      // Check if VIN matches any pattern in vinPatterns array
-      return config.vinPatterns.some(pattern => {
-        // Convert wildcard pattern to regex
-        // e.g., "4T1B*" becomes "^4T1B" (matches start of string)
-        // "*" at end means match from start
-        const regexPattern = pattern
-          .replace(/\*/g, '.*') // Replace * with .* for regex
-          .replace(/\?/g, '.')  // Replace ? with . for single char
-          .toUpperCase();
-
-        try {
-          const regex = new RegExp(`^${regexPattern}`, 'i');
-          return regex.test(normalizedVin);
-        } catch (err) {
-          // If pattern is invalid, try simple string match
-          return normalizedVin.startsWith(pattern.replace(/\*/g, '').toUpperCase());
+      // Check if any VIN pattern starts with the user's input
+      const hasMatch = config.vinPatterns.some(pattern => {
+        const normalizedPattern = pattern.trim().toUpperCase().replace(/\s+/g, '');
+        
+        console.log('Comparing:', { normalizedVin, normalizedPattern });
+        
+        // ✅ Simple startsWith check
+        const matches = normalizedPattern.startsWith(normalizedVin);
+        
+        if (matches) {
+          // ✅ FIXED: Use parentheses () not backticks
+          console.log(`✅ MATCH FOUND: "${normalizedVin}" matches start of "${normalizedPattern}"`);
         }
+        
+        return matches;
       });
+
+      if (hasMatch) {
+        // ✅ FIXED: Use parentheses () not backticks
+        console.log(`✅ Config matched: Brand=${config.brand?.brandName}, Model=${config.model?.modelName}`);
+      }
+
+      return hasMatch;
     });
+
+    // ✅ FIXED: Use parentheses () not backticks
+    console.log(`✅ Total matches found: ${matchingConfigs.length}`);
 
     res.json({
       success: true,
       count: matchingConfigs.length,
       vin: normalizedVin,
+      message: matchingConfigs.length > 0 
+        ? `Found ${matchingConfigs.length} vehicle(s) matching VIN prefix "${normalizedVin}"`
+        : `No vehicles found matching VIN prefix "${normalizedVin}"`,
       data: matchingConfigs
     });
 
   } catch (err) {
-    console.error('Search By VIN Error:', err.message);
-    res.status(500).json({ success: false, error: err.message });
+    console.error('❌ Search By VIN Error:', err.message);
+    console.error('Stack:', err.stack);
+    res.status(500).json({ 
+      success: false, 
+      message: 'Failed to search VIN',
+      error: err.message 
+    });
   }
 };

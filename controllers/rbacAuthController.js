@@ -839,3 +839,181 @@ exports.registerShopAdmin = async (req, res) => {
     });
   }
 };
+
+// Forgot Password - Send Reset Email/OTP
+exports.forgotPassword = async (req, res) => {
+  try {
+    const { email, role } = req.body;
+
+    console.log('========== FORGOT PASSWORD REQUEST ==========');
+    console.log('Email:', email);
+    console.log('Role:', role);
+
+    // Validate input
+    if (!email || !role) {
+      return res.status(400).json({
+        success: false,
+        message: 'Email and role are required'
+      });
+    }
+
+    // Get the appropriate model based on role
+    const roleModelMap = require('../constants/roleModelMap');
+    const Model = roleModelMap[role];
+
+    if (!Model) {
+      return res.status(400).json({
+        success: false,
+        message: 'Invalid role specified'
+      });
+    }
+
+    // Find user by email
+    let user;
+    if (role === 'AGENCY') {
+      const { DeliveryAgency } = require('../models/DeliveryAgency');
+      user = await DeliveryAgency.findOne({ 'agencyDetails.email': email });
+    } else {
+      user = await Model.findOne({ email });
+    }
+
+    if (!user) {
+      // Don't reveal if user exists or not (security best practice)
+      return res.status(200).json({
+        success: true,
+        message: 'If an account exists with this email, a password reset link has been sent.',
+        data: { email }
+      });
+    }
+
+    // ✅ TESTING: Use fixed OTP "123456" instead of generating random one
+    const resetOTP = "123456";
+    
+    // Set OTP expiry (15 minutes)
+    const otpExpiry = new Date(Date.now() + 15 * 60 * 1000);
+
+    // Save OTP to user record
+    user.resetPasswordOTP = resetOTP;
+    user.resetPasswordExpires = otpExpiry;
+    await user.save();
+
+    console.log('✅ Test OTP set:', resetOTP);
+    console.log('✅ OTP expiry:', otpExpiry);
+
+    // ✅ TESTING: Return success without actually sending email
+    return res.status(200).json({
+      success: true,
+      message: 'Password reset OTP has been sent to your email. (Test mode: OTP is 123456)',
+      data: {
+        email,
+        // For testing only - shows OTP in response
+        otp: resetOTP,
+        expiresAt: otpExpiry
+      }
+    });
+
+  } catch (err) {
+    console.error('❌ Forgot Password Error:', err);
+    return res.status(500).json({
+      success: false,
+      message: 'Failed to process forgot password request',
+      error: err.message
+    });
+  }
+};
+
+// Verify OTP and Reset Password
+exports.resetPassword = async (req, res) => {
+  try {
+    const { email, otp, newPassword, role } = req.body;
+
+    console.log('========== RESET PASSWORD REQUEST ==========');
+    console.log('Email:', email);
+    console.log('OTP:', otp);
+    console.log('Role:', role);
+
+    // Validate input
+    if (!email || !otp || !newPassword || !role) {
+      return res.status(400).json({
+        success: false,
+        message: 'Email, OTP, new password, and role are required'
+      });
+    }
+
+    // Validate password strength
+    if (newPassword.length < 6) {
+      return res.status(400).json({
+        success: false,
+        message: 'Password must be at least 6 characters long'
+      });
+    }
+
+    // Get the appropriate model
+    const roleModelMap = require('../constants/roleModelMap');
+    const Model = roleModelMap[role];
+
+    if (!Model) {
+      return res.status(400).json({
+        success: false,
+        message: 'Invalid role specified'
+      });
+    }
+
+    // Find user
+    let user;
+    if (role === 'AGENCY') {
+      const { DeliveryAgency } = require('../models/DeliveryAgency');
+      user = await DeliveryAgency.findOne({ 'agencyDetails.email': email });
+    } else {
+      user = await Model.findOne({ email });
+    }
+
+    if (!user) {
+      return res.status(404).json({
+        success: false,
+        message: 'User not found'
+      });
+    }
+
+    // ✅ TESTING: Accept hardcoded OTP "123456" OR the stored OTP
+    const isValidOTP = otp === "123456" || (user.resetPasswordOTP && user.resetPasswordOTP === otp);
+    
+    if (!isValidOTP) {
+      return res.status(400).json({
+        success: false,
+        message: 'Invalid OTP'
+      });
+    }
+
+    // Check if OTP expired (skip check if using test OTP "123456")
+    if (otp !== "123456" && user.resetPasswordExpires && new Date() > user.resetPasswordExpires) {
+      return res.status(400).json({
+        success: false,
+        message: 'OTP has expired. Please request a new one.'
+      });
+    }
+
+    console.log('✅ OTP verified successfully');
+
+    // Update password
+    user.password = newPassword;
+    user.resetPasswordOTP = undefined;
+    user.resetPasswordExpires = undefined;
+    await user.save();
+
+    console.log('✅ Password updated successfully');
+
+    return res.status(200).json({
+      success: true,
+      message: 'Password has been reset successfully. You can now login with your new password.'
+    });
+
+  } catch (err) {
+    console.error('❌ Reset Password Error:', err);
+    return res.status(500).json({
+      success: false,
+      message: 'Failed to reset password',
+      error: err.message
+    });
+  }
+};
