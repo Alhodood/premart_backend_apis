@@ -47,6 +47,7 @@ const { extractKeyAndBucket } = require('./helper/s3');
 const engineRoutes = require('./routes/engineRoutes');
 const transmissionRoutes = require('./routes/transmissionRoutes');
 const superAdminSettingsRoutes = require('./routes/superAdminSettingsRoutes');
+const productRatingRoutes = require('./routes/productRatingRoutes');
 
 
 
@@ -133,6 +134,7 @@ app.use('/api/engine', engineRoutes);
 app.use('/api/transmission', transmissionRoutes);
 app.use('/api/vehicle-config', require('./routes/vehicleConfigurationRoutes'));
 app.use('/api/super-admin', superAdminSettingsRoutes);
+app.use('/api/rating', productRatingRoutes);
 
 
 
