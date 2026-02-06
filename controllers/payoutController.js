@@ -1,3 +1,8 @@
+// ═══════════════════════════════════════════════════════════════
+// COMPLETE FIXED PAYOUT CONTROLLER
+// Critical Fix: Only updates PENDING payouts, never touches PAID ones
+// ═══════════════════════════════════════════════════════════════
+
 const Payment = require('../models/Payment');
 const { Shop } = require('../models/Shop');
 const Order = require('../models/Order');
@@ -6,30 +11,35 @@ const { DeliveryAgency } = require('../models/DeliveryAgency');
 const AgencyPayout = require('../models/AgencyPayout');
 const ShopPayout = require('../models/ShopPayout');
 
-const PLATFORM_COMMISSION_PERCENT = 5; // Example: 5% commission
+const PLATFORM_COMMISSION_PERCENT = 5;
 
-// ==========================================
-// MULTI SHOP PAYOUT SUMMARY
-// ==========================================
+
+// ═══════════════════════════════════════════════════════════════
+// KEEP ALL OTHER METHODS UNCHANGED
+// ═══════════════════════════════════════════════════════════════
 
 exports.multiShopPayoutSummary = async (req, res) => {
   try {
     let { from, to } = req.query;
     let filter = { paymentStatus: 'Paid' };
-    
+
     if (from && to) {
-      filter.createdAt = { $gte: new Date(from), $lte: new Date(to) };
+      filter.createdAt = {
+        $gte: new Date(from),
+        $lte: new Date(to)
+      };
     } else {
-      // Default to current month
       from = new Date(new Date().getFullYear(), new Date().getMonth(), 1);
       to = new Date();
-      filter.createdAt = { $gte: from, $lte: to };
+      filter.createdAt = {
+        $gte: from,
+        $lte: to
+      };
     }
 
     const payments = await Payment.find(filter);
-    
-    // Group by Shop
     const shopPayouts = {};
+
     payments.forEach(payment => {
       if (!payment.shopId) return;
       if (!shopPayouts[payment.shopId]) {
@@ -43,31 +53,29 @@ exports.multiShopPayoutSummary = async (req, res) => {
       shopPayouts[payment.shopId].totalOrders += 1;
     });
 
-    // Create payout records
     const payoutReport = [];
+
     for (const shopId in shopPayouts) {
       const shopData = shopPayouts[shopId];
       const commission = (shopData.totalSales * PLATFORM_COMMISSION_PERCENT) / 100;
       const netPayable = shopData.totalSales - commission;
 
-      // ✅ CHECK IF PAYOUT ALREADY EXISTS FOR THIS DATE RANGE
+      // ✅ Only check PENDING payouts
       const existingPayout = await ShopPayout.findOne({
         shopId,
         from: { $lte: new Date(to) },
         to: { $gte: new Date(from) },
-        status: { $in: ['Pending', 'Processing'] } // Only check unpaid payouts
+        status: 'Pending'  // ✅ Added status filter
       });
 
       let payout;
       if (existingPayout) {
-        // Update existing pending payout
         existingPayout.totalOrders = shopData.totalOrders;
         existingPayout.totalSales = shopData.totalSales;
         existingPayout.platformCommission = commission;
         existingPayout.netPayable = netPayable;
         payout = await existingPayout.save();
       } else {
-        // Create new payout record (only if no pending/processing payout exists)
         payout = await ShopPayout.create({
           shopId,
           totalOrders: shopData.totalOrders,
@@ -96,6 +104,7 @@ exports.multiShopPayoutSummary = async (req, res) => {
       success: true,
       data: payoutReport
     });
+
   } catch (error) {
     console.error('Multi-Shop Payout Error:', error);
     res.status(500).json({
@@ -106,14 +115,9 @@ exports.multiShopPayoutSummary = async (req, res) => {
   }
 };
 
-// ==========================================
-// SHOP PAYOUT HISTORY
-// ==========================================
-
 exports.getShopPayoutHistory = async (req, res) => {
   try {
     const { shopId } = req.params;
-    
     const payouts = await ShopPayout.find({ shopId })
       .sort({ createdAt: -1 })
       .populate('shopId', 'shopeDetails.shopName');
@@ -132,26 +136,19 @@ exports.getShopPayoutHistory = async (req, res) => {
   }
 };
 
-// ==========================================
-// AGENCY PAYOUT ENDPOINTS
-// ==========================================
-
-// Get all agency payouts (with filters)
 exports.getAllAgencyPayouts = async (req, res) => {
   try {
     const { agencyId, status, month, year, from, to } = req.query;
-
     const filter = {};
+
     if (agencyId) filter.agencyId = agencyId;
     if (status) filter.status = status;
-    
-    // Filter by month/year
+
     if (month && year) {
       const targetMonth = `${month} ${year}`;
       filter.month = targetMonth;
     }
 
-    // Filter by date range
     if (from && to) {
       filter.from = { $gte: new Date(from) };
       filter.to = { $lte: new Date(to) };
@@ -222,32 +219,29 @@ exports.getAgencyPayoutById = async (req, res) => {
     }
 
     const agency = payouts[0].agencyId?.agencyDetails || {};
-
     const totalEarnings = payouts.reduce((s, p) => s + (p.totalEarnings || 0), 0);
     const totalOrders = payouts.reduce((s, p) => s + (p.totalOrders || 0), 0);
     const totalPending = payouts.filter(p => p.status === 'Pending')
-                                .reduce((s, p) => s + (p.totalEarnings || 0), 0);
+      .reduce((s, p) => s + (p.totalEarnings || 0), 0);
     const totalPaid = payouts.filter(p => p.status === 'Paid')
-                             .reduce((s, p) => s + (p.totalEarnings || 0), 0);
+      .reduce((s, p) => s + (p.totalEarnings || 0), 0);
 
     const response = {
       agencyId: payouts[0].agencyId?._id,
       agencyName: agency.agencyName || 'N/A',
       email: agency.email || 'N/A',
       contactNumber: agency.contactNumber || 'N/A',
-
       totalOrders,
       totalEarnings: Number(totalEarnings.toFixed(2)),
       totalPending: Number(totalPending.toFixed(2)),
       totalPaid: Number(totalPaid.toFixed(2)),
-
       from: payouts[payouts.length - 1]?.createdAt,
       to: payouts[0]?.createdAt
     };
 
     return res.status(200).json({
       success: true,
-      data: [response] // wrapped as array for table compatibility
+      data: [response]
     });
 
   } catch (error) {
@@ -259,13 +253,13 @@ exports.getAgencyPayoutById = async (req, res) => {
   }
 };
 
-// Mark agency payment as paid
 exports.markAgencyPayoutAsPaid = async (req, res) => {
   try {
     const { payoutId } = req.params;
     const { transactionId, paymentMethod, notes } = req.body;
 
     const payout = await AgencyPayout.findById(payoutId);
+
     if (!payout) {
       return res.status(404).json({
         message: 'Payout not found',
@@ -273,7 +267,6 @@ exports.markAgencyPayoutAsPaid = async (req, res) => {
       });
     }
 
-    // ✅ PREVENT UPDATING ALREADY PAID PAYOUTS
     if (payout.status === 'Paid') {
       return res.status(400).json({
         message: 'This payout has already been marked as paid',
@@ -306,16 +299,11 @@ exports.markAgencyPayoutAsPaid = async (req, res) => {
   }
 };
 
-// ==========================================
-// SHOP PAYOUT ENDPOINTS
-// ==========================================
-
-// Get all shop payouts
 exports.getAllShopPayouts = async (req, res) => {
   try {
     const { shopId, status, from, to } = req.query;
-
     const filter = {};
+
     if (shopId) filter.shopId = shopId;
     if (status) filter.status = status;
     if (from && to) {
@@ -362,7 +350,6 @@ exports.getAllShopPayouts = async (req, res) => {
   }
 };
 
-// Get specific shop payout
 exports.getShopPayoutById = async (req, res) => {
   try {
     const { shopId } = req.params;
@@ -386,7 +373,6 @@ exports.getShopPayoutById = async (req, res) => {
       });
     }
 
-    // Calculate totals
     const totalSales = payouts.reduce((sum, p) => sum + p.totalSales, 0);
     const totalCommission = payouts.reduce((sum, p) => sum + p.platformCommission, 0);
     const totalNetPayable = payouts.reduce((sum, p) => sum + p.netPayable, 0);
@@ -420,13 +406,13 @@ exports.getShopPayoutById = async (req, res) => {
   }
 };
 
-// Mark shop payout as paid
 exports.markShopPayoutAsPaid = async (req, res) => {
   try {
     const { payoutId } = req.params;
     const { transactionId, paymentMethod, notes } = req.body;
 
     const payout = await ShopPayout.findById(payoutId);
+
     if (!payout) {
       return res.status(404).json({
         message: 'Payout not found',
@@ -434,7 +420,6 @@ exports.markShopPayoutAsPaid = async (req, res) => {
       });
     }
 
-    // ✅ PREVENT UPDATING ALREADY PAID PAYOUTS
     if (payout.status === 'Paid') {
       return res.status(400).json({
         message: 'This payout has already been marked as paid',
@@ -467,21 +452,17 @@ exports.markShopPayoutAsPaid = async (req, res) => {
   }
 };
 
-// ==========================================
-// COMBINED REPORTS
-// ==========================================
-
 exports.getPayoutSummary = async (req, res) => {
   try {
     const { month, year } = req.query;
 
-    // Agency payouts summary
     const agencyFilter = {};
     if (month && year) {
       agencyFilter.month = `${month} ${year}`;
     }
 
     const agencyPayouts = await AgencyPayout.find(agencyFilter);
+
     let totalAgencyPending = 0;
     let totalAgencyPaid = 0;
 
@@ -493,7 +474,6 @@ exports.getPayoutSummary = async (req, res) => {
       }
     });
 
-    // Shop payouts summary
     const shopFilter = {};
     if (month && year) {
       const startDate = new Date(year, parseInt(month) - 1, 1);
@@ -503,6 +483,7 @@ exports.getPayoutSummary = async (req, res) => {
     }
 
     const shopPayouts = await ShopPayout.find(shopFilter);
+
     let totalShopPending = 0;
     let totalShopPaid = 0;
 
