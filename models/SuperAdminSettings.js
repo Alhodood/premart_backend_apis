@@ -20,12 +20,27 @@ const superAdminSettingsSchema = new mongoose.Schema({
     type: String,
     default: '+971-XXX-XXXX'
   },
+  
+  // ✅ COMMISSION SETTINGS
   platformCommission: {
     type: Number,
-    default: 10, // percentage
+    default: 10, // percentage - DEPRECATED (use shopCommission instead)
     min: 0,
     max: 100
   },
+  shopCommission: {
+    type: Number,
+    default: 5, // percentage - Platform commission from shop sales
+    min: 0,
+    max: 100
+  },
+  agencyCommission: {
+    type: Number,
+    default: 2, // percentage - Platform commission from agency earnings
+    min: 0,
+    max: 100
+  },
+  
   taxRate: {
     type: Number,
     default: 5, // percentage

@@ -1,20 +1,16 @@
 const Order = require('../models/Order');
-const Product = require('../models/_deprecated/Product');
-const Stock = require('../models/Stock');
 const User = require('../models/User');
-const DeliveryBoy = require('../models/DeliveryBoy');
-const { DeliveryAgency } = require('../models/DeliveryAgency');
 
 exports.getSuperAdminDashboard = async (req, res) => {
   try {
     console.log('📊 Fetching Super Admin Dashboard Analytics');
-    
+
     const now = new Date();
     const currentMonthStart = new Date(now.getFullYear(), now.getMonth(), 1);
     const lastMonthStart = new Date(currentMonthStart);
     lastMonthStart.setMonth(currentMonthStart.getMonth() - 1);
 
-    const formatMonth = (date) => 
+    const formatMonth = (date) =>
       date.toLocaleString('default', { month: 'long', year: 'numeric' });
     const lastMonthLabel = formatMonth(lastMonthStart);
 
@@ -24,139 +20,107 @@ exports.getSuperAdminDashboard = async (req, res) => {
       return `${Math.round(Math.abs(change))}%`;
     };
 
-    // ==================== ORDERS ====================
-    console.log('📦 Calculating orders...');
-    const totalOrders = await Order.countDocuments({
-      createdAt: { $gte: currentMonthStart }
-    });
-    const previousOrders = await Order.countDocuments({
-      createdAt: { $gte: lastMonthStart, $lt: currentMonthStart }
-    });
-    console.log(`✅ Orders: Current=${totalOrders}, Previous=${previousOrders}`);
-
-    // ==================== SALES ====================
-    console.log('💰 Calculating sales...');
-    const thisSales = await Order.aggregate([
-      { $match: { createdAt: { $gte: currentMonthStart } } },
-      {
-        $group: {
-          _id: null,
-          total: {
-            $sum: {
-              $cond: [
-                { $eq: [{ $type: '$totalPayable' }, 'string'] },
-                { $toDouble: '$totalPayable' },
-                { $ifNull: ['$totalPayable', 0] }
-              ]
-            }
-          }
-        }
-      }
+    const [totalOrders, previousOrders] = await Promise.all([
+      Order.countDocuments({ createdAt: { $gte: currentMonthStart } }),
+      Order.countDocuments({
+        createdAt: { $gte: lastMonthStart, $lt: currentMonthStart },
+      }),
     ]);
 
-    const lastSales = await Order.aggregate([
-      {
-        $match: {
-          createdAt: { $gte: lastMonthStart, $lt: currentMonthStart }
-        }
-      },
-      {
-        $group: {
-          _id: null,
-          total: {
-            $sum: {
-              $cond: [
-                { $eq: [{ $type: '$totalPayable' }, 'string'] },
-                { $toDouble: '$totalPayable' },
-                { $ifNull: ['$totalPayable', 0] }
-              ]
-            }
-          }
-        }
-      }
+    const [thisSales, lastSales] = await Promise.all([
+      Order.aggregate([
+        { $match: { createdAt: { $gte: currentMonthStart } } },
+        {
+          $group: {
+            _id: null,
+            total: {
+              $sum: {
+                $cond: [
+                  { $eq: [{ $type: '$totalPayable' }, 'string'] },
+                  { $toDouble: '$totalPayable' },
+                  { $ifNull: ['$totalPayable', 0] },
+                ],
+              },
+            },
+          },
+        },
+      ]),
+      Order.aggregate([
+        {
+          $match: {
+            createdAt: { $gte: lastMonthStart, $lt: currentMonthStart },
+          },
+        },
+        {
+          $group: {
+            _id: null,
+            total: {
+              $sum: {
+                $cond: [
+                  { $eq: [{ $type: '$totalPayable' }, 'string'] },
+                  { $toDouble: '$totalPayable' },
+                  { $ifNull: ['$totalPayable', 0] },
+                ],
+              },
+            },
+          },
+        },
+      ]),
     ]);
 
     const totalSalesAmount = thisSales[0]?.total || 0;
     const previousSalesAmount = lastSales[0]?.total || 0;
-    console.log(`✅ Sales: Current=${totalSalesAmount}, Previous=${previousSalesAmount}`);
 
-    // ==================== COUPON USAGE ====================
-    console.log('🎟️ Calculating coupon usage...');
-    const couponOrdersThisMonth = await Order.countDocuments({
-      createdAt: { $gte: currentMonthStart },
-      'coupon.code': { $exists: true, $ne: null }
-    });
-
-    const couponOrdersLastMonth = await Order.countDocuments({
-      createdAt: { $gte: lastMonthStart, $lt: currentMonthStart },
-      'coupon.code': { $exists: true, $ne: null }
-    });
-
-    console.log(`✅ Coupons: Current=${couponOrdersThisMonth}, Previous=${couponOrdersLastMonth}`);
-// ==================== AGENCY PAYABLE ====================
-console.log('💵 Calculating agency payables...');
-let payableThisMonth = 0;
-let payableLastMonth = 0;
-
-try {
-  const AgencyPayout = require('../models/AgencyPayout'); // Add this model import at top
-  
-  const agencyPayThisMonth = await AgencyPayout.aggregate([
-    { 
-      $match: { 
+    const [couponOrdersThisMonth, couponOrdersLastMonth] = await Promise.all([
+      Order.countDocuments({
         createdAt: { $gte: currentMonthStart },
-        status: { $in: ['Unpaid', 'Pending', 'Paid'] }
-      } 
-    },
-    { 
-      $group: { 
-        _id: null, 
-        total: { $sum: '$totalEarnings' } 
-      } 
+        'coupon.code': { $exists: true, $ne: null },
+      }),
+      Order.countDocuments({
+        createdAt: { $gte: lastMonthStart, $lt: currentMonthStart },
+        'coupon.code': { $exists: true, $ne: null },
+      }),
+    ]);
+
+    let payableThisMonth = 0;
+    let payableLastMonth = 0;
+    try {
+      const AgencyPayout = require('../models/AgencyPayout');
+      const [agencyPayThisMonth, agencyPayLastMonth] = await Promise.all([
+        AgencyPayout.aggregate([
+          {
+            $match: {
+              createdAt: { $gte: currentMonthStart },
+              status: { $in: ['Unpaid', 'Pending', 'Paid'] },
+            },
+          },
+          { $group: { _id: null, total: { $sum: '$totalEarnings' } } },
+        ]),
+        AgencyPayout.aggregate([
+          {
+            $match: {
+              createdAt: { $gte: lastMonthStart, $lt: currentMonthStart },
+              status: { $in: ['Unpaid', 'Pending', 'Paid'] },
+            },
+          },
+          { $group: { _id: null, total: { $sum: '$totalEarnings' } } },
+        ]),
+      ]);
+      payableThisMonth = agencyPayThisMonth[0]?.total || 0;
+      payableLastMonth = agencyPayLastMonth[0]?.total || 0;
+    } catch (error) {
+      console.log('⚠️ Agency payable calculation failed:', error.message);
     }
-  ]);
 
-  const agencyPayLastMonth = await AgencyPayout.aggregate([
-    { 
-      $match: { 
-        createdAt: { 
-          $gte: lastMonthStart, 
-          $lt: currentMonthStart 
-        },
-        status: { $in: ['Unpaid', 'Pending', 'Paid'] }
-      } 
-    },
-    { 
-      $group: { 
-        _id: null, 
-        total: { $sum: '$totalEarnings' } 
-      } 
-    }
-  ]);
-
-  payableThisMonth = agencyPayThisMonth[0]?.total || 0;
-  payableLastMonth = agencyPayLastMonth[0]?.total || 0;
-  
-} catch (error) {
-  console.log('⚠️ Agency payable calculation failed:', error.message);
-}
-
-console.log(`✅ Agency Payable: Current=${payableThisMonth}, Previous=${payableLastMonth}`);
-
-    console.log(`✅ Agency Payable: Current=${payableThisMonth}, Previous=${payableLastMonth}`);
-
-    // ==================== TOP PRODUCTS ====================
-    console.log('🏆 Calculating top products...');
     let topSellingProductsTotalAmount = 0;
     let topSellingProductsLastAmount = 0;
-
     try {
       const topProductSalesCurrentMonthAgg = await Order.aggregate([
         {
           $match: {
             status: 'Delivered',
-            createdAt: { $gte: currentMonthStart }
-          }
+            createdAt: { $gte: currentMonthStart },
+          },
         },
         { $unwind: '$items' },
         {
@@ -167,33 +131,31 @@ console.log(`✅ Agency Payable: Current=${payableThisMonth}, Previous=${payable
                 $cond: [
                   { $eq: [{ $type: '$totalPayable' }, 'string'] },
                   { $toDouble: '$totalPayable' },
-                  { $ifNull: ['$totalPayable', 0] }
-                ]
-              }
+                  { $ifNull: ['$totalPayable', 0] },
+                ],
+              },
             },
-            count: { $sum: '$items.quantity' }
-          }
+            count: { $sum: '$items.quantity' },
+          },
         },
         { $sort: { count: -1 } },
-        { $limit: 1 }
+        { $limit: 1 },
       ]);
 
       if (topProductSalesCurrentMonthAgg.length > 0) {
-        topSellingProductsTotalAmount =
-          topProductSalesCurrentMonthAgg[0].totalAmount || 0;
-
+        topSellingProductsTotalAmount = topProductSalesCurrentMonthAgg[0].totalAmount || 0;
         const topProductSalesLastMonthAgg = await Order.aggregate([
           {
             $match: {
               status: 'Delivered',
-              createdAt: { $gte: lastMonthStart, $lt: currentMonthStart }
-            }
+              createdAt: { $gte: lastMonthStart, $lt: currentMonthStart },
+            },
           },
           { $unwind: '$items' },
           {
             $match: {
-              'items.shopProductId': topProductSalesCurrentMonthAgg[0]._id
-            }
+              'items.shopProductId': topProductSalesCurrentMonthAgg[0]._id,
+            },
           },
           {
             $group: {
@@ -203,205 +165,244 @@ console.log(`✅ Agency Payable: Current=${payableThisMonth}, Previous=${payable
                   $cond: [
                     { $eq: [{ $type: '$totalPayable' }, 'string'] },
                     { $toDouble: '$totalPayable' },
-                    { $ifNull: ['$totalPayable', 0] }
-                  ]
-                }
-              }
-            }
-          }
+                    { $ifNull: ['$totalPayable', 0] },
+                  ],
+                },
+              },
+            },
+          },
         ]);
-
-        topSellingProductsLastAmount =
-          topProductSalesLastMonthAgg[0]?.totalAmount || 0;
+        topSellingProductsLastAmount = topProductSalesLastMonthAgg[0]?.totalAmount || 0;
       }
     } catch (error) {
       console.log('⚠️ Top products calculation failed:', error.message);
     }
 
-    console.log(`✅ Top Products: Current=${topSellingProductsTotalAmount}, Previous=${topSellingProductsLastAmount}`);
+    const totalVisitorsCount = await User.countDocuments({ role: 'CUSTOMER' });
+    const [newVisitorsThisMonth, newVisitorsLastMonth] = await Promise.all([
+      User.countDocuments({
+        role: 'CUSTOMER',
+        createdAt: { $gte: currentMonthStart },
+      }),
+      User.countDocuments({
+        role: 'CUSTOMER',
+        createdAt: { $gte: lastMonthStart, $lt: currentMonthStart },
+      }),
+    ]);
 
-    // ==================== VISITORS ====================
-    console.log('👥 Calculating visitors...');
-    const totalVisitors = await User.countDocuments({
-      role: 'CUSTOMER',
-      createdAt: { $gte: currentMonthStart }
-    });
-
-    const previousVisitors = await User.countDocuments({
-      role: 'CUSTOMER',
-      createdAt: { $gte: lastMonthStart, $lt: currentMonthStart }
-    });
-
-    console.log(`✅ Visitors: Current=${totalVisitors}, Previous=${previousVisitors}`);
-
-    // ==================== RESPONSE ====================
     const responseData = {
       totalSalesAmount: Math.round(totalSalesAmount).toString(),
       salesGrowth: getGrowth(totalSalesAmount, previousSalesAmount),
       salesDateCompared: lastMonthLabel,
-      
+
       totalOrders,
       orderGrowth: getGrowth(totalOrders, previousOrders),
       orderDateCompared: lastMonthLabel,
-      
+
       payableToAgencies: Math.round(payableThisMonth).toString(),
       payableToAgenciesGrowth: getGrowth(payableThisMonth, payableLastMonth),
       payableToAgenciesDateCompared: lastMonthLabel,
-      
+
       topSellingProductsTotalAmount: Math.round(topSellingProductsTotalAmount).toString(),
       topSellingProductsGrowth: getGrowth(
         topSellingProductsTotalAmount,
         topSellingProductsLastAmount
       ),
       topSellingProductsDateCompared: lastMonthLabel,
-      
+
       couponTotalUsageCount: couponOrdersThisMonth,
       couponGrowth: getGrowth(couponOrdersThisMonth, couponOrdersLastMonth),
       couponDateCompared: lastMonthLabel,
-      
-      totalVisitors,
-      visitorGrowth: getGrowth(totalVisitors, previousVisitors),
+
+      totalVisitors: totalVisitorsCount,
+      visitorGrowth: getGrowth(newVisitorsThisMonth, newVisitorsLastMonth),
       visitorDateCompared: lastMonthLabel,
     };
-
-    console.log('✅ Dashboard data prepared successfully');
 
     res.status(200).json({
       message: 'Super Admin Dashboard Analytics',
       success: true,
-      data: responseData
+      data: responseData,
     });
   } catch (err) {
     console.error('❌ Super Admin Dashboard Error:', err);
     res.status(500).json({
       message: 'Failed to fetch Super Admin Dashboard',
       success: false,
-      error: err.message
+      error: err.message,
     });
   }
 };
 
-// Add this new function to dashboardController.js
 exports.getWeeklySales = async (req, res) => {
   try {
     console.log('📊 Fetching Weekly Sales Data');
-    
-    const now = new Date();
-    const sevenDaysAgo = new Date(now);
-    sevenDaysAgo.setDate(now.getDate() - 7);
 
-    // Get orders from last 7 days grouped by day
+    const { startDate, endDate } = req.query;
+   let start, end;
+
+if (startDate && endDate) {
+  const startRaw = new Date(startDate);
+  const endRaw = new Date(endDate);
+
+  if (isNaN(startRaw) || isNaN(endRaw)) {
+    return res.status(400).json({
+      success: false,
+      message: 'Invalid date format',
+    });
+  }
+
+  // Normalize strictly in UTC
+  start = new Date(Date.UTC(
+    startRaw.getUTCFullYear(),
+    startRaw.getUTCMonth(),
+    startRaw.getUTCDate(),
+    0, 0, 0, 0
+  ));
+
+  end = new Date(Date.UTC(
+    endRaw.getUTCFullYear(),
+    endRaw.getUTCMonth(),
+    endRaw.getUTCDate(),
+    23, 59, 59, 999
+  ));
+} else {
+  const now = new Date();
+
+  end = new Date(Date.UTC(
+    now.getUTCFullYear(),
+    now.getUTCMonth(),
+    now.getUTCDate(),
+    23, 59, 59, 999
+  ));
+
+  start = new Date(end);
+  start.setUTCDate(end.getUTCDate() - 6);
+  start.setUTCHours(0, 0, 0, 0);
+}
+
+    console.log(`📅 Query range: ${start.toISOString()} to ${end.toISOString()}`);
+
     const weeklySales = await Order.aggregate([
       {
         $match: {
-          status: 'Delivered', // Only count delivered orders
-          createdAt: { $gte: sevenDaysAgo }
-        }
+          status: 'Delivered',
+          createdAt: { $gte: start, $lte: end },
+        },
       },
       {
         $group: {
           _id: {
-            $dateToString: { format: '%Y-%m-%d', date: '$createdAt' }
+            $dateToString: {
+              format: '%Y-%m-%d',
+              date: '$createdAt',
+              timezone: 'UTC',
+            },
           },
           totalSales: {
             $sum: {
               $cond: [
                 { $eq: [{ $type: '$totalPayable' }, 'string'] },
                 { $toDouble: '$totalPayable' },
-                { $ifNull: ['$totalPayable', 0] }
-              ]
-            }
+                { $ifNull: ['$totalPayable', 0] },
+              ],
+            },
           },
-          orderCount: { $sum: 1 }
-        }
+          orderCount: { $sum: 1 },
+        },
       },
-      {
-        $sort: { _id: 1 }
-      }
+      { $sort: { _id: 1 } },
     ]);
 
-    // Create array for last 7 days with zero values
-    const salesByDay = [];
-    for (let i = 6; i >= 0; i--) {
-      const date = new Date(now);
-      date.setDate(now.getDate() - i);
-      const dateStr = date.toISOString().split('T')[0];
-      
-      const existingData = weeklySales.find(s => s._id === dateStr);
-      
-      salesByDay.push({
-        date: dateStr,
-        day: date.toLocaleDateString('en-US', { weekday: 'short' }),
-        totalSales: existingData ? Math.round(existingData.totalSales) : 0,
-        orderCount: existingData ? existingData.orderCount : 0
-      });
-    }
+    console.log('📊 Aggregation result:', JSON.stringify(weeklySales, null, 2));
 
-    console.log('✅ Weekly sales data:', salesByDay);
+    const salesMap = {};
+    weeklySales.forEach((item) => {
+      salesMap[item._id] = {
+        totalSales: Math.round(item.totalSales),
+        orderCount: item.orderCount,
+      };
+    });
+
+    const dayNames = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
+  const msInDay = 24 * 60 * 60 * 1000;
+const totalDays = Math.floor((end - start) / msInDay) + 1;
+
+const salesByDay = [];
+
+for (let i = 0; i < totalDays; i++) {
+  const currentDate = new Date(start.getTime() + i * msInDay);
+
+  const dateStr = currentDate.toISOString().split('T')[0];
+  const dayData = salesMap[dateStr] || { totalSales: 0, orderCount: 0 };
+
+  salesByDay.push({
+    date: dateStr,
+    day: dayNames[currentDate.getDay()],
+    totalSales: dayData.totalSales,
+    orderCount: dayData.orderCount,
+  });
+}
+
+    console.log('✅ Final array:', JSON.stringify(salesByDay, null, 2));
 
     res.status(200).json({
       message: 'Weekly sales fetched successfully',
       success: true,
-      data: salesByDay
+      data: salesByDay,
+      dateRange: {
+        start: start.toISOString(),
+        end: end.toISOString(),
+      },
     });
-
   } catch (err) {
     console.error('❌ Weekly Sales Error:', err);
     res.status(500).json({
       message: 'Failed to fetch weekly sales',
       success: false,
-      error: err.message
+      error: err.message,
     });
   }
 };
 
-// Add this to dashboardController.js
 exports.getOrderStatusDistribution = async (req, res) => {
   try {
-    console.log('📊 Fetching Order Status Distribution');
-
     const orderStatuses = await Order.aggregate([
       {
         $group: {
           _id: '$status',
-          count: { $sum: 1 }
-        }
+          count: { $sum: 1 },
+        },
       },
-      {
-        $sort: { count: -1 }
-      }
+      { $sort: { count: -1 } },
     ]);
 
-    const formattedData = orderStatuses.map(item => ({
+    const formattedData = orderStatuses.map((item) => ({
       status: item._id || 'Unknown',
       count: item.count,
-      percentage: 0 // Will calculate on frontend
+      percentage: 0,
     }));
 
     const total = formattedData.reduce((sum, item) => sum + item.count, 0);
-    formattedData.forEach(item => {
+    formattedData.forEach((item) => {
       item.percentage = total > 0 ? Math.round((item.count / total) * 100) : 0;
     });
-
-    console.log('✅ Order status distribution:', formattedData);
 
     res.status(200).json({
       message: 'Order status distribution fetched successfully',
       success: true,
-      data: formattedData
+      data: formattedData,
     });
-
   } catch (err) {
     console.error('❌ Order Status Distribution Error:', err);
     res.status(500).json({
       message: 'Failed to fetch order status distribution',
       success: false,
-      error: err.message
+      error: err.message,
     });
   }
 };
 
-// Export other functions as needed
 exports.getShopDashboardByShopId = async (req, res) => {
   // Keep existing implementation
 };

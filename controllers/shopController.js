@@ -107,33 +107,77 @@ exports.createShop = async (req, res) => {
   }
 };
 
-// Get all shops
 exports.getAllShops = async (req, res) => {
   try {
     const shops = await Shop.find().lean();
     const formattedShops = shops.map(shop => {
       return {
         _id: shop._id,
+        
+        // ─── BASIC INFORMATION ───
         shopName: shop.shopeDetails?.shopName,
-        orderCount: shop.orders?.length || 0,
         shopAddress: shop.shopeDetails?.shopAddress,
+       
         shopMail: shop.shopeDetails?.shopMail,
         shopContact: shop.shopeDetails?.shopContact,
+        
+        // ─── LICENSE INFORMATION ───
         shopLicenseNumber: shop.shopeDetails?.shopLicenseNumber,
         shopLicenseExpiry: shop.shopeDetails?.shopLicenseExpiry,
-        EmiratesId: shop.shopeDetails?.EmiratesId,
-         EmiratesIdImage: shop.shopeDetails?.EmiratesIdImage,
         shopLicenseImage: shop.shopeDetails?.shopLicenseImage,
+        
+        // ─── EMIRATES ID ───
+        EmiratesId: shop.shopeDetails?.EmiratesId,
+        EmiratesIdImage: shop.shopeDetails?.EmiratesIdImage,
+        
+        // ─── TAX INFORMATION ───
+        taxRegistrationNumber: shop.shopeDetails?.taxRegistrationNumber,
+        
+        // ─── BANK DETAILS (FLATTENED) ───
         bankName: shop.shopeDetails?.shopBankDetails?.bankName,
         accountNumber: shop.shopeDetails?.shopBankDetails?.accountNumber,
+        ibanNuber: shop.shopeDetails?.shopBankDetails?.ibanNuber,
+        branch: shop.shopeDetails?.shopBankDetails?.branch,
+        swiftCode: shop.shopeDetails?.shopBankDetails?.swiftCode,
+        
+        // ─── SUPPORT INFORMATION ───
         supportMail: shop.shopeDetails?.supportMail,
         supportNumber: shop.shopeDetails?.supportNumber,
-        createdAt: shop.createdAt
+        
+        // ─── TERMS & CONDITIONS ───
+        termsAndCondition: shop.shopeDetails?.termsAndCondition,
+        
+        // ─── STATISTICS ───
+        orderCount: shop.orders?.length || 0,
+        productCount: shop.products?.length || 0,
+         shopLocation: shop.shopeDetails?.shopLocation,
+        // ─── TIMESTAMPS ───
+        createdAt: shop.createdAt,
+        updatedAt: shop.updatedAt,
+        
+        // ─── NESTED BANK DETAILS (for easy access) ───
+        // shopBankDetails: {
+        //   bankName: shop.shopeDetails?.shopBankDetails?.bankName,
+        //   accountNumber: shop.shopeDetails?.shopBankDetails?.accountNumber,
+        //   ibanNuber: shop.shopeDetails?.shopBankDetails?.ibanNuber,
+        //   branch: shop.shopeDetails?.shopBankDetails?.branch,
+        //   swiftCode: shop.shopeDetails?.shopBankDetails?.swiftCode,
+        // }
       };
     });
-    res.status(200).json({ success: true, data: formattedShops, message: "shops featched successfuly" });
+    
+    res.status(200).json({ 
+      success: true, 
+      data: formattedShops, 
+      message: "Shops fetched successfully" 
+    });
   } catch (error) {
-    res.status(500).json({ success: false, message: 'Server Error',data:[] });
+    console.error('Error fetching shops:', error);
+    res.status(500).json({ 
+      success: false, 
+      message: 'Server Error', 
+      data: [] 
+    });
   }
 };
 
@@ -157,10 +201,33 @@ exports.updateShop = async (req, res) => {
     const { id } = req.params;
     const updateData = req.body;
 
-    // Find and update shop
+    console.log('========== UPDATE SHOP REQUEST ==========');
+    console.log('Shop ID:', id);
+    console.log('Update Data:', JSON.stringify(updateData, null, 2));
+
+    // ✅ Build MongoDB update query with dot notation for nested fields
+    const updateQuery = {};
+
+    if (updateData.shopeDetails) {
+      Object.keys(updateData.shopeDetails).forEach(key => {
+        if (key === 'shopBankDetails' && typeof updateData.shopeDetails[key] === 'object') {
+          // ✅ Handle nested bank details with dot notation
+          Object.keys(updateData.shopeDetails[key]).forEach(bankKey => {
+            updateQuery[`shopeDetails.shopBankDetails.${bankKey}`] = updateData.shopeDetails[key][bankKey];
+          });
+        } else {
+          // ✅ Handle regular fields with dot notation
+          updateQuery[`shopeDetails.${key}`] = updateData.shopeDetails[key];
+        }
+      });
+    }
+
+    console.log('MongoDB Update Query:', JSON.stringify(updateQuery, null, 2));
+
+    // ✅ Use $set with dot notation to update specific fields only
     const shop = await Shop.findByIdAndUpdate(
       id,
-      { $set: updateData },
+      { $set: updateQuery },
       { 
         new: true,  // Return updated document
         runValidators: true  // Run schema validators
@@ -174,13 +241,17 @@ exports.updateShop = async (req, res) => {
       });
     }
 
+    console.log('✅ Shop updated successfully');
+    console.log('Updated shop:', JSON.stringify(shop, null, 2));
+
     res.status(200).json({
       success: true,
       message: 'Shop updated successfully',
       data: shop
     });
   } catch (err) {
-    console.error('Update Shop Error:', err);
+    console.error('========== UPDATE SHOP ERROR ==========');
+    console.error('Error:', err);
     res.status(500).json({
       success: false,
       message: 'Failed to update shop',

@@ -14,296 +14,32 @@ const geolib = require('geolib');
 const Payment = require('../models/Payment');
 const moment = require('moment');
 const { getIO } = require('../sockets/socket');
+const AgencyPayout = require('../models/AgencyPayout');
+const ShopPayout = require('../models/ShopPayout');
 
 
 // Calculate distance between 2 geo points (Haversine)
 
 
 const twilio = require('twilio');
-const client = twilio(process.env.TWILIO_ACCOUNT_SID, process.env.TWILIO_AUTHTOKEN);
+const SuperAdminSettings = require('../models/SuperAdminSettings'); // ✅ Add this import
 
-const DEV_BYPASS_OTP = true;
-const BYPASS_CODE = "123456";
-
-// @deprecated — delivery boy auth now handled by unified authController
-
-// exports.sendOtpToDeliveryBoy = async (req, res) => {
-//   const { phone } = req.body;
-
-//   if (!phone) {
-//     return res.status(400).json({
-//       message: 'Phone is required',
-//       success: false
-//     });
-//   }
-
-//   try {
-//     await client.verify.v2.services(process.env.TWILIO_SERVICE_SID)
-//       .verifications
-//       .create({ to: phone, channel: 'sms' });
-
-//     return res.status(200).json({
-//       message: 'OTP sent successfully',
-//       success: true
-//     });
-//   } catch (err) {
-//     console.error('Send OTP Error:', err);
-//     res.status(500).json({
-//       message: 'Failed to send OTP',
-//       success: false,
-//       error: err.message
-//     });
-//   }
-// };
-
-// exports.sendOtpToDeliveryBoy = async (req, res) => {
-//   const { phone } = req.body;
-
-//   if (!phone) {
-//     return res.status(400).json({
-//       message: 'Phone is required',
-//       success: false
-//     });
-//   }
-
-//   // ✅ DEV MODE: Don't call Twilio
-//   if (DEV_BYPASS_OTP) {
-//     console.log(`⚠️ DEV MODE OTP bypass active for ${phone} → use 123456`);
-//     return res.status(200).json({
-//       message: 'OTP sent successfully (DEV MODE)',
-//       success: true
-//     });
-//   }
-
-//   try {
-//     await client.verify.v2.services(process.env.TWILIO_SERVICE_SID)
-//       .verifications
-//       .create({ to: phone, channel: 'sms' });
-
-//     return res.status(200).json({
-//       message: 'OTP sent successfully',
-//       success: true
-//     });
-//   } catch (err) {
-//     console.error('Send OTP Error:', err);
-//     res.status(500).json({
-//       message: 'Failed to send OTP',
-//       success: false,
-//       error: err.message
-//     });
-//   }
-// };
-
-// // Resend OTP to delivery boy
-// exports.resendOtpToDeliveryBoy = async (req, res) => {
-//   const { phone } = req.body;
-
-//   if (!phone) {
-//     return res.status(400).json({
-//       message: 'Phone is required',
-//       success: false
-//     });
-//   }
-
-//   try {
-//     // Re-trigger OTP sending using Twilio
-//     await client.verify.v2.services(process.env.TWILIO_SERVICE_SID)
-//       .verifications
-//       .create({ to: phone, channel: 'sms' });
-
-//     return res.status(200).json({
-//       message: 'OTP resent successfully',
-//       success: true
-//     });
-//   } catch (err) {
-//     console.error('Resend OTP Error:', err);
-//     res.status(500).json({
-//       message: 'Failed to resend OTP',
-//       success: false,
-//       error: err.message
-//     });
-//   }
-// };
-
-// exports.verifyOtpForDeliveryBoy = async (req, res) => {
-//   const { phone, code, countryCode, latitude, longitude, agencyId } = req.body;
-
-//   if (!phone || !code) {
-//     return res.status(400).json({
-//       message: 'Phone and OTP code are required',
-//       success: false
-//     });
-//   }
-
-//   try {
-//     let isVerified = false;
-
-//     // ✅ DEV BYPASS OTP
-//     if (code === "123456") {
-//       console.log("⚠️ OTP bypass used for:", phone);
-//       isVerified = true;
-//     } else {
-//       // Real Twilio verification
-//       const verification = await client.verify.v2
-//         .services(process.env.TWILIO_SERVICE_SID)
-//         .verificationChecks
-//         .create({ to: phone, code });
-
-//       isVerified = verification.status === 'approved';
-//     }
-
-//     if (!isVerified) {
-//       return res.status(401).json({
-//         message: 'Invalid OTP',
-//         success: false
-//       });
-//     }
-
-//     // ===============================
-//     // Existing logic stays unchanged
-//     // ===============================
-
-//     if (agencyId) {
-//       if (!mongoose.Types.ObjectId.isValid(agencyId)) {
-//         return res.status(400).json({
-//           message: 'Invalid agencyId',
-//           success: false
-//         });
-//       }
-//     }
-
-//     let deliveryBoy = await DeliveryBoy.findOne({ phone });
-
-//     if (!deliveryBoy) {
-//       if (!countryCode || latitude === undefined || longitude === undefined) {
-//         return res.status(400).json({
-//           message: 'Missing details for registration (countryCode, latitude, longitude)',
-//           success: false
-//         });
-//       }
-
-//       const createDoc = {
-//         phone,
-//         countryCode,
-//         latitude,
-//         longitude,
-//         isOnline: false,
-//         role: 'deliveryBoy'
-//       };
-
-//       if (agencyId) {
-//         createDoc.agencyId = agencyId;
-//       }
-
-//       deliveryBoy = new DeliveryBoy(createDoc);
-//       await deliveryBoy.save();
-//     } else {
-//       if (agencyId && String(deliveryBoy.agencyId) !== String(agencyId)) {
-//         deliveryBoy.agencyId = agencyId;
-//         await deliveryBoy.save();
-//       }
-//     }
-
-//     return res.status(200).json({
-//       message: 'OTP verified successfully',
-//       success: true,
-//       data: deliveryBoy
-//     });
-
-//   } catch (err) {
-//     console.error('Verify OTP Error:', err);
-//     res.status(500).json({
-//       message: 'OTP verification failed',
-//       success: false,
-//       error: err.message
-//     });
-//   }
-// };
-
-// exports.verifyOtpForDeliveryBoy = async (req, res) => {
-//   const { phone, code, countryCode, latitude, longitude, agencyId } = req.body;
-
-//   if (!phone || !code) {
-//     return res.status(400).json({
-//       message: 'Phone and OTP code are required',
-//       success: false
-//     });
-//   }
-
-//   try {
-//     const verification = await client.verify.v2.services(process.env.TWILIO_SERVICE_SID)
-//       .verificationChecks
-//       .create({ to: phone, code });
-
-//     if (verification.status === 'approved') {
-//       // If agencyId is sent, validate its format and (optionally) existence
-//       if (agencyId) {
-//         if (!mongoose.Types.ObjectId.isValid(agencyId)) {
-//           return res.status(400).json({
-//             message: 'Invalid agencyId',
-//             success: false
-//           });
-//         }
-//         // Optional existence check (uncomment if you want to enforce it strictly)
-//         // const agencyExists = await DeliveryAgency.findById(agencyId).lean();
-//         // if (!agencyExists) {
-//         //   return res.status(404).json({ message: 'Agency not found', success: false });
-//         // }
-//       }
-
-//       let deliveryBoy = await DeliveryBoy.findOne({ phone });
-
-//       // If not found, register new delivery boy with required details from req.body
-//       if (!deliveryBoy) {
-//         if (!countryCode || latitude === undefined || longitude === undefined) {
-//           return res.status(400).json({
-//             message: 'Missing details for registration (countryCode, latitude, longitude)',
-//             success: false
-//           });
-//         }
-
-//         const createDoc = {
-//           phone,
-//           countryCode,
-//           latitude,
-//           longitude,
-//           isOnline: false,
-//           role: 'deliveryBoy'
-//         };
-//         if (agencyId) {
-//           createDoc.agencyId = agencyId;
-//         }
-
-//         deliveryBoy = new DeliveryBoy(createDoc);
-//         await deliveryBoy.save();
-//       } else {
-//         // If delivery boy already exists and a (possibly new) agencyId is provided, update it
-//         if (agencyId && String(deliveryBoy.agencyId) !== String(agencyId)) {
-//           deliveryBoy.agencyId = agencyId;
-//           await deliveryBoy.save();
-//         }
-//       }
-
-//       return res.status(200).json({
-//         message: 'OTP verified successfully',
-//         success: true,
-//         data: deliveryBoy
-//       });
-//     } else {
-//       return res.status(401).json({
-//         message: 'Invalid OTP',
-//         success: false
-//       });
-//     }
-//   } catch (err) {
-//     console.error('Verify OTP Error:', err);
-//     res.status(500).json({
-//       message: 'OTP verification failed',
-//       success: false,
-//       error: err.message
-//     });
-//   }
-// };
+// ✅ Helper function to get commission rates from settings
+async function getCommissionRates() {
+  try {
+    const settings = await SuperAdminSettings.findOne();
+    return {
+      shopCommission: settings?.shopCommission || 5, // Default 5%
+      agencyCommission: settings?.agencyCommission || 2 // Default 2%
+    };
+  } catch (error) {
+    console.error('Error fetching commission rates:', error);
+    return {
+      shopCommission: 5, // Fallback default
+      agencyCommission: 2 // Fallback default
+    };
+  }
+}
 
 
   exports.updateDeliveryBoy = async (req, res) => {
@@ -1127,7 +863,6 @@ exports.deliveryBoyUpdateOrderStatus = async (req, res) => {
       });
     }
 
-    // Fetch order
     const updatedOrder = await Order.findById(orderId);
     if (!updatedOrder) {
       return res.status(404).json({
@@ -1138,111 +873,107 @@ exports.deliveryBoyUpdateOrderStatus = async (req, res) => {
     }
 
     updatedOrder.status = newStatus;
-    
     if (!updatedOrder.statusHistory) {
       updatedOrder.statusHistory = [];
     }
-    updatedOrder.statusHistory.push({ 
-      status: newStatus, 
-      date: new Date() 
+    updatedOrder.statusHistory.push({
+      status: newStatus,
+      date: new Date()
     });
-    
     await updatedOrder.save();
 
-    // ========================
-    // DEFINE currentMonth BEFORE USE
-    // ========================
-    const currentMonth = new Date().toLocaleString('default', { 
-      month: 'long', 
-      year: 'numeric' 
+    const currentMonth = new Date().toLocaleString('default', {
+      month: 'long',
+      year: 'numeric'
     });
 
-    // ========================
+    // ════════════════════════════════════════════════════════════
     // DELIVERED STATUS HANDLING
-    // ========================
+    // ════════════════════════════════════════════════════════════
     if (updatedOrder.status === 'Delivered') {
       console.log('📦 Order delivered, processing payments...');
 
-      // ========================
-      // 1. AGENCY PAYMENT (NEW COLLECTION)
-      // ========================
+      // ✅ Get commission rates from settings
+      const { shopCommission, agencyCommission } = await getCommissionRates();
+      console.log(`💼 Commission Rates: Shop=${shopCommission}%, Agency=${agencyCommission}%`);
+
+      const startOfMonth = new Date(new Date().getFullYear(), new Date().getMonth(), 1);
+      const endOfMonth = new Date(new Date().getFullYear(), new Date().getMonth() + 1, 0);
+
+      // ════════════════════════════════════════════════════════════
+      // 1. AGENCY PAYMENT - FIXED
+      // ════════════════════════════════════════════════════════════
       const orderEarning = Number(updatedOrder.deliveryEarning || 0);
-      console.log(`💰 Delivery earning for agency: ${orderEarning} AED`);
+      
+      // ✅ Apply agency commission (platform takes % from agency earnings)
+      const agencyCommissionAmount = (orderEarning * agencyCommission) / 100;
+      const netAgencyEarning = orderEarning - agencyCommissionAmount;
+      
+      console.log(`💰 Agency Earnings - Gross: ${orderEarning} AED, Commission: ${agencyCommissionAmount} AED, Net: ${netAgencyEarning} AED`);
 
       const deliveryBoy = await DeliveryBoy.findById(updatedOrder.assignedDeliveryBoy).lean();
 
       if (deliveryBoy && deliveryBoy.agencyId) {
-        const AgencyPayout = require('../models/AgencyPayout');
-        
-        // Get start and end of current month
-        const startOfMonth = new Date(new Date().getFullYear(), new Date().getMonth(), 1);
-        const endOfMonth = new Date(new Date().getFullYear(), new Date().getMonth() + 1, 0);
-
-        // Check if payout for this month exists
+        // ✅ CRITICAL FIX: Only find PENDING payouts
         let agencyPayout = await AgencyPayout.findOne({
           agencyId: deliveryBoy.agencyId,
           from: startOfMonth,
-          to: endOfMonth
+          to: endOfMonth,
+          status: 'Pending'
         });
 
         if (agencyPayout) {
-          // Update existing payout
           agencyPayout.totalOrders += 1;
-          agencyPayout.totalEarnings += orderEarning;
+          agencyPayout.totalEarnings += netAgencyEarning; // ✅ Store net earning
+          agencyPayout.deliveryBoyId = deliveryBoy._id;
+          agencyPayout.orderId = updatedOrder._id;
           await agencyPayout.save();
-          console.log(`✅ Updated existing agency payout: ${agencyPayout.totalEarnings} AED`);
+          console.log(`✅ Updated PENDING agency payout: ${agencyPayout.totalEarnings} AED`);
         } else {
-          // Create new payout record
           agencyPayout = await AgencyPayout.create({
             agencyId: deliveryBoy.agencyId,
             deliveryBoyId: deliveryBoy._id,
             orderId: updatedOrder._id,
             totalOrders: 1,
-            totalEarnings: orderEarning,
+            totalEarnings: netAgencyEarning, // ✅ Store net earning
             from: startOfMonth,
             to: endOfMonth,
             month: currentMonth,
             status: 'Pending',
-            transactionId: `AGY-${Date.now()}`
+            transactionId: null
           });
-          console.log(`✅ Created new agency payout record`);
+          console.log(`✅ Created NEW PENDING agency payout`);
         }
       }
 
-      // ========================
-      // 2. SHOP/VENDOR PAYMENT
-      // ========================
+      // ════════════════════════════════════════════════════════════
+      // 2. SHOP PAYMENT - FIXED
+      // ════════════════════════════════════════════════════════════
       const shopId = updatedOrder.shopId;
       const orderAmount = Number(updatedOrder.totalPayable || 0);
-      const PLATFORM_COMMISSION_PERCENT = 5; // 5% commission
       
-      const commission = (orderAmount * PLATFORM_COMMISSION_PERCENT) / 100;
+      // ✅ Apply shop commission (platform takes % from shop sales)
+      const commission = (orderAmount * shopCommission) / 100;
       const netPayable = orderAmount - commission;
 
-      console.log(`🏪 Shop payment: Total=${orderAmount}, Commission=${commission}, Net=${netPayable}`);
+      console.log(`🏪 Shop payment: Total=${orderAmount} AED, Commission=${commission} AED, Net=${netPayable} AED`);
 
-      // Check if shop payout for this month exists
-      const ShopPayout = require('../models/ShopPayout');
-      
-      const startOfMonth = new Date(new Date().getFullYear(), new Date().getMonth(), 1);
-      const endOfMonth = new Date(new Date().getFullYear(), new Date().getMonth() + 1, 0);
-
+      // ✅ CRITICAL FIX: Only find PENDING payouts
       let shopPayout = await ShopPayout.findOne({
         shopId,
         from: startOfMonth,
-        to: endOfMonth
+        to: endOfMonth,
+        status: 'Pending'
       });
 
       if (shopPayout) {
-        // Update existing payout
         shopPayout.totalOrders += 1;
         shopPayout.totalSales += orderAmount;
         shopPayout.platformCommission += commission;
         shopPayout.netPayable += netPayable;
         await shopPayout.save();
-        console.log(`✅ Updated existing shop payout`);
+        console.log(`✅ Updated PENDING shop payout`);
       } else {
-        // Create new payout record
         shopPayout = await ShopPayout.create({
           shopId,
           totalOrders: 1,
@@ -1252,15 +983,13 @@ exports.deliveryBoyUpdateOrderStatus = async (req, res) => {
           from: startOfMonth,
           to: endOfMonth,
           status: 'Pending',
-          transactionId: `SHOP-${Date.now()}`
+          transactionId: null
         });
-        console.log(`✅ Created new shop payout record`);
+        console.log(`✅ Created NEW PENDING shop payout`);
       }
     }
 
-    // ========================
     // Socket.IO Notification
-    // ========================
     try {
       const io = getIO();
       io.emit('order_status_changed', {
@@ -1289,7 +1018,7 @@ exports.deliveryBoyUpdateOrderStatus = async (req, res) => {
     });
   }
 };
-  
+
   
   exports.deliveryBoyRaiseIssue = async (req, res) => {
     try {

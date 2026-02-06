@@ -349,6 +349,20 @@ if (shopLatLng?.length === 2 && deliveryAddress.latitude && deliveryAddress.long
         ]
       });
 
+      // ✅✅ ADD THIS IMMEDIATELY AFTER ORDER CREATION:
+await Shop.findByIdAndUpdate(
+  shopId,
+  {
+    $push: {
+      orders: { orderId: createdOrder._id }
+    }
+  }
+);
+
+console.log(`✅ Order ${createdOrder._id} added to shop ${shopId}`);
+
+
+
       perShopResults.push(createdOrder);
     }
 
@@ -496,7 +510,6 @@ exports.getOrderById = async (req, res) => {
 };
 
 
-// GET ALL ORDERS WITH PROPER POPULATION (for table view)
 exports.getAllOrders = async (req, res) => {
   try {
     const { 
@@ -524,7 +537,7 @@ exports.getAllOrders = async (req, res) => {
     const [orders, total] = await Promise.all([
       Order.find(filter)
         .populate('userId', 'name email phone')
-        .populate('shopId', 'shopName')
+        .populate('shopId', 'shopeDetails.shopName shopeDetails.shopAddress shopeDetails.EmiratesIdImage orders') // ✅ Added orders
         .populate('assignedDeliveryBoy', 'name')
         .populate({
           path: 'items.shopProductId',
@@ -541,46 +554,50 @@ exports.getAllOrders = async (req, res) => {
     ]);
 
     // Format orders for table view
-    const formattedOrders = orders.map(order => ({
-      _id: order._id,
-      // orderNumber: order.orderNumber || order._id,
-     
+    const formattedOrders = orders.map(order => {
+      // ✅ Calculate order count from shop's orders array
+      const orderCount = order.shopId?.orders?.length || 0;
       
-      // Customer
-      customerName: order.deliveryAddress?.name || order.userId?.name || '-',
-      customerPhone: order.deliveryAddress?.contact || order.userId?.phone || '-',
-      
-      // Status
-      orderStatus: order.status || order.orderStatus || 'pending',
-      
-      // First item details (for preview)
-      productName: order.items?.[0]?.snapshot?.partName || 
-                   order.items?.[0]?.shopProductId?.part?.partName || 
-                   'Product',
-      productImage: order.items?.[0]?.snapshot?.image || 
-                    order.items?.[0]?.shopProductId?.part?.images?.[0] || 
-                    null,
-                      itemCount: order.items?.length || 0,
-      quantity: order.items?.reduce((sum, item) => sum + (item.quantity || 1), 0) || 1,
-       createdAt: order.createdAt,
-      // Counts
-    
-      
-      // Financial
-      totalAmount: order.subtotal || order.totalAmount || 0,
-      finalPayable: order.totalPayable || order.finalPayable || 0,
-      
-      // Delivery
-      deliveryAddress: order.deliveryAddress,
-      deliveryBoy: order.assignedDeliveryBoy?.name || 'Not Assigned',
-      
-      // Shop
-      shopName: order.shopId?.shopName || 'Unknown Shop',
-      
-      // Payment
-      paymentMethod: order.paymentType || order.paymentMethod || 'Cash',
-      paymentStatus: order.paymentStatus || 'Pending'
-    }));
+      return {
+        _id: order._id,
+        
+        // Customer
+        customerName: order.deliveryAddress?.name || order.userId?.name || '-',
+        customerPhone: order.deliveryAddress?.contact || order.userId?.phone || '-',
+        
+        // Status
+        orderStatus: order.status || order.orderStatus || 'pending',
+        
+        // First item details (for preview)
+        productName: order.items?.[0]?.snapshot?.partName || 
+                     order.items?.[0]?.shopProductId?.part?.partName || 
+                     'Product',
+        productImage: order.items?.[0]?.snapshot?.image || 
+                      order.items?.[0]?.shopProductId?.part?.images?.[0] || 
+                      null,
+        itemCount: order.items?.length || 0,
+        quantity: order.items?.reduce((sum, item) => sum + (item.quantity || 1), 0) || 1,
+        createdAt: order.createdAt,
+        
+        // Financial
+        totalAmount: order.subtotal || order.totalAmount || 0,
+        finalPayable: order.totalPayable || order.finalPayable || 0,
+        
+        // Delivery
+        deliveryAddress: order.deliveryAddress,
+        deliveryBoy: order.assignedDeliveryBoy?.name || 'Not Assigned',
+        
+        // Shop - ✅ Fixed to use nested shopeDetails
+        shopName: order.shopId?.shopeDetails?.shopName || 'Unknown Shop',
+        shopAddress: order.shopId?.shopeDetails?.shopAddress || '-',
+        emiratesIdImage: order.shopId?.shopeDetails?.EmiratesIdImage || null,
+        orderCount: orderCount, // ✅ NEW: Total orders for this shop
+        
+        // Payment
+        paymentMethod: order.paymentType || order.paymentMethod || 'Cash',
+        paymentStatus: order.paymentStatus || 'Pending'
+      };
+    });
 
     res.json({
       success: true,
