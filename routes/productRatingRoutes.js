@@ -3,6 +3,7 @@ const express = require('express');
 const router = express.Router();
 const ratingController = require('../controllers/productRatingController');
 
+
 // Add a new rating (POST /api/rating)
 router.post('/', ratingController.addRating);
 
@@ -11,6 +12,10 @@ router.put('/:ratingId', ratingController.updateRating);
 
 // Delete a rating (DELETE /api/rating/:ratingId)
 router.delete('/:ratingId', ratingController.deleteRating);
+// router.delete('/ratings/:ratingId',authMiddleware,
+//     ratingController.deleteRating
+// );
+
 
 // Check if user can rate a product (GET /api/rating/can-rate)
 router.get('/can-rate', ratingController.canRate);

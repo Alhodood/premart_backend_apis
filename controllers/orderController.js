@@ -1339,8 +1339,8 @@ exports.updateOrderStatus = async (req, res) => {
   exports.cancelOrder = async (req, res) => {
     try {
       const orderId = req.params.orderId;
-      const { cancelReason } = req.body;
-  
+      const { reason, additionalComments, cancelledBy } = req.body;
+
       if (!orderId) {
         return res.status(400).json({
           message: 'OrderId is required',
@@ -1348,30 +1348,94 @@ exports.updateOrderStatus = async (req, res) => {
           data: []
         });
       }
-  
-      const updatedOrder = await Order.findByIdAndUpdate(
-        orderId,
-        { 
-          orderStatus: 'Cancelled',
-          cancelReason: cancelReason || "Cancelled by user/admin" 
-        },
-        { new: true }
-      );
-  
-      if (!updatedOrder) {
+
+      // Require a cancellation reason
+      if (!reason) {
+        return res.status(400).json({
+          message: 'Cancellation reason is required',
+          success: false,
+          data: []
+        });
+      }
+
+      // Find the order first to check if it can be cancelled
+      const order = await Order.findById(orderId);
+
+      if (!order) {
         return res.status(404).json({
           message: 'Order not found',
           success: false,
           data: []
         });
       }
-  
+
+      // Check if order is already cancelled
+      if (order.status === 'Cancelled') {
+        return res.status(400).json({
+          message: 'Order is already cancelled',
+          success: false,
+          data: []
+        });
+      }
+
+      // Check if order can be cancelled (not delivered or out for delivery)
+      const nonCancellableStatuses = ['Delivered', 'Out for Delivery'];
+      if (nonCancellableStatuses.includes(order.status)) {
+        return res.status(400).json({
+          message: `Cannot cancel order with status: ${order.status}`,
+          success: false,
+          data: []
+        });
+      }
+
+      const updatedOrder = await Order.findByIdAndUpdate(
+        orderId,
+        {
+          status: 'Cancelled',
+          cancellation: {
+            isCancelled: true,
+            cancelledAt: new Date(),
+            cancelledBy: cancelledBy || 'customer',
+            reason: reason,
+            additionalComments: additionalComments || ''
+          },
+          $push: {
+            statusHistory: {
+              status: 'Cancelled',
+              date: new Date()
+            }
+          }
+        },
+        { new: true }
+      );
+
+      // Restore stock for cancelled items
+      for (const item of order.items) {
+        await ShopProduct.findByIdAndUpdate(item.shopProductId, {
+          $inc: { stock: item.quantity }
+        });
+      }
+
+      // Emit socket event for order cancellation
+      try {
+        const io = require('../sockets/socket').getIO();
+        io.emit('orderCancelled', {
+          orderId: updatedOrder._id.toString(),
+          shopId: updatedOrder.shopId.toString(),
+          userId: updatedOrder.userId.toString(),
+          reason: reason,
+          cancelledBy: cancelledBy || 'customer'
+        });
+      } catch (err) {
+        console.error('Socket.IO emit failed:', err.message);
+      }
+
       return res.status(200).json({
         message: 'Order cancelled successfully',
         success: true,
         data: updatedOrder
       });
-  
+
     } catch (error) {
       console.error('Cancel Order Error:', error);
       res.status(500).json({
@@ -2328,6 +2392,37 @@ exports.getAllPendingOrders = async (req, res) => {
     res.status(500).json({
       success: false,
       message: "Failed to fetch pending orders",
+      error: error.message
+    });
+  }
+};
+
+// Get predefined cancellation reasons for customers
+exports.getCancellationReasons = async (req, res) => {
+  try {
+    const reasons = [
+      { id: 1, reason: 'Changed my mind', category: 'customer' },
+      { id: 2, reason: 'Found better price elsewhere', category: 'customer' },
+      { id: 3, reason: 'Ordered by mistake', category: 'customer' },
+      { id: 4, reason: 'Delivery time is too long', category: 'customer' },
+      { id: 5, reason: 'Want to change delivery address', category: 'customer' },
+      { id: 6, reason: 'Want to change payment method', category: 'customer' },
+      { id: 7, reason: 'Product no longer needed', category: 'customer' },
+      { id: 8, reason: 'Incorrect product ordered', category: 'customer' },
+      { id: 9, reason: 'Financial reasons', category: 'customer' },
+      { id: 10, reason: 'Other', category: 'customer' }
+    ];
+
+    return res.status(200).json({
+      success: true,
+      message: 'Cancellation reasons fetched successfully',
+      data: reasons
+    });
+  } catch (error) {
+    console.error('Get Cancellation Reasons Error:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Failed to fetch cancellation reasons',
       error: error.message
     });
   }

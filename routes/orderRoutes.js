@@ -20,6 +20,8 @@ router.put('/update-status/:orderId', orderController.updateOrderStatus);
 
 router.put('/cancel/:orderId', orderController.cancelOrder);
 
+router.get('/cancellation-reasons', orderController.getCancellationReasons);
+
 router.put('/refund/:orderId', orderController.refundOrder);
 
 
