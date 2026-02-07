@@ -28,10 +28,19 @@ exports.register = async (req, res) => {
       password, 
       countryCode, 
       role, 
-      latitude,      // ✅ Add this
-      longitude,     // ✅ Add this
-      agencyId       // For delivery boys
+      latitude,
+      longitude,
+      agencyId,
+      // ✅ ADD ALL MISSING FIELDS
+      emiratesId,
+      areaAssigned,
+      licenseNo,
+      city,
+      profileImage,
+      licenseImage,
     } = req.body;
+
+    console.log('📦 Registration payload:', req.body);
 
     // Validate required fields
     if (!phone || !password || !countryCode) {
@@ -58,15 +67,6 @@ exports.register = async (req, res) => {
         });
       }
 
-      // Validate range (for UAE/Dubai area)
-      if (latitude < 24 || latitude > 26 || longitude < 54 || longitude > 56) {
-        return res.status(400).json({
-          success: false,
-          message: 'Coordinates out of valid range for UAE',
-          hint: 'UAE coordinates: latitude 24-26, longitude 54-56'
-        });
-      }
-
       // Validate agencyId if provided
       if (agencyId) {
         const { DeliveryAgency } = require('../models/DeliveryAgency');
@@ -79,9 +79,6 @@ exports.register = async (req, res) => {
         }
       }
     }
-
- 
- 
 
     let existingUser;
     if (role === ROLES.CUSTOMER) {
@@ -112,21 +109,31 @@ exports.register = async (req, res) => {
         role: ROLES.CUSTOMER
       });
     } else if (role === ROLES.DELIVERY_BOY) {
-      // ✅ Include latitude and longitude
+      // ✅ CREATE WITH ALL FIELDS
       newUser = await DeliveryBoy.create({
         name: name || 'New Delivery Boy',
         email,
         phone,
         password,
         countryCode,
-        dob,  
-        latitude,      // ✅ Store location
-        longitude,     // ✅ Store location
-        availability: true,  // ✅ Default to available
+        dob,
+        licenseNo,
+        emiratesId,
+        profileImage,
+        licenseImage,
+        areaAssigned,
+        city,
+        latitude,
+        longitude,
+        availability: true,
         isOnline: false,
+        accountVerify: false,
+        assignedOrders: [],
         role: ROLES.DELIVERY_BOY,
         agencyId: agencyId || null
       });
+
+      console.log('✅ Delivery boy created:', newUser._id);
     } else if (role === ROLES.SHOP_ADMIN) {
       newUser = await ShopAdmin.create({
         name,
@@ -143,17 +150,25 @@ exports.register = async (req, res) => {
       });
     }
 
-    // Generate OTP and send
-    // ... (your existing OTP logic)
+    // Generate OTP and send (if you have OTP logic)
+    // ... your existing OTP logic
 
     return res.status(201).json({
       success: true,
-      message: 'Registration successful. OTP sent to phone.',
+      message: 'Registration successful',
       data: {
         userId: newUser._id,
+        name: newUser.name,
         phone: newUser.phone,
+        email: newUser.email,
         role: newUser.role,
         ...(role === ROLES.DELIVERY_BOY && {
+          emiratesId: newUser.emiratesId,
+          licenseNo: newUser.licenseNo,
+          areaAssigned: newUser.areaAssigned,
+          city: newUser.city,
+          profileImage: newUser.profileImage,
+          licenseImage: newUser.licenseImage,
           location: {
             latitude: newUser.latitude,
             longitude: newUser.longitude
@@ -162,7 +177,7 @@ exports.register = async (req, res) => {
       }
     });
   } catch (err) {
-    console.error('Registration Error:', err);
+    console.error('❌ Registration Error:', err);
     return res.status(500).json({
       success: false,
       message: 'Registration failed',

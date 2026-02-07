@@ -2,7 +2,6 @@ const Model = require('../models/Model');
 const Product = require('../models/_deprecated/Product');
 // Create a new model entry
 exports.createModel = async (req, res) => {
-  console.log('hai');
 
   try {
     const newModel = new Model(req.body);
@@ -20,18 +19,31 @@ exports.getAllModels = async (req, res) => {
       .populate({ path: 'brand', select: 'brandName brandImage' })
       .lean()
       .exec();
-    // Flatten brand into top-level fields
+    
+    // ✅ Flatten brand into top-level fields AND include visibility
     const data = models.map(m => ({
       _id: m._id,
       modelName: m.modelName,
+      visibility: m.visibility, // ✅ ADDED - Critical for edit form
       brandId: m.brand?._id || null,
       brandName: m.brand?.brandName || '',
-      brandImage: m.brand?.brandImage || ''
+      brandImage: m.brand?.brandImage || '',
+      createdAt: m.createdAt, // Optional: useful for sorting/display
+      updatedAt: m.updatedAt  // Optional: useful for sorting/display
     }));
+    
     console.log('Populated models:', models);
-    res.status(200).json({ data, success: true, message: "featched on models" });
+    res.status(200).json({ 
+      data, 
+      success: true, 
+      message: "Fetched all models successfully" 
+    });
   } catch (error) {
-    res.status(500).json({ message: 'Error fetching models', error: error.message, success:false });
+    res.status(500).json({ 
+      message: 'Error fetching models', 
+      error: error.message, 
+      success: false 
+    });
   }
 };
 

@@ -1,16 +1,16 @@
 const express = require('express');
 const router = express.Router();
-const productController = require('../../controllers/_deprecated/productController');
+const productController = require('../controllers/_deprecated/productController');
 
 // Import all controllers
-const fuelController = require('../../controllers/fuelController');
-const modelController = require('../../controllers/modelController');
-const yearController = require('../../controllers/yearController');
-const brandController = require('../../controllers/brandController');
-const categoryController = require('../../controllers/categoryController');
-const uploadMiddleWare = require('../../middleware/s3Upload');
+const fuelController = require('../controllers/fuelController');
+const modelController = require('../controllers/modelController');
+const yearController = require('../controllers/yearController');
+const brandController = require('../controllers/brandController');
+const categoryController = require('../controllers/categoryController');
+const uploadMiddleWare = require('../middleware/s3Upload');
 
-const subCategoriesController = require('../../controllers/subCategoryController');
+const subCategoriesController = require('../controllers/subCategoryController');
 const multer = require('multer');
 const upload = multer({ dest: 'uploads/' });
 
@@ -63,7 +63,7 @@ router.get('/brand/models/:brandId', brandController.getModelsByBrand);
 
 // CATEGORY ROUTES
 router.post('/category', categoryController.createCategory);
-router.get('/category', categoryController.getAllCategories);
+router.get('/category', categoryController.getAllCategory);
 router.get('/category/:id', categoryController.getCategoryById);
 router.put('/category/:id', categoryController.updateCategory);
 router.delete('/category/delete/:id', categoryController.deleteCategory);

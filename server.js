@@ -7,7 +7,7 @@ require('dotenv').config();
 const express = require('express');
 const axios = require("axios");
 const authRoutes = require('./routes/authRoutes');
-const productRoutes = require('./routes/_deprecated/productRoutes.js');
+const productRoutes = require('./routes/productRoutes.js');
 const shopRoutes = require('./routes/shopRoutes.js');
 const customerAddress= require("./routes/customerAddressRoutes.js")
 const vinData= require("./routes/vinDataRoutes.js")
