@@ -42,6 +42,7 @@ router.post('/verify-otp', rbacAuth.verifyOtp);
 router.post('/send-otp', rbacAuth.sendOtp);
 router.get('/getUsers',rbacAuth.getAllCustomers
 );
+router.patch('/visibility/:userId', rbacAuth.toggleAccountVisibility);
 
 router.post('/forgot-password', rbacAuth.forgotPassword);
 router.post('/reset-password', rbacAuth.resetPassword);
