@@ -1032,3 +1032,55 @@ exports.resetPassword = async (req, res) => {
     });
   }
 };
+
+// Toggle Customer Account Visibility
+exports.toggleAccountVisibility = async (req, res) => {
+  try {
+    const { userId } = req.params;
+    const { visibility } = req.body; // true / false
+
+    if (visibility === undefined) {
+      return res.status(400).json({
+        success: false,
+        message: 'visibility (true/false) is required'
+      });
+    }
+
+    const mongoose = require('mongoose');
+    if (!mongoose.Types.ObjectId.isValid(userId)) {
+      return res.status(400).json({
+        success: false,
+        message: 'Invalid user ID'
+      });
+    }
+
+    const user = await User.findById(userId);
+
+    if (!user) {
+      return res.status(404).json({
+        success: false,
+        message: 'User not found'
+      });
+    }
+
+    user.accountVisibility = visibility;
+    await user.save();
+
+    return res.status(200).json({
+      success: true,
+      message: `Account visibility turned ${visibility ? 'ON' : 'OFF'} successfully`,
+      data: {
+        userId: user._id,
+        accountVisibility: user.accountVisibility
+      }
+    });
+
+  } catch (err) {
+    console.error('Toggle Account Visibility Error:', err);
+    return res.status(500).json({
+      success: false,
+      message: 'Failed to update account visibility',
+      error: err.message
+    });
+  }
+};
