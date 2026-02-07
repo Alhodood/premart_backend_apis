@@ -95,6 +95,15 @@ const orderSchema = new mongoose.Schema(
     statusHistory: {
       type: [orderStatusSchema],
       default: [{ status: 'Pending', date: new Date() }]
+    },
+
+    // Cancellation details
+    cancellation: {
+      isCancelled: { type: Boolean, default: false },
+      cancelledAt: Date,
+      cancelledBy: { type: String, enum: ['customer', 'shop', 'admin'] },
+      reason: { type: String },
+      additionalComments: { type: String }
     }
   },
   { timestamps: true }
