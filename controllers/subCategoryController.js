@@ -22,13 +22,47 @@ exports.addSubCategory = async (req, res) => {
 exports.updateSubCategory = async (req, res) => {
   try {
     const { id } = req.params;
-    const { subCategoryName, subCategoryImage, category } = req.body;
-    const updatedData = { subCategoryName, subCategoryImage, category };
-    const updated = await SubCategory.findByIdAndUpdate(id, updatedData, { new: true });
-    if (!updated) return res.status(404).json({ success: false, message: "SubCategory not found" });
-    res.status(200).json({ success: true, message: "SubCategory updated", data: updated });
+    
+    // ✅ FIXED: Accept visibility field from request body
+    const { subCategoryName, subCategoryImage, category, visibility } = req.body;
+    
+    // ✅ Build update object with only provided fields
+    const updatedData = {};
+    
+    if (subCategoryName !== undefined) updatedData.subCategoryName = subCategoryName;
+    if (subCategoryImage !== undefined) updatedData.subCategoryImage = subCategoryImage;
+    if (category !== undefined) updatedData.category = category;
+    if (visibility !== undefined) updatedData.visibility = visibility;  // ✅ CRITICAL FIX
+    
+    console.log('📥 Received update payload:', req.body);
+    console.log('📤 Applying updates:', updatedData);
+    
+    const updated = await SubCategory.findByIdAndUpdate(id, updatedData, { 
+      new: true,
+      runValidators: true  // ✅ Run schema validators
+    });
+    
+    if (!updated) {
+      return res.status(404).json({ 
+        success: false, 
+        message: "SubCategory not found" 
+      });
+    }
+    
+    console.log('✅ SubCategory updated successfully:', updated);
+    
+    res.status(200).json({ 
+      success: true, 
+      message: "SubCategory updated successfully", 
+      data: updated 
+    });
   } catch (error) {
-    res.status(500).json({ success: false, message: "Failed to update SubCategory", error: error.message });
+    console.error('❌ Update error:', error);
+    res.status(500).json({ 
+      success: false, 
+      message: "Failed to update SubCategory", 
+      error: error.message 
+    });
   }
 };
 

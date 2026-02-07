@@ -3,7 +3,7 @@ const VehicleConfiguration = require('../models/VehicleConfiguration');
 // CREATE
 exports.createConfig = async (req, res) => {
   try {
-    const { brand, model, year } = req.body;
+    const { brand, model, year, isActive } = req.body;
 
     if (!brand || !model || !year) {
       return res.status(400).json({
@@ -12,24 +12,44 @@ exports.createConfig = async (req, res) => {
       });
     }
 
-    const config = await VehicleConfiguration.create(req.body);
+    console.log('📥 Create vehicle config payload:', req.body);
+
+    // ✅ Include isActive with default true
+    const configData = {
+      ...req.body,
+      isActive: isActive !== undefined ? isActive : true
+    };
+
+    const config = await VehicleConfiguration.create(configData);
 
     const populated = await VehicleConfiguration.findById(config._id)
       .populate('brand model');
 
-    res.status(201).json({ success: true, data: populated });
+    console.log('✅ Vehicle config created successfully');
+
+    res.status(201).json({ 
+      success: true, 
+      message: 'Vehicle configuration created successfully',
+      data: populated 
+    });
 
   } catch (err) {
-    console.error('Create VehicleConfig Error:', err.message);
-    res.status(500).json({ success: false, error: err.message });
+    console.error('❌ Create VehicleConfig Error:', err.message);
+    res.status(500).json({ 
+      success: false, 
+      message: 'Failed to create vehicle configuration',
+      error: err.message 
+    });
   }
 };
 
 
-// GET ALL
+// GET ALL - ✅ FIXED: Show both active and inactive
 exports.getAllConfigs = async (req, res) => {
   try {
-    const configs = await VehicleConfiguration.find({ isActive: true })
+    // ✅ Return ALL configs (both active and inactive)
+    // Frontend can filter if needed, but admin needs to see inactive ones too
+    const configs = await VehicleConfiguration.find()
       .populate('brand model')
       .sort({ createdAt: -1 });
 
@@ -40,7 +60,7 @@ exports.getAllConfigs = async (req, res) => {
     });
 
   } catch (err) {
-    console.error('Get All VehicleConfigs Error:', err.message);
+    console.error('❌ Get All VehicleConfigs Error:', err.message);
     res.status(500).json({ success: false, error: err.message });
   }
 };
@@ -52,7 +72,7 @@ exports.getConfigById = async (req, res) => {
     const config = await VehicleConfiguration.findById(req.params.id)
       .populate('brand model');
 
-    if (!config || !config.isActive) {
+    if (!config) {
       return res.status(404).json({
         success: false,
         message: 'Vehicle configuration not found'
@@ -62,7 +82,7 @@ exports.getConfigById = async (req, res) => {
     res.json({ success: true, data: config });
 
   } catch (err) {
-    console.error('Get VehicleConfig Error:', err.message);
+    console.error('❌ Get VehicleConfig Error:', err.message);
     res.status(500).json({ success: false, error: err.message });
   }
 };
@@ -78,10 +98,16 @@ exports.searchConfigs = async (req, res) => {
       transmission,
       year,
       frameCode,
-      region
+      region,
+      isActive
     } = req.query;
 
-    const filter = { isActive: true };
+    const filter = {};
+    
+    // ✅ Allow filtering by isActive status
+    if (isActive !== undefined) {
+      filter.isActive = isActive === 'true';
+    }
 
     if (brand) filter.brand = brand;
     if (model) filter.model = model;
@@ -103,37 +129,86 @@ exports.searchConfigs = async (req, res) => {
     });
 
   } catch (err) {
-    console.error('Search VehicleConfigs Error:', err.message);
+    console.error('❌ Search VehicleConfigs Error:', err.message);
     res.status(500).json({ success: false, error: err.message });
   }
 };
 
 
-// UPDATE
+// UPDATE - ✅ FIXED: Smart field updates with isActive support
 exports.updateConfig = async (req, res) => {
   try {
+    const { id } = req.params;
+    
+    // ✅ Accept all possible fields including isActive
+    const {
+      brand,
+      model,
+      year,
+      engineType,
+      transmission,
+      frameCode,
+      trim,
+      commonName,
+      vinPatterns,
+      region,
+      isActive  // ✅ CRITICAL FIX
+    } = req.body;
+    
+    // ✅ Build update object with only provided fields
+    const updatedData = {};
+    
+    if (brand !== undefined) updatedData.brand = brand;
+    if (model !== undefined) updatedData.model = model;
+    if (year !== undefined) updatedData.year = year;
+    if (engineType !== undefined) updatedData.engineType = engineType;
+    if (transmission !== undefined) updatedData.transmission = transmission;
+    if (frameCode !== undefined) updatedData.frameCode = frameCode;
+    if (trim !== undefined) updatedData.trim = trim;
+    if (commonName !== undefined) updatedData.commonName = commonName;
+    if (vinPatterns !== undefined) updatedData.vinPatterns = vinPatterns;
+    if (region !== undefined) updatedData.region = region;
+    if (isActive !== undefined) updatedData.isActive = isActive;  // ✅ CRITICAL
+    
+    console.log('📥 Received update payload:', req.body);
+    console.log('📤 Applying updates:', updatedData);
+    
     const updated = await VehicleConfiguration.findByIdAndUpdate(
-      req.params.id,
-      req.body,
-      { new: true }
+      id,
+      updatedData,
+      { 
+        new: true,
+        runValidators: true
+      }
     ).populate('brand model');
 
     if (!updated) {
       return res.status(404).json({
         success: false,
-        message: 'Config not found'
+        message: 'Vehicle configuration not found'
       });
     }
+    
+    console.log('✅ Vehicle config updated successfully');
 
-    res.json({ success: true, data: updated });
+    res.json({ 
+      success: true, 
+      message: 'Vehicle configuration updated successfully',
+      data: updated 
+    });
 
   } catch (err) {
-    console.error('Update VehicleConfig Error:', err.message);
-    res.status(500).json({ success: false, error: err.message });
+    console.error('❌ Update VehicleConfig Error:', err.message);
+    res.status(500).json({ 
+      success: false, 
+      message: 'Failed to update vehicle configuration',
+      error: err.message 
+    });
   }
 };
 
 
+// DELETE
 exports.deleteConfig = async (req, res) => {
   try {
     console.log('========== DELETE REQUEST ==========');
@@ -185,6 +260,8 @@ exports.deleteConfig = async (req, res) => {
   }
 };
 
+
+// SEARCH BY VIN
 exports.searchByVin = async (req, res) => {
   try {
     const { vin } = req.query;
@@ -231,7 +308,6 @@ exports.searchByVin = async (req, res) => {
         const matches = normalizedPattern.startsWith(normalizedVin);
         
         if (matches) {
-          // ✅ FIXED: Use parentheses () not backticks
           console.log(`✅ MATCH FOUND: "${normalizedVin}" matches start of "${normalizedPattern}"`);
         }
         
@@ -239,14 +315,12 @@ exports.searchByVin = async (req, res) => {
       });
 
       if (hasMatch) {
-        // ✅ FIXED: Use parentheses () not backticks
         console.log(`✅ Config matched: Brand=${config.brand?.brandName}, Model=${config.model?.modelName}`);
       }
 
       return hasMatch;
     });
 
-    // ✅ FIXED: Use parentheses () not backticks
     console.log(`✅ Total matches found: ${matchingConfigs.length}`);
 
     res.json({

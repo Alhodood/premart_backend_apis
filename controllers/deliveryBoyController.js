@@ -81,51 +81,84 @@ exports.getAllDeliveryBoys = async (req, res) => {
   try {
     const deliveryBoys = await DeliveryBoy.find({}, {
       name: 1,
+      email: 1,
       phone: 1,
-      agencyId: 1,
+      countryCode: 1,
+      dob: 1,
+      licenseNo: 1,
       accountVerify: 1,
       isOnline: 1,
+      assignedOrders: 1,
+      profileImage: 1,
+      licenseImage: 1,
+      role: 1,
+      areaAssigned: 1,
+      emiratesId: 1,
+      operatingHours: 1,
+      agencyAddress: 1,
+      city: 1,
       latitude: 1,
       longitude: 1,
       availability: 1,
+      agencyId: 1,
       createdAt: 1,
-      assignedOrders: 1,
-      emiratesId: 1,
-      areaAssigned: 1,
-      city: 1,
-      dob: 1,
-      licenseNo: 1,
-      email: 1,
-    }).lean();
+      updatedAt: 1,
+    })
+    .populate({
+      path: 'agencyId',
+      select: 'agencyDetails.agencyName agencyDetails.agencyContact agencyDetails.agencyAddress'
+    })
+    .lean();
 
+    // ✅ Return NULL for missing values (NOT "NA") so edit form works
     const formatted = deliveryBoys.map(boy => ({
       _id: boy._id,
-      name: boy.name || "NA",
-      phone: boy.phone || "NA",
-      agencyId: boy.agencyId || "NA",
-      emiratesId: boy.emiratesId || "NA",
-      areaAssigned: boy.areaAssigned || "NA",
-      city: boy.city || "NA",
-      dob: boy.dob || "NA",
-      licenseNo: boy.licenseNo || "NA",
-      email: boy.email || "NA",
-      accountVerify: boy.accountVerify !== undefined && boy.accountVerify !== null ? boy.accountVerify : "NA",
-      isOnline: boy.isOnline !== undefined && boy.isOnline !== null ? boy.isOnline : "NA",
-      latitude: boy.latitude !== undefined && boy.latitude !== null ? boy.latitude : "NA",
-      longitude: boy.longitude !== undefined && boy.longitude !== null ? boy.longitude : "NA",
-      availability: boy.availability !== undefined && boy.availability !== null ? boy.availability : "NA",
-      createdAt: boy.createdAt || "NA",
-      assignedOrder: Array.isArray(boy.assignedOrders) ? boy.assignedOrders.length : 0
+      
+      name: boy.name || null,
+      email: boy.email || null,
+       agencyName: boy.agencyId?.agencyDetails?.agencyName || null,
+      phone: boy.phone || null,
+      countryCode: boy.countryCode || "+971",
+      dob: boy.dob || null,
+      licenseNo: boy.licenseNo || null,
+      accountVerify: boy.accountVerify ?? false,
+      isOnline: boy.isOnline ?? false,
+      profileImage: boy.profileImage || null,
+      licenseImage: boy.licenseImage || null,
+      role: boy.role || "DELIVERY_BOY",
+      areaAssigned: boy.areaAssigned || null,
+      emiratesId: boy.emiratesId || null,
+      operatingHours: boy.operatingHours || null,
+      agencyAddress: boy.agencyAddress || null,
+      city: boy.city || null,
+      latitude: boy.latitude ?? 0,
+      longitude: boy.longitude ?? 0,
+      availability: boy.availability ?? true,
+      
+      // ✅ Agency data - flattened
+      agencyId: boy.agencyId?._id || null,
+     
+      agencyContact: boy.agencyId?.agencyDetails?.agencyContact || null,
+      agencyFullAddress: boy.agencyId?.agencyDetails?.agencyAddress || null,
+      
+      assignedOrdersCount: Array.isArray(boy.assignedOrders) ? boy.assignedOrders.length : 0,
+      createdAt: boy.createdAt || null,
+      updatedAt: boy.updatedAt || null,
     }));
 
     res.status(200).json({
       message: "Delivery boys fetched successfully",
       success: true,
+      total: formatted.length,
       data: formatted
     });
   } catch (err) {
-    console.error("Error fetching delivery boys:", err);
-    res.status(500).json({ success: false, message: "Failed to fetch delivery boys" });
+    console.error("❌ Error fetching delivery boys:", err);
+    res.status(500).json({ 
+      success: false, 
+      message: "Failed to fetch delivery boys",
+      error: err.message 
+    });
   }
 };
 
@@ -1585,10 +1618,10 @@ exports.getDeliveryOrderHistory = async (req, res) => {
 
 exports.updateDeliveryBoyDetails = async (req, res) => {
   try {
-    if (!req.body) {
+    if (!req.body || Object.keys(req.body).length === 0) {
       return res.status(400).json({
         success: false,
-        message: 'Request body is missing',
+        message: 'Request body is missing or empty',
       });
     }
 
@@ -1597,11 +1630,25 @@ exports.updateDeliveryBoyDetails = async (req, res) => {
       name,
       email,
       phone,
+      countryCode,
+      dob,
+      licenseNo,
+      accountVerify,
+      isOnline,
+      profileImage,
+      licenseImage,
+      areaAssigned,
       emiratesId,
       operatingHours,
       agencyAddress,
-      city
+      city,
+      latitude,
+      longitude,
+      availability,
+      agencyId,
     } = req.body;
+
+    console.log('📦 Update payload received:', req.body);
 
     const deliveryBoy = await DeliveryBoy.findById(deliveryBoyId);
 
@@ -1612,16 +1659,30 @@ exports.updateDeliveryBoyDetails = async (req, res) => {
       });
     }
 
-    // Update fields if provided
-    if (name) deliveryBoy.name = name;
-    if (email) deliveryBoy.email = email;
-    if (phone) deliveryBoy.phone = phone;
-    if (emiratesId) deliveryBoy.emiratesId = emiratesId;
-    if (operatingHours) deliveryBoy.operatingHours = operatingHours;
-    if (agencyAddress) deliveryBoy.agencyAddress = agencyAddress;
-    if (city) deliveryBoy.city = city;
+    // ✅ Update ALL fields if provided
+    if (name !== undefined) deliveryBoy.name = name;
+    if (email !== undefined) deliveryBoy.email = email;
+    if (phone !== undefined) deliveryBoy.phone = phone;
+    if (countryCode !== undefined) deliveryBoy.countryCode = countryCode;
+    if (dob !== undefined) deliveryBoy.dob = dob;
+    if (licenseNo !== undefined) deliveryBoy.licenseNo = licenseNo;
+    if (accountVerify !== undefined) deliveryBoy.accountVerify = accountVerify;
+    if (isOnline !== undefined) deliveryBoy.isOnline = isOnline;
+    if (profileImage !== undefined) deliveryBoy.profileImage = profileImage;
+    if (licenseImage !== undefined) deliveryBoy.licenseImage = licenseImage;
+    if (areaAssigned !== undefined) deliveryBoy.areaAssigned = areaAssigned;
+    if (emiratesId !== undefined) deliveryBoy.emiratesId = emiratesId;
+    if (operatingHours !== undefined) deliveryBoy.operatingHours = operatingHours;
+    if (agencyAddress !== undefined) deliveryBoy.agencyAddress = agencyAddress;
+    if (city !== undefined) deliveryBoy.city = city;
+    if (latitude !== undefined) deliveryBoy.latitude = latitude;
+    if (longitude !== undefined) deliveryBoy.longitude = longitude;
+    if (availability !== undefined) deliveryBoy.availability = availability;
+    if (agencyId !== undefined) deliveryBoy.agencyId = agencyId;
 
     await deliveryBoy.save();
+
+    console.log('✅ Delivery boy updated successfully');
 
     return res.status(200).json({
       message: 'Delivery Boy details updated successfully',
@@ -1630,7 +1691,7 @@ exports.updateDeliveryBoyDetails = async (req, res) => {
     });
 
   } catch (error) {
-    console.error('Update Delivery Boy Error:', error);
+    console.error('❌ Update Delivery Boy Error:', error);
     return res.status(500).json({
       message: 'Failed to update delivery boy details',
       success: false,
@@ -1638,6 +1699,7 @@ exports.updateDeliveryBoyDetails = async (req, res) => {
     });
   }
 };
+
 // Register Delivery Boy
 exports.registerDeliveryBoy = async (req, res) => {
   try {

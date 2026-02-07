@@ -13,12 +13,23 @@ exports.createCategory = async (req, res) => {
 };
 
 // Get all categories
-exports.getAllCategories = async (req, res) => {
+exports.getAllCategory = async (req, res) => {
   try {
-    const categories = await Category.find();
-    res.status(200).json({ data: categories ,message:"list of categories",success:true});
+    const categories = await Category.find().lean().exec();
+    
+    // ✅ Include visibility field
+    const data = categories.map(c => ({
+      _id: c._id,
+      categoryName: c.categoryName,
+      categoryImage: c.categoryImage,
+      visibility: c.visibility, // ✅ CRITICAL
+      createdAt: c.createdAt,
+      updatedAt: c.updatedAt
+    }));
+    
+    res.status(200).json({ data, success: true, message: "Categories fetched successfully" });
   } catch (error) {
-    res.status(500).json({ message: 'Error fetching categories', data: error.message ,success:false});
+    res.status(500).json({ message: 'Error fetching categories', error: error.message, success: false });
   }
 };
 

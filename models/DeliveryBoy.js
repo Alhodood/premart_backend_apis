@@ -48,6 +48,10 @@ const deliveryBoySchema = new mongoose.Schema(
     profileImage: { 
       type: String 
     },
+licenseImage: { 
+      type: String 
+    },
+    //licenseImage
     role: {
       type: String,
       enum: Object.values(ROLES),

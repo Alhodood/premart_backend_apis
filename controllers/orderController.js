@@ -513,8 +513,6 @@ exports.getOrderById = async (req, res) => {
 exports.getAllOrders = async (req, res) => {
   try {
     const { 
-      page = 1, 
-      limit = 10, 
       status, 
       shopId,
       startDate,
@@ -532,12 +530,11 @@ exports.getAllOrders = async (req, res) => {
       if (endDate) filter.createdAt.$lte = new Date(endDate);
     }
 
-    const skip = (page - 1) * limit;
-
+    // ✅ REMOVED: pagination logic (skip, limit, page)
     const [orders, total] = await Promise.all([
       Order.find(filter)
         .populate('userId', 'name email phone')
-        .populate('shopId', 'shopeDetails.shopName shopeDetails.shopAddress shopeDetails.EmiratesIdImage orders') // ✅ Added orders
+        .populate('shopId', 'shopeDetails.shopName shopeDetails.shopAddress shopeDetails.EmiratesIdImage orders')
         .populate('assignedDeliveryBoy', 'name')
         .populate({
           path: 'items.shopProductId',
@@ -546,16 +543,14 @@ exports.getAllOrders = async (req, res) => {
             select: 'partName images'
           }
         })
-        .sort({ createdAt: -1 })
-        .skip(skip)
-        .limit(parseInt(limit))
-        .lean(),
+        .sort({ createdAt: 1 })
+        .lean(),  // ✅ No skip() or limit()
       Order.countDocuments(filter)
     ]);
 
     // Format orders for table view
     const formattedOrders = orders.map(order => {
-      // ✅ Calculate order count from shop's orders array
+      // Calculate order count from shop's orders array
       const orderCount = order.shopId?.orders?.length || 0;
       
       return {
@@ -587,11 +582,11 @@ exports.getAllOrders = async (req, res) => {
         deliveryAddress: order.deliveryAddress,
         deliveryBoy: order.assignedDeliveryBoy?.name || 'Not Assigned',
         
-        // Shop - ✅ Fixed to use nested shopeDetails
+        // Shop
         shopName: order.shopId?.shopeDetails?.shopName || 'Unknown Shop',
         shopAddress: order.shopId?.shopeDetails?.shopAddress || '-',
         emiratesIdImage: order.shopId?.shopeDetails?.EmiratesIdImage || null,
-        orderCount: orderCount, // ✅ NEW: Total orders for this shop
+        orderCount: orderCount,
         
         // Payment
         paymentMethod: order.paymentType || order.paymentMethod || 'Cash',
@@ -599,15 +594,29 @@ exports.getAllOrders = async (req, res) => {
       };
     });
 
+    // Get latest order date
+const latestOrderDate = orders.length > 0 
+  ? orders[0].createdAt 
+  : null;
+
+// Optional: formatted date string
+const formattedLatestDate = latestOrderDate
+  ? new Date(latestOrderDate).toLocaleString('en-IN', {
+      timeZone: 'Asia/Dubai', // change if needed
+      year: 'numeric',
+      month: 'short',
+      day: '2-digit',
+      hour: '2-digit',
+      minute: '2-digit',
+      second: '2-digit'
+    })
+  : null;
+
+    // ✅ SIMPLIFIED RESPONSE: No pagination object
     res.json({
       success: true,
       data: formattedOrders,
-      pagination: {
-        page: parseInt(page),
-        limit: parseInt(limit),
-        total,
-        pages: Math.ceil(total / limit)
-      }
+      total: total  // Just the total count
     });
 
   } catch (err) {
