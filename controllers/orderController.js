@@ -1898,77 +1898,83 @@ exports.autoAssignDeliveryBoyWithin5km = async (req, res) => {
     });
 
     // ✅ ENHANCED: Notify delivery boys with better logging
-    console.log('\n🔔 ========== SOCKET EMISSION START ==========');
-    const { getIO, isUserConnected } = require('../sockets/socket');
+console.log('\n🔔 ========== SOCKET EMISSION START ==========');
+const socketModule = require('../sockets/socket');
+const { getIO, isUserConnected } = socketModule;
+
+let io;
+let successfulEmissions = 0;
+let failedEmissions = 0;
+
+try {
+  io = getIO();
+  console.log('✅ Socket.IO instance retrieved');
+  console.log('📋 Currently connected users:', Object.keys(socketModule.getConnectedUsers()));
+
+  const emissionData = {
+    message: 'You have a new order to accept or reject',
+    orderId: order._id.toString(),
+    data: {
+      nearbyDeliveryBoys,
+      order: {
+        ...order._doc,
+        searchRadius: usedRadius
+      },
+      shop: {
+        id: shop._id,
+        shopeDetails: shop.shopeDetails
+      }
+    }
+  };
+
+  console.log(`\n📋 Emission Data Summary:`);
+  console.log(`   Order ID: ${order._id}`);
+  console.log(`   Delivery Earning: ${order.deliveryEarning} AED`);
+  console.log(`   Search Radius: ${usedRadius} km`);
+  console.log(`   Nearby Delivery Boys: ${nearbyDeliveryBoys.length}`);
+
+  nearbyDeliveryBoys.forEach((boy, index) => {
+    const deliveryBoyId = boy._id.toString();
     
-    let io;
-    let successfulEmissions = 0;
-    let failedEmissions = 0;
-
-    try {
-      io = getIO();
-      console.log('✅ Socket.IO instance retrieved');
-
-      const emissionData = {
-        message: 'You have a new order to accept or reject',
-        orderId: order._id.toString(),
-        data: {
-          nearbyDeliveryBoys,
-          order: {
-            ...order._doc,
-            searchRadius: usedRadius
-          },
-          shop: {
-            id: shop._id,
-            shopeDetails: shop.shopeDetails
-          }
-        }
-      };
-
-      console.log(`\n📋 Emission Data Summary:`);
-      console.log(`   Order ID: ${order._id}`);
-      console.log(`   Delivery Earning: ${order.deliveryEarning} AED`);
-      console.log(`   Search Radius: ${usedRadius} km`);
-      console.log(`   Nearby Delivery Boys: ${nearbyDeliveryBoys.length}`);
-
-      nearbyDeliveryBoys.forEach((boy, index) => {
-        const deliveryBoyId = boy._id.toString();
-        
-        console.log(`\n📤 [${index + 1}/${nearbyDeliveryBoys.length}] Emitting to delivery boy:`);
-        console.log(`   ID: ${deliveryBoyId}`);
-        console.log(`   Name: ${boy.name || 'N/A'}`);
-        console.log(`   Phone: ${boy.phone || 'N/A'}`);
-        console.log(`   Distance: ${boy.pickupDistance} km`);
-        console.log(`   Connected: ${isUserConnected(deliveryBoyId) ? '✅ YES' : '❌ NO'}`);
-
-        try {
-          // Emit to the delivery boy's room
-          io.to(deliveryBoyId).emit('new_order_assigned', emissionData);
-          
-          if (isUserConnected(deliveryBoyId)) {
-            console.log(`   Status: ✅ Emission successful`);
-            successfulEmissions++;
-          } else {
-            console.log(`   Status: ⚠️ Emitted but user not in connected list`);
-            failedEmissions++;
-          }
-        } catch (emitError) {
-          console.error(`   Status: ❌ Emission failed: ${emitError.message}`);
-          failedEmissions++;
-        }
-      });
-
-      console.log('\n📊 Emission Summary:');
-      console.log(`   ✅ Successful: ${successfulEmissions}`);
-      console.log(`   ❌ Failed: ${failedEmissions}`);
-      console.log(`   📱 Total attempted: ${nearbyDeliveryBoys.length}`);
-
-    } catch (err) {
-      console.error('❌ Socket.IO error:', err.message);
-      console.error('Stack:', err.stack);
+    console.log(`\n📤 [${index + 1}/${nearbyDeliveryBoys.length}] Attempting emission:`);
+    console.log(`   Delivery Boy ID: ${deliveryBoyId}`);
+    console.log(`   Name: ${boy.name || 'N/A'}`);
+    console.log(`   Phone: ${boy.phone || 'N/A'}`);
+    console.log(`   Distance: ${boy.pickupDistance} km`);
+    console.log(`   Is Connected: ${isUserConnected(deliveryBoyId) ? '✅ YES' : '❌ NO'}`);
+    
+    if (isUserConnected(deliveryBoyId)) {
+      console.log(`   Socket ID: ${socketModule.getConnectedUsers()[deliveryBoyId]}`);
     }
 
-    console.log('🔔 ========== SOCKET EMISSION END ==========\n');
+    try {
+      // Emit to the delivery boy's room
+      io.to(deliveryBoyId).emit('new_order_assigned', emissionData);
+      console.log(`   ✅ Emission sent to room: ${deliveryBoyId}`);
+      
+      if (isUserConnected(deliveryBoyId)) {
+        successfulEmissions++;
+      } else {
+        console.log(`   ⚠️ Warning: User not in connected list, but emission attempted`);
+        failedEmissions++;
+      }
+    } catch (emitError) {
+      console.error(`   ❌ Emission failed: ${emitError.message}`);
+      failedEmissions++;
+    }
+  });
+
+  console.log('\n📊 Emission Summary:');
+  console.log(`   ✅ Successful: ${successfulEmissions}`);
+  console.log(`   ❌ Failed/Uncertain: ${failedEmissions}`);
+  console.log(`   📱 Total attempted: ${nearbyDeliveryBoys.length}`);
+
+} catch (err) {
+  console.error('❌ Socket.IO error:', err.message);
+  console.error('Stack:', err.stack);
+}
+
+console.log('🔔 ========== SOCKET EMISSION END ==========\n');
 
     return res.status(200).json({
       message: `Order assignment request sent to ${nearbyDeliveryBoys.length} delivery boys within ${usedRadius} km`,
