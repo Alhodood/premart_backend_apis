@@ -110,20 +110,24 @@ exports.getWishList = async (req, res) => {
         message: 'User not found',
         success: true,
         data: [],
-        // productIds: [] // Return empty array for product IDs
       });
     }
 
-    // Load products directly by IDs in the wishlist
+    // Load ShopProducts and filter out soft-deleted parts (isActive: false)
     const productIds = wishList.wishListProduct.map(id => new mongoose.Types.ObjectId(id));
-    const products = await Product.find({ _id: { $in: productIds } }).lean();
+    const shopProducts = await ShopProduct.find({ _id: { $in: productIds } })
+      .populate({ path: 'part', select: 'isActive' })
+      .lean();
+
+    // Filter only active products (where part exists and isActive is true)
+    const activeProductIds = shopProducts
+      .filter(sp => sp.part && sp.part.isActive === true)
+      .map(sp => sp._id.toString());
 
     return res.status(200).json({
       message: 'Wishlist found with products',
       success: true,
-      // data: products,
-      // productIds: wishList.wishListProduct // Return product IDs array for easy checking
-      data: wishList.wishListProduct,
+      data: activeProductIds,
     });
 
   } catch (e) {
@@ -227,7 +231,9 @@ exports.getWishListWithProducts = async (req, res) => {
       .populate({ path: 'shopId', select: 'shopeDetails' })
       .lean();
 
-    const data = shopProducts.map(formatWishlistProduct).filter(Boolean);
+    // Filter out soft-deleted parts (isActive: false)
+    const activeShopProducts = shopProducts.filter(sp => sp.part && sp.part.isActive === true);
+    const data = activeShopProducts.map(formatWishlistProduct).filter(Boolean);
 
     return res.status(200).json({
       message: 'Wishlist found with products',
@@ -261,11 +267,22 @@ exports.getWishlistProductIds = async (req, res) => {
       });
     }
 
+    // Load ShopProducts and filter out soft-deleted parts (isActive: false)
+    const productIds = wishList.wishListProduct.map(id => new mongoose.Types.ObjectId(id));
+    const shopProducts = await ShopProduct.find({ _id: { $in: productIds } })
+      .populate({ path: 'part', select: 'isActive' })
+      .lean();
+
+    // Filter only active products (where part exists and isActive is true)
+    const activeProductIds = shopProducts
+      .filter(sp => sp.part && sp.part.isActive === true)
+      .map(sp => sp._id.toString());
+
     return res.status(200).json({
       success: true,
-      // productIds: wishList.wishListProduct,
-      data: wishList.wishListProduct,
-      count: wishList.wishListProduct.length,
+      // productIds: activeProductIds,
+      data: activeProductIds,
+      count: activeProductIds.length,
       message: 'Wishlist product IDs retrieved'
     });
 
