@@ -15,45 +15,59 @@ module.exports = {
     io.on('connection', (socket) => {
 
       socket.on("live_location", async (data) => {
-  try {
-    const { deliveryBoyId, latitude, longitude } = data;
+        try {
+          const { deliveryBoyId, latitude, longitude } = data;
 
-    if (!deliveryBoyId || latitude == null || longitude == null) return;
+          if (!deliveryBoyId || latitude == null || longitude == null) return;
 
-    await DeliveryBoy.findByIdAndUpdate(
-      deliveryBoyId,
-      {
-        latitude,
-        longitude,
-        updatedAt: new Date(),
-      },
-      { new: true }
-    );
+          await DeliveryBoy.findByIdAndUpdate(
+            deliveryBoyId,
+            {
+              latitude,
+              longitude,
+              updatedAt: new Date(),
+            },
+            { new: true }
+          );
 
-    console.log(`📍 Location updated for ${deliveryBoyId}:`, latitude, longitude);
+          console.log(`📍 Location updated for ${deliveryBoyId}:`, latitude, longitude);
 
-  } catch (err) {
-    console.error("Live location socket error:", err.message);
+        } catch (err) {
+          console.error("Live location socket error:", err.message);
+        }
+      });
+      
+       // ✅ ADD THIS: Test connection handler
+  socket.on('test_connection', (data) => {
+    console.log('🧪 ========== TEST CONNECTION RECEIVED ==========');
+    console.log('Data:', data);
+    console.log('Socket ID:', socket.id);
+    console.log('===============================================');
+  });
+  
+  console.log('🟢 Client connected:', socket.id);
+
+  const deliveryBoyId = socket.handshake.query.userId;
+
+  if (deliveryBoyId) {
+    socket.join(deliveryBoyId);
+    connectedUsers[deliveryBoyId] = socket.id;
+    console.log('✅ Delivery Boy registered:', deliveryBoyId, 'Socket ID:', socket.id);
+    console.log('📋 All connected users:', Object.keys(connectedUsers));
+  } else {
+    console.log('⚠️ WARNING: No userId provided in handshake query!');
+    console.log('Handshake query:', socket.handshake.query);
   }
-});
-      console.log('🟢 Client connected:', socket.id);
-
-      const userId = socket.handshake.query.userId;
-
-      if (userId) {
-        socket.join(userId);
-        connectedUsers[userId] = socket.id;
-        console.log('✅ User registered:', userId);
-      }
 
       socket.on('disconnect', () => {
         for (const id in connectedUsers) {
           if (connectedUsers[id] === socket.id) {
             delete connectedUsers[id];
-            console.log('❌ User removed:', id);
+            console.log('❌ Delivery Boy disconnected:', id);
             break;
           }
         }
+        console.log('📋 Remaining connected users:', Object.keys(connectedUsers));
       });
     });
 
@@ -66,5 +80,10 @@ module.exports = {
     return io;
   },
 
-  getConnectedUsers: () => connectedUsers
+  getConnectedUsers: () => connectedUsers,
+  
+  // ✅ ADD THIS FUNCTION
+  isUserConnected: (userId) => {
+    return connectedUsers.hasOwnProperty(userId);
+  }
 };

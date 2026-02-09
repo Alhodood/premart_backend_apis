@@ -189,7 +189,7 @@ exports.register = async (req, res) => {
 exports.login = async (req, res) => {
   try {
     const { email, password, role } = req.body;
-
+    
     if (!role || !roleModelMap[role]) {
       return res.status(400).json({ success: false, message: 'Invalid role' });
     }
@@ -201,7 +201,6 @@ exports.login = async (req, res) => {
     // =======================
     if (role === ROLES.AGENCY) {
       const { DeliveryAgency } = require('../models/DeliveryAgency');
-
       user = await DeliveryAgency.findOne({
         'agencyDetails.email': email
       });
@@ -216,7 +215,6 @@ exports.login = async (req, res) => {
       }
 
       const token = generateToken({ id: user._id, role });
-
       return res.json({
         success: true,
         message: 'Login successful',
@@ -233,17 +231,18 @@ exports.login = async (req, res) => {
     // ALL OTHER ROLES
     // =======================
     const Model = roleModelMap[role];
+    
+    if (role === ROLES.CUSTOMER) {
+      user = await Model.findOne({
+        $or: [
+          { email: email },
+          { phone: email } // allows phone entered in email field
+        ]
+      });
+    } else {
+      user = await Model.findOne({ email });
+    }
 
-if (role === ROLES.CUSTOMER) {
-  user = await Model.findOne({
-    $or: [
-      { email: email },
-      { phone: email } // allows phone entered in email field
-    ]
-  });
-} else {
-  user = await Model.findOne({ email });
-}
     if (!user || !user.comparePassword) {
       return res.status(401).json({ success: false, message: 'Invalid credentials' });
     }
@@ -251,6 +250,17 @@ if (role === ROLES.CUSTOMER) {
     const match = await user.comparePassword(password);
     if (!match) {
       return res.status(401).json({ success: false, message: 'Invalid credentials' });
+    }
+
+    // ✅ CHECK ACCOUNT VISIBILITY FOR CUSTOMER
+    if (role === ROLES.CUSTOMER) {
+      if (user.accountVisibility === false) {
+        return res.status(403).json({ 
+          success: false, 
+          message: 'Your account has been deactivated. Please contact Premart admin.',
+          accountDeactivated: true // ✅ Flag to help frontend show specific message
+        });
+      }
     }
 
     const token = generateToken({ id: user._id, role });
@@ -263,10 +273,8 @@ if (role === ROLES.CUSTOMER) {
         name: user.name,
         email: user.email,
         phone: user.phone,
-        
         accountVerify: user.accountVerify,
         dob: user.dob,
-
       }
     };
 
@@ -279,7 +287,7 @@ if (role === ROLES.CUSTOMER) {
       message: 'Login successful',
       data: response
     });
-
+    
   } catch (err) {
     console.error('Login Error:', err);
     res.status(500).json({ success: false, message: err.message });
