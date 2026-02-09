@@ -48,6 +48,7 @@ const engineRoutes = require('./routes/engineRoutes');
 const transmissionRoutes = require('./routes/transmissionRoutes');
 const superAdminSettingsRoutes = require('./routes/superAdminSettingsRoutes');
 const productRatingRoutes = require('./routes/productRatingRoutes');
+const appConfigRoutes = require('./routes/appConfigRoutes');
 
 
 
@@ -136,6 +137,7 @@ app.use('/api/transmission', transmissionRoutes);
 app.use('/api/vehicle-config', require('./routes/vehicleConfigurationRoutes'));
 app.use('/api/super-admin', superAdminSettingsRoutes);
 app.use('/api/rating', productRatingRoutes);
+app.use('/api/app-config', appConfigRoutes);
 
 
 
