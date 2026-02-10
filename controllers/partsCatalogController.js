@@ -831,3 +831,150 @@ exports.getProductDetailsByProductId = async (req, res) => {
     res.status(500).json({ success: false, error: err.message });
   }
 };
+
+// DELETE PART (SOFT DELETE)
+exports.deletePart = async (req, res) => {
+  try {
+    const { id } = req.params;
+
+    console.log('🗑️ Delete Part Request');
+    console.log('📋 Part ID:', id);
+
+    // Validate part ID
+    if (!id || !mongoose.Types.ObjectId.isValid(id)) {
+      return res.status(400).json({
+        success: false,
+        message: 'Invalid part ID'
+      });
+    }
+
+    // Check if part exists
+    const part = await PartsCatalog.findById(id);
+    if (!part) {
+      console.log('❌ Part not found with ID:', id);
+      return res.status(404).json({
+        success: false,
+        message: 'Part not found'
+      });
+    }
+
+    console.log('✅ Found part:', part.partNumber);
+
+    // Check if part is used in any shop products
+    const shopProductCount = await ShopProduct.countDocuments({
+      part: id,
+      isAvailable: true
+    });
+
+    if (shopProductCount > 0) {
+      console.log(`⚠️ Part is used in ${shopProductCount} shop products`);
+      return res.status(400).json({
+        success: false,
+        message: `Cannot delete part. It is currently being used in ${shopProductCount} shop product(s). Please remove or deactivate those products first.`,
+        shopProductCount: shopProductCount
+      });
+    }
+
+    // Soft delete: Set isActive to false
+    const deletedPart = await PartsCatalog.findByIdAndUpdate(
+      id,
+      { 
+        isActive: false,
+        deletedAt: new Date()
+      },
+      { new: true }
+    );
+
+    if (!deletedPart) {
+      return res.status(404).json({
+        success: false,
+        message: 'Failed to delete part'
+      });
+    }
+
+    console.log('✅ Part soft deleted successfully:', deletedPart._id);
+
+    res.json({
+      success: true,
+      message: 'Part deleted successfully',
+      data: {
+        _id: deletedPart._id,
+        partNumber: deletedPart.partNumber,
+        partName: deletedPart.partName,
+        isActive: deletedPart.isActive
+      }
+    });
+
+  } catch (err) {
+    console.error('❌ Delete Part Error:', err);
+    console.error('Error details:', err.message);
+    res.status(500).json({
+      success: false,
+      message: 'Failed to delete part',
+      error: err.message
+    });
+  }
+};
+
+// HARD DELETE (PERMANENT DELETE) - USE WITH CAUTION
+exports.permanentDeletePart = async (req, res) => {
+  try {
+    const { id } = req.params;
+
+    console.log('🗑️ PERMANENT Delete Part Request');
+    console.log('📋 Part ID:', id);
+
+    // Validate part ID
+    if (!id || !mongoose.Types.ObjectId.isValid(id)) {
+      return res.status(400).json({
+        success: false,
+        message: 'Invalid part ID'
+      });
+    }
+
+    // Check if part exists
+    const part = await PartsCatalog.findById(id);
+    if (!part) {
+      return res.status(404).json({
+        success: false,
+        message: 'Part not found'
+      });
+    }
+
+    // Check if part is used in any shop products
+    const shopProductCount = await ShopProduct.countDocuments({
+      part: id
+    });
+
+    if (shopProductCount > 0) {
+      return res.status(400).json({
+        success: false,
+        message: `Cannot permanently delete part. It is referenced in ${shopProductCount} shop product(s).`,
+        shopProductCount: shopProductCount
+      });
+    }
+
+    // Permanently delete the part
+    await PartsCatalog.findByIdAndDelete(id);
+
+    console.log('✅ Part permanently deleted:', part.partNumber);
+
+    res.json({
+      success: true,
+      message: 'Part permanently deleted',
+      data: {
+        _id: part._id,
+        partNumber: part.partNumber,
+        partName: part.partName
+      }
+    });
+
+  } catch (err) {
+    console.error('❌ Permanent Delete Part Error:', err);
+    res.status(500).json({
+      success: false,
+      message: 'Failed to permanently delete part',
+      error: err.message
+    });
+  }
+};
