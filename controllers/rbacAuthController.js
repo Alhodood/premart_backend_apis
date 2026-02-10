@@ -5,6 +5,7 @@ const { Shop } = require('../models/Shop');
 const { ROLES } = require('../constants/roles');
 const User = require('../models/User');
 const DeliveryBoy = require('../models/DeliveryBoy');
+const crypto = require('crypto');
 
 // ✅ FIX: Import ShopAdmin from Admin.js, NOT Shop.js
 const { ShopAdmin, SuperAdmin } = require('../models/AdminAuth');
@@ -312,45 +313,55 @@ exports.sendOtp = async (req, res) => {
 
 exports.verifyOtp = async (req, res) => {
   try {
-    const { phone, role, countryCode, latitude, longitude, agencyId, code } = req.body;
+    const { phone, role, countryCode, latitude, longitude, agencyId, code, deviceToken } = req.body;
 
-    // Hard OTP enforcement
-    if (code !== "123456") {
+    if (!deviceToken) {
       return res.status(400).json({
         success: false,
-        message: 'Invalid OTP'
+        message: 'Device token is required'
       });
+    }
+
+    if (code !== "123456") {
+      return res.status(400).json({ success: false, message: 'Invalid OTP' });
     }
 
     if (!phone || !role) {
-      return res.status(400).json({
-        success: false,
-        message: 'phone and role are required'
-      });
+      return res.status(400).json({ success: false, message: 'phone and role are required' });
     }
 
     if (role !== 'DELIVERY_BOY') {
-      return res.status(403).json({
-        success: false,
-        message: 'Only delivery boy supported'
-      });
+      return res.status(403).json({ success: false, message: 'Only delivery boy supported' });
     }
 
     const Model = roleModelMap[role];
-
     let user = await Model.findOne({ phone });
 
     if (!user) {
+      // New user - create and assign device
       user = await Model.create({
-        phone,
-        role,
-        countryCode,
-        latitude,
-        longitude,
+        phone, role, countryCode, latitude, longitude,
         agencyId: agencyId || null,
         isOnline: false,
         availability: true,
+        activeDeviceToken: deviceToken,
+        lastLoginAt: new Date(),
       });
+    } else {
+      // ✅ CHECK: Is another device already logged in?
+      if (user.activeDeviceToken && user.activeDeviceToken !== deviceToken) {
+        return res.status(409).json({
+          success: false,
+          message: 'Your account is already logged in on another device. Please logout from the other device first.',
+          alreadyLoggedIn: true,
+          activeDeviceInfo: user.activeDeviceInfo || 'Unknown device',
+        });
+      }
+
+      // Same device or no active session - update device token
+      user.activeDeviceToken = deviceToken;
+      user.lastLoginAt = new Date();
+      await user.save();
     }
 
     const token = jwt.sign(
@@ -361,16 +372,52 @@ exports.verifyOtp = async (req, res) => {
 
     return res.status(200).json({
       success: true,
-      message: 'Login success (OTP bypass)',
-      data: {
-        id: user._id,
-        role,
-        token
-      }
+      message: 'Login success',
+      data: { id: user._id, role, token }
     });
 
   } catch (err) {
     console.error(err);
+    return res.status(500).json({ success: false, message: err.message });
+  }
+};
+
+// In your auth controller
+exports.logoutDeliveryBoy = async (req, res) => {
+  try {
+    const { id } = req.user; // from JWT middleware
+
+    await DeliveryBoy.findByIdAndUpdate(id, {
+      activeDeviceToken: null,
+      activeDeviceInfo: null,
+      isOnline: false,
+    });
+
+    return res.status(200).json({
+      success: true,
+      message: 'Logged out successfully'
+    });
+  } catch (err) {
+    return res.status(500).json({ success: false, message: err.message });
+  }
+};
+
+// Optional: Force logout from admin panel
+exports.forceLogoutDeliveryBoy = async (req, res) => {
+  try {
+    const { deliveryBoyId } = req.params;
+
+    await DeliveryBoy.findByIdAndUpdate(deliveryBoyId, {
+      activeDeviceToken: null,
+      activeDeviceInfo: null,
+      isOnline: false,
+    });
+
+    return res.status(200).json({
+      success: true,
+      message: 'Device session cleared'
+    });
+  } catch (err) {
     return res.status(500).json({ success: false, message: err.message });
   }
 };

@@ -75,7 +75,19 @@ licenseImage: {
     agencyId: { 
       type: mongoose.Schema.Types.ObjectId, 
       ref: 'DeliveryAgency' 
-    }
+    },
+   activeDeviceToken: { 
+  type: String, 
+  default: null 
+},
+activeDeviceInfo: {
+  type: String,  // e.g. "Samsung Galaxy S21 - Dubai"
+  default: null
+},
+lastLoginAt: {
+  type: Date,
+  default: null
+},
   },
   { timestamps: true }
 );
