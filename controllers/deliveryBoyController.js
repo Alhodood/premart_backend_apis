@@ -42,40 +42,156 @@ async function getCommissionRates() {
 }
 
 
-  exports.updateDeliveryBoy = async (req, res) => {
-    try {
-      const deliveryBoyId = req.params.deliveryBoyId;
-      const updateData = req.body;
-  
-      const updatedDeliveryBoy = await DeliveryBoy.findByIdAndUpdate(
-        deliveryBoyId,
-        updateData,
-        { new: true }
-      );
-  
-      if (!updatedDeliveryBoy) {
-        return res.status(404).json({
-          message: 'Delivery Boy not found',
-          success: false,
-          data: []
-        });
-      }
-  
-      return res.status(200).json({
-        message: 'Delivery Boy updated successfully',
-        success: true,
-        data: updatedDeliveryBoy
-      });
-  
-    } catch (error) {
-      console.error('Update Delivery Boy Error:', error);
-      res.status(500).json({
-        message: 'Failed to update delivery boy',
+exports.updateDeliveryBoy = async (req, res) => {
+  try {
+    const deliveryBoyId = req.params.deliveryBoyId;
+    const updateData = { ...req.body };
+
+    console.log('🔄 Update Delivery Boy Request');
+    console.log('📋 Delivery Boy ID:', deliveryBoyId);
+    console.log('📦 Update Data:', JSON.stringify(updateData, null, 2));
+
+    // Validate delivery boy ID
+    if (!deliveryBoyId || !mongoose.Types.ObjectId.isValid(deliveryBoyId)) {
+      return res.status(400).json({
+        message: 'Invalid delivery boy ID',
         success: false,
-        data: error.message
+        data: null
       });
     }
-  };
+
+    // Check if delivery boy exists
+    const existingDeliveryBoy = await DeliveryBoy.findById(deliveryBoyId);
+    if (!existingDeliveryBoy) {
+      return res.status(404).json({
+        message: 'Delivery Boy not found',
+        success: false,
+        data: null
+      });
+    }
+
+    console.log('✅ Found existing delivery boy:', existingDeliveryBoy.name);
+
+    // ✅ FIX: Remove empty/null/undefined values from updateData
+    Object.keys(updateData).forEach(key => {
+      const value = updateData[key];
+      if (value === '' || value === null || value === undefined || value === 'null' || value === 'Null') {
+        delete updateData[key];
+      }
+    });
+
+    console.log('📝 Cleaned update data:', JSON.stringify(updateData, null, 2));
+
+    // ✅ FIX: Handle profileImage properly
+    if (updateData.profileImage !== undefined) {
+      if (updateData.profileImage === null || 
+          updateData.profileImage === 'null' || 
+          updateData.profileImage === 'Null' ||
+          updateData.profileImage === '') {
+        // If null/empty, keep existing image or set to null
+        updateData.profileImage = existingDeliveryBoy.profileImage || null;
+      }
+      // If it's a valid string URL, keep it as is
+    }
+
+    // ✅ FIX: Handle licenseImage properly
+    if (updateData.licenseImage !== undefined) {
+      if (updateData.licenseImage === null || 
+          updateData.licenseImage === 'null' || 
+          updateData.licenseImage === 'Null' ||
+          updateData.licenseImage === '') {
+        updateData.licenseImage = existingDeliveryBoy.licenseImage || null;
+      }
+    }
+
+    // ✅ FIX: Ensure assignedOrders is always an array
+    if (updateData.assignedOrders === undefined || updateData.assignedOrders === null) {
+      updateData.assignedOrders = existingDeliveryBoy.assignedOrders || [];
+    }
+
+    // ✅ FIX: Handle email updates - only check if email is provided and changed
+    if (updateData.email && updateData.email !== existingDeliveryBoy.email) {
+      // Check if email already exists
+      const emailExists = await DeliveryBoy.findOne({
+        email: updateData.email,
+        _id: { $ne: deliveryBoyId }
+      });
+      
+      if (emailExists) {
+        return res.status(400).json({
+          message: 'Email already in use by another delivery boy',
+          success: false,
+          data: null
+        });
+      }
+    }
+
+    // ✅ FIX: Handle phone updates - only check if phone is provided and changed
+    if (updateData.phone && updateData.phone !== existingDeliveryBoy.phone) {
+      // Check if phone already exists
+      const phoneExists = await DeliveryBoy.findOne({
+        phone: updateData.phone,
+        _id: { $ne: deliveryBoyId }
+      });
+      
+      if (phoneExists) {
+        return res.status(400).json({
+          message: 'Phone number already in use by another delivery boy',
+          success: false,
+          data: null
+        });
+      }
+    }
+
+    console.log('📝 Final update data:', JSON.stringify(updateData, null, 2));
+
+    // Update the delivery boy
+    const updatedDeliveryBoy = await DeliveryBoy.findByIdAndUpdate(
+      deliveryBoyId,
+      { $set: updateData },
+      { 
+        new: true,
+        runValidators: false // Disable validators for partial updates
+      }
+    ).populate('agencyId', 'agencyName agencyEmail agencyPhone');
+
+    if (!updatedDeliveryBoy) {
+      return res.status(404).json({
+        message: 'Failed to update delivery boy',
+        success: false,
+        data: null
+      });
+    }
+
+    console.log('✅ Delivery boy updated successfully:', updatedDeliveryBoy._id);
+
+    return res.status(200).json({
+      message: 'Delivery Boy updated successfully',
+      success: true,
+      data: updatedDeliveryBoy
+    });
+
+  } catch (error) {
+    console.error('❌ Update Delivery Boy Error:', error);
+    console.error('Error stack:', error.stack);
+    
+    // Handle duplicate key errors
+    if (error.code === 11000) {
+      const field = Object.keys(error.keyPattern)[0];
+      return res.status(400).json({
+        message: `${field} already exists`,
+        success: false,
+        data: null
+      });
+    }
+
+    res.status(500).json({
+      message: 'Failed to update delivery boy',
+      success: false,
+      error: error.message
+    });
+  }
+};
 
 exports.getAllDeliveryBoys = async (req, res) => {
   try {
@@ -192,11 +308,29 @@ exports.getAllDeliveryBoys = async (req, res) => {
     }
   };
 
-  exports.getDeliveryBoyById = async (req, res) => {
+exports.getDeliveryBoyById = async (req, res) => {
   try {
     const { deliveryBoyId } = req.params;
 
-    const deliveryBoy = await DeliveryBoy.findById(deliveryBoyId);
+    console.log('🔍 Get Delivery Boy Request');
+    console.log('📋 Delivery Boy ID:', deliveryBoyId);
+
+    // Validate delivery boy ID
+    if (!deliveryBoyId || !mongoose.Types.ObjectId.isValid(deliveryBoyId)) {
+      return res.status(400).json({
+        success: false,
+        message: "Invalid delivery boy ID",
+        data: null,
+      });
+    }
+
+    const deliveryBoy = await DeliveryBoy.findById(deliveryBoyId)
+      .populate('agencyId', 'agencyName agencyEmail agencyPhone agencyAddress')
+      .populate({
+        path: 'assignedOrders',
+        select: 'orderNumber status totalAmount createdAt',
+        options: { limit: 10, sort: { createdAt: -1 } }
+      });
 
     if (!deliveryBoy) {
       return res.status(404).json({
@@ -206,6 +340,8 @@ exports.getAllDeliveryBoys = async (req, res) => {
       });
     }
 
+    console.log('✅ Delivery boy found:', deliveryBoy.name);
+
     res.status(200).json({
       success: true,
       message: "Delivery boy fetched successfully",
@@ -213,7 +349,7 @@ exports.getAllDeliveryBoys = async (req, res) => {
     });
 
   } catch (error) {
-    console.error("Get delivery boy error:", error);
+    console.error("❌ Get delivery boy error:", error);
     res.status(500).json({
       success: false,
       message: "Server error",
@@ -489,6 +625,7 @@ exports.getNearbyAssignedOrders = async (req, res) => {
         shopName: shop?.shopeDetails?.shopName || '',
         shopAddress: shop?.shopeDetails?.shopAddress || '',
         shopContact: shop?.shopeDetails?.shopContact || '',
+        shopLocation: shop?.shopeDetails?.shopLocation || '',  // ✅ Added shopLocation
       };
 
       const deliveryDetails = {
