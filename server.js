@@ -54,17 +54,11 @@ const productRatingRoutes = require('./routes/productRatingRoutes');
 const app = express();
 
 const allowedOrigins = [
-  "http://localhost:5000",
-  "http://localhost:5050",
   "http://autopartsnow.uk",
   "https://autopartsnow.uk",
   "http://www.autopartsnow.uk",
-  "https://d19st5rqqkklcw.cloudfront.net",
-  "https://d29n203b886yvl.cloudfront.net",
-  "http://10.0.2.2:3005",
-  "https://n8fd2gwd-3005.inc1.devtunnels.ms",
-  
-  "http://premart2026.s3-website-us-east-1.amazonaws.com"
+  "http://premart2026.s3-website-us-east-1.amazonaws.com",
+  "http://localhost:5050"
  
 ];
 
@@ -263,27 +257,6 @@ app.get('/api/export-products', async (req, res) => {
 
 
 
-
-// const s3 = new S3Client({ region: process.env.AWS_REGION });
-
-// app.post('/api/upload-url', async (req, res) => {
-//   try {
-//     const { fileName, fileType } = req.body;
-
-//     const command = new PutObjectCommand({
-//       Bucket: process.env.AWS_BUCKET_NAME,
-//       Key: `uploads/${fileName}`,
-//       ContentType: fileType,
-//     });
-
-//     const url = await getSignedUrl(s3, command, { expiresIn: 800 }); // 1 minute expiry
-//     return res.json({ url });
-//   } catch (error) {
-//     console.error('Presigned URL error:', error);
-//     return res.status(500).json({ message: 'Failed to generate URL', error: error.message });
-//   }
-// });
-
 const s3 = new S3Client({ region: process.env.AWS_REGION });
 
 app.post('/api/upload-url', async (req, res) => {
@@ -320,65 +293,7 @@ app.post('/api/upload-url', async (req, res) => {
   }
 });
 
-
-
-app.post("/create-payment-intent", async (req, res) => {
-  const { amount, currency } = req.body;
-
-  try {
-    const paymentIntent = await stripe.paymentIntents.create({
-      amount, // in cents
-      currency,
-      payment_method_types: ['card'],
-    });
-
-    res.send({
-      clientSecret: paymentIntent.client_secret,
-    });
-  } catch (err) {
-    res.status(500).send({ error: err.message });
-  }
-});
-
-/////////new tradeshoft apis
-
-const MONGO_URI = process.env.MONGO_URI;
-
-let db, partsCol;
-async function initDb() {
-  const client = new MongoClient(MONGO_URI);
-  await client.connect();
-  db = client.db();
-  partsCol = db.collection("parts_catalog");
-}
-initDb()
-  .then(() => console.log('Mongo (parts_catalog) connected'))
-  .catch((e) => console.error('initDb error:', e));
-
-app.get("/parts", async (req, res) => {
-  const { catalogId, carId, groupId, partId, limit = 50, page = 1 } = req.query;
-  const q = {};
-  if (catalogId) q.catalogId = catalogId;
-  if (carId) q.carId = carId;
-  if (groupId) q.groupId = groupId;
-  if (partId) q.partId = partId;
-  const cursor = partsCol.find(q).skip((page - 1) * limit).limit(Number(limit));
-  const rows = await cursor.toArray();
-  res.json(rows);
-});
-
-app.get("/parts/:partId", async (req, res) => {
-  const doc = await partsCol.findOne({ partId: req.params.partId });
-  if (!doc) return res.status(404).json({ message: "Not found" });
-  res.json(doc);
-});
-
-//////////////////////////npm install node-fetch mongodb p-limit express
-
-
 const PORT = process.env.PORT || 3005;
 const HOST = process.env.HOST || '0.0.0.0';
 
-// Start server
-// const PORT =process.env.HOST || process.env.PORT || 6000;
 server.listen(PORT,HOST,() =>   console.log(`Server listening on http://${HOST}:${PORT}`));

@@ -509,6 +509,115 @@ exports.getOrderById = async (req, res) => {
   }
 };
 
+// Add this new controller function
+exports.getAllCancelledOrders = async (req, res) => {
+  try {
+    const { 
+      shopId,
+      startDate,
+      endDate 
+    } = req.query;
+
+    const filter = { 
+      status: 'cancelled' // Filter only cancelled orders
+    };
+
+    if (shopId) filter.shopId = shopId;
+    
+    if (startDate || endDate) {
+      filter.createdAt = {};
+      if (startDate) filter.createdAt.$gte = new Date(startDate);
+      if (endDate) filter.createdAt.$lte = new Date(endDate);
+    }
+
+    const [orders, total] = await Promise.all([
+      Order.find(filter)
+        .populate('userId', 'name email phone')
+        .populate('shopId', 'shopeDetails.shopName shopeDetails.shopAddress shopeDetails.EmiratesIdImage orders')
+        .populate('assignedDeliveryBoy', 'name')
+        .populate({
+          path: 'items.shopProductId',
+          populate: {
+            path: 'part',
+            select: 'partName images'
+          }
+        })
+        .sort({ createdAt: -1 }) // Latest cancelled orders first
+        .lean(),
+      Order.countDocuments(filter)
+    ]);
+
+    // Format orders for table view
+    const formattedOrders = orders.map(order => {
+      const orderCount = order.shopId?.orders?.length || 0;
+
+      return {
+        _id: order._id,
+        
+        // Customer
+        customerName: order.deliveryAddress?.name || order.userId?.name || '-',
+        customerPhone: order.deliveryAddress?.contact || order.userId?.phone || '-',
+        customerEmail: order.userId?.email || '-',
+        
+        // Status
+        orderStatus: order.status || order.orderStatus || 'cancelled',
+        cancellationReason: order.cancellationReason || 'Not specified',
+        cancelledBy: order.cancelledBy || 'Unknown', // Could be 'customer', 'admin', 'shop'
+        cancelledAt: order.cancelledAt || order.updatedAt,
+        
+        // First item details (for preview)
+        productName: order.items?.[0]?.snapshot?.partName || 
+                     order.items?.[0]?.shopProductId?.part?.partName || 
+                     'Product',
+        productImage: order.items?.[0]?.snapshot?.image || 
+                      order.items?.[0]?.shopProductId?.part?.images?.[0] || 
+                      null,
+        itemCount: order.items?.length || 0,
+        quantity: order.items?.reduce((sum, item) => sum + (item.quantity || 1), 0) || 1,
+        
+        // Dates
+        createdAt: order.createdAt,
+        updatedAt: order.updatedAt,
+        
+        // Financial
+        totalAmount: order.subtotal || order.totalAmount || 0,
+        finalPayable: order.totalPayable || order.finalPayable || 0,
+        refundAmount: order.refundAmount || 0,
+        refundStatus: order.refundStatus || 'Pending',
+        
+        // Delivery
+        deliveryAddress: order.deliveryAddress,
+        deliveryBoy: order.assignedDeliveryBoy?.name || 'Not Assigned',
+        
+        // Shop
+        shopName: order.shopId?.shopeDetails?.shopName || 'Unknown Shop',
+        shopAddress: order.shopId?.shopeDetails?.shopAddress || '-',
+        emiratesIdImage: order.shopId?.shopeDetails?.EmiratesIdImage || null,
+        orderCount: orderCount,
+        
+        // Payment
+        paymentMethod: order.paymentType || order.paymentMethod || 'Cash',
+        paymentStatus: order.paymentStatus || 'Pending'
+      };
+    });
+
+    res.json({
+      success: true,
+      data: formattedOrders,
+      total: total,
+      message: `Found ${total} cancelled orders`
+    });
+
+  } catch (err) {
+    console.error('❌ Get Cancelled Orders Error:', err);
+    res.status(500).json({
+      success: false,
+      message: 'Failed to fetch cancelled orders',
+      error: err.message
+    });
+  }
+};
+
 
 exports.getAllOrders = async (req, res) => {
   try {
