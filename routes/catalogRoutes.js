@@ -12,6 +12,12 @@ router.get('/catalog/getPartsById/:id', partsController.getPartById);
 router.get('/catalog/search/query', partsController.searchParts);
 router.get('/catalog/search/part-number', partsController.searchByPartNumber); // Part number search
 
+// Soft delete (recommended)
+router.delete('/catalog/softdelete/:id', partsController.deletePart);
+
+// Permanent delete (use with caution - optional)
+router.delete('/catalog/permanent/:id', partsController.permanentDeletePart);
+
 // ========== SHOP PRODUCTS ==========
 router.post('/shop-product/:shopId', shopProductController.addShopProduct);
 router.get('/shop-product/:shopId', shopProductController.getShopProducts);

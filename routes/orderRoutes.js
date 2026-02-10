@@ -12,6 +12,8 @@ router.get('/my-orders/:userId',orderController.viewMyOrders);
 
 router.get('/all-orders', orderController.getAllOrders);
 
+router.get('/cancelled', orderController.getAllCancelledOrders);
+
 router.get('/all-pending-orders', orderController.getAllPendingOrders);
 
 router.get('/shop-orders/:shopId', orderController.viewOrdersByShopAdmin);
