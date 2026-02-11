@@ -20,6 +20,11 @@ const superAdminSettingsSchema = new mongoose.Schema({
     type: String,
     default: '+971-XXX-XXXX'
   },
+  // ✅ NEW: WhatsApp Number
+  supportWhatsapp: {
+    type: String,
+    default: '+971-XXX-XXXX'
+  },
   
   // ✅ COMMISSION SETTINGS
   platformCommission: {

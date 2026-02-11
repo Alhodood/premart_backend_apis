@@ -9,12 +9,15 @@ const SettingsSchema = new mongoose.Schema({
   appName: { type: String, default: '' },
   supportEmail: { type: String, default: '' },
   supportPhone: { type: String, default: '' },
+  supportWhatsapp: { type: String, default: '' },  // ✅ NEW: WhatsApp Number
   platformCommission: { type: Number, default: 0 },
   taxRate: { type: Number, default: 0 },
   stripePublicKey: { type: String, default: '' },
   stripeSecretKey: { type: String, default: '' },
   deliveryCharge: { type: Number, default: 0 },
-  maxActiveOrdersPerDeliveryBoy: { type: Number, default: 5 }
+  freeDeliveryThreshold: { type: Number, default: 500 },  // ✅ NEW
+  maxActiveOrdersPerDeliveryBoy: { type: Number, default: 5 },
+  perKmRate: { type: Number, default: 2 }  // ✅ NEW
 }, { _id: false });
 
 
@@ -65,7 +68,7 @@ const ShopAdminSchema = new mongoose.Schema({
     default: ROLES.SHOP_ADMIN,
     
   },
- shopId: { type: mongoose.Schema.Types.ObjectId, ref: 'Shop' },
+  shopId: { type: mongoose.Schema.Types.ObjectId, ref: 'Shop' },
   
 
   location: { type: String },
