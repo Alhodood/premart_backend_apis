@@ -619,6 +619,7 @@ exports.getAllCancelledOrders = async (req, res) => {
 };
 
 
+
 exports.getAllOrders = async (req, res) => {
   try {
     const { 
@@ -639,12 +640,20 @@ exports.getAllOrders = async (req, res) => {
       if (endDate) filter.createdAt.$lte = new Date(endDate);
     }
 
-    // ✅ REMOVED: pagination logic (skip, limit, page)
     const [orders, total] = await Promise.all([
       Order.find(filter)
         .populate('userId', 'name email phone')
         .populate('shopId', 'shopeDetails.shopName shopeDetails.shopAddress shopeDetails.EmiratesIdImage orders')
-        .populate('assignedDeliveryBoy', 'name')
+        // ✅ UPDATED: Populate delivery boy with agency details
+        .populate({
+          path: 'assignedDeliveryBoy',
+          select: 'name phone agencyId',
+          populate: {
+            path: 'agencyId',
+            select: 'agencyDetails.agencyName agencyDetails.agencyContact',
+            model: 'DeliveryAgency'
+          }
+        })
         .populate({
           path: 'items.shopProductId',
           populate: {
@@ -653,14 +662,17 @@ exports.getAllOrders = async (req, res) => {
           }
         })
         .sort({ createdAt: 1 })
-        .lean(),  // ✅ No skip() or limit()
+        .lean(),
       Order.countDocuments(filter)
     ]);
 
     // Format orders for table view
     const formattedOrders = orders.map(order => {
-      // Calculate order count from shop's orders array
       const orderCount = order.shopId?.orders?.length || 0;
+      
+      // ✅ Extract delivery boy and agency information
+      const deliveryBoyName = order.assignedDeliveryBoy?.name || 'Not Assigned';
+      const agencyName = order.assignedDeliveryBoy?.agencyId?.agencyDetails?.agencyName || '-';
       
       return {
         _id: order._id,
@@ -689,7 +701,8 @@ exports.getAllOrders = async (req, res) => {
         
         // Delivery
         deliveryAddress: order.deliveryAddress,
-        deliveryBoy: order.assignedDeliveryBoy?.name || 'Not Assigned',
+        deliveryBoy: deliveryBoyName,
+        agencyName: agencyName, // ✅ NEW: Agency name
         
         // Shop
         shopName: order.shopId?.shopeDetails?.shopName || 'Unknown Shop',
@@ -704,28 +717,26 @@ exports.getAllOrders = async (req, res) => {
     });
 
     // Get latest order date
-const latestOrderDate = orders.length > 0 
-  ? orders[0].createdAt 
-  : null;
+    const latestOrderDate = orders.length > 0 
+      ? orders[0].createdAt 
+      : null;
 
-// Optional: formatted date string
-const formattedLatestDate = latestOrderDate
-  ? new Date(latestOrderDate).toLocaleString('en-IN', {
-      timeZone: 'Asia/Dubai', // change if needed
-      year: 'numeric',
-      month: 'short',
-      day: '2-digit',
-      hour: '2-digit',
-      minute: '2-digit',
-      second: '2-digit'
-    })
-  : null;
+    const formattedLatestDate = latestOrderDate
+      ? new Date(latestOrderDate).toLocaleString('en-IN', {
+          timeZone: 'Asia/Dubai',
+          year: 'numeric',
+          month: 'short',
+          day: '2-digit',
+          hour: '2-digit',
+          minute: '2-digit',
+          second: '2-digit'
+        })
+      : null;
 
-    // ✅ SIMPLIFIED RESPONSE: No pagination object
     res.json({
       success: true,
       data: formattedOrders,
-      total: total  // Just the total count
+      total: total
     });
 
   } catch (err) {

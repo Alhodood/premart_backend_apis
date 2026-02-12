@@ -110,56 +110,234 @@ exports.registerShopAdmin = async (req, res) => {
   }
 };
 
+exports.getSuperAdminSettings = async (req, res) => {
+  try {
+    const { adminId } = req.params;
+
+    console.log('📊 Fetching settings for admin:', adminId);
+
+    // Fetch admin document
+    const admin = await SuperAdmin.findById(adminId);
+    
+    if (!admin) {
+      return res.status(404).json({ 
+        success: false,
+        message: 'Super Admin not found' 
+      });
+    }
+
+    // Get settings or initialize with defaults
+    const settings = admin.settings || {};
+
+    console.log('✅ Settings fetched successfully');
+
+    // ✅ FIXED: Return settings in 'data' field (not 'settings')
+    return res.status(200).json({
+      success: true,
+      message: 'Settings fetched successfully',
+      data: {
+        appName: settings.appName || 'PreMart',
+        supportEmail: settings.supportEmail || '',
+        supportPhone: settings.supportPhone || '',
+        supportWhatsapp: settings.supportWhatsapp || '',  // ✅ NEW
+        platformCommission: settings.platformCommission || 10,
+        taxRate: settings.taxRate || 5,
+        stripePublicKey: settings.stripePublicKey || '',
+        stripeSecretKey: settings.stripeSecretKey || '',
+        deliveryCharge: settings.deliveryCharge || 30,
+        freeDeliveryThreshold: settings.freeDeliveryThreshold || 500,
+        maxActiveOrdersPerDeliveryBoy: settings.maxActiveOrdersPerDeliveryBoy || 5,
+        perKmRate: settings.perKmRate || 2
+      }
+    });
+
+  } catch (error) {
+    console.error('❌ Get Settings Error:', error);
+    return res.status(500).json({ 
+      success: false, 
+      message: 'Server error', 
+      error: error.message 
+    });
+  }
+};
+
+// 🔹 Update Super Admin Settings
 exports.updateAdminSettings = async (req, res) => {
   try {
     const { adminId } = req.params;
     const updateFields = req.body;
 
-    // If admin doesn't exist, create with settings
-    let admin = await SuperAdmin.findById(adminId);
+    console.log('📝 Updating settings for admin:', adminId);
+    console.log('📦 Update fields:', updateFields);
+
+    // Find admin
+    const admin = await SuperAdmin.findById(adminId);
 
     if (!admin) {
-      return res.status(404).json({ message: "Admin not found" });
+      return res.status(404).json({ 
+        success: false,
+        message: "Admin not found" 
+      });
     }
 
-    // Update the settings object
-    admin.settings = { ...admin.settings, ...updateFields };
+    // Validate numeric fields
+    if (updateFields.platformCommission !== undefined) {
+      const commission = Number(updateFields.platformCommission);
+      if (isNaN(commission) || commission < 0 || commission > 100) {
+        return res.status(400).json({
+          success: false,
+          message: 'Platform commission must be between 0 and 100'
+        });
+      }
+    }
+
+    if (updateFields.taxRate !== undefined) {
+      const taxRate = Number(updateFields.taxRate);
+      if (isNaN(taxRate) || taxRate < 0 || taxRate > 100) {
+        return res.status(400).json({
+          success: false,
+          message: 'Tax rate must be between 0 and 100'
+        });
+      }
+    }
+
+    if (updateFields.deliveryCharge !== undefined) {
+      const charge = Number(updateFields.deliveryCharge);
+      if (isNaN(charge) || charge < 0) {
+        return res.status(400).json({
+          success: false,
+          message: 'Delivery charge must be a positive number'
+        });
+      }
+    }
+
+    if (updateFields.freeDeliveryThreshold !== undefined) {
+      const threshold = Number(updateFields.freeDeliveryThreshold);
+      if (isNaN(threshold) || threshold < 0) {
+        return res.status(400).json({
+          success: false,
+          message: 'Free delivery threshold must be a positive number'
+        });
+      }
+    }
+
+    if (updateFields.maxActiveOrdersPerDeliveryBoy !== undefined) {
+      const maxOrders = Number(updateFields.maxActiveOrdersPerDeliveryBoy);
+      if (isNaN(maxOrders) || maxOrders < 1 || maxOrders > 20) {
+        return res.status(400).json({
+          success: false,
+          message: 'Max active orders must be between 1 and 20'
+        });
+      }
+    }
+
+    if (updateFields.perKmRate !== undefined) {
+      const kmRate = Number(updateFields.perKmRate);
+      if (isNaN(kmRate) || kmRate < 0) {
+        return res.status(400).json({
+          success: false,
+          message: 'Per KM rate must be a positive number'
+        });
+      }
+    }
+
+    // ✅ NEW: Validate WhatsApp number
+    if (updateFields.supportWhatsapp !== undefined) {
+      const whatsapp = updateFields.supportWhatsapp.trim();
+      if (whatsapp && !whatsapp.startsWith('+')) {
+        return res.status(400).json({
+          success: false,
+          message: 'WhatsApp number must include country code (e.g., +971)'
+        });
+      }
+    }
+
+    // Initialize settings if it doesn't exist
+    if (!admin.settings) {
+      admin.settings = {};
+    }
+
+    // ✅ FIXED: Properly merge settings (preserve existing + add new)
+    admin.settings = { 
+      ...admin.settings.toObject(),  // Convert to plain object first
+      ...updateFields 
+    };
+
+    // Mark settings as modified (important for nested objects)
+    admin.markModified('settings');
+    
+    // Save
     await admin.save();
+
+    console.log('✅ Settings updated successfully');
 
     res.status(200).json({
       success: true,
       message: "Settings updated successfully",
-      settings: admin.settings
+      data: admin.settings
     });
+
   } catch (err) {
-    console.error("Settings update error:", err);
-    res.status(500).json({ success: false, message: "Server error", error: err.message });
+    console.error("❌ Settings update error:", err);
+    res.status(500).json({ 
+      success: false, 
+      message: "Server error", 
+      error: err.message 
+    });
   }
 };
 
-
-// 🔹 Get Super Admin Settings
-exports.getSuperAdminSettings = async (req, res) => {
+// 🔹 Reset Settings to Default
+exports.resetSuperAdminSettings = async (req, res) => {
   try {
     const { adminId } = req.params;
 
-    // Fetch admin document without lean to retain settings structure
+    console.log('🔄 Resetting settings for admin:', adminId);
+
+    // Find admin
     const admin = await SuperAdmin.findById(adminId);
+    
     if (!admin) {
-      return res.status(404).json({ message: 'Super Admin not found', success: false });
+      return res.status(404).json({
+        success: false,
+        message: 'Super admin not found'
+      });
     }
 
-    const settings = admin.settings || {};
+    // Reset to default settings
+    admin.settings = {
+      appName: 'PreMart',
+      supportEmail: 'support@premart.com',
+      supportPhone: '+971-XXX-XXXX',
+      supportWhatsapp: '+971-XXX-XXXX',  // ✅ NEW
+      platformCommission: 10,
+      taxRate: 5,
+      stripePublicKey: '',
+      stripeSecretKey: '',
+      deliveryCharge: 30,
+      freeDeliveryThreshold: 500,
+      maxActiveOrdersPerDeliveryBoy: 5,
+      perKmRate: 2
+    };
 
-    return res.status(200).json({
+    admin.markModified('settings');
+    await admin.save();
+
+    console.log('✅ Settings reset to default');
+
+    res.status(200).json({
       success: true,
-      message: 'Super Admin settings fetched successfully',
-      settings
+      message: 'Settings reset to default successfully',
+      data: admin.settings
     });
 
-  } catch (error) {
-    console.error('Get Settings Error:', error);
-    return res.status(500).json({ success: false, message: 'Server error', error: error.message });
+  } catch (err) {
+    console.error('❌ Reset Settings Error:', err);
+    res.status(500).json({
+      success: false,
+      message: 'Failed to reset settings',
+      error: err.message
+    });
   }
 };
 
