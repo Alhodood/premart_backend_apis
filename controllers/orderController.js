@@ -1382,36 +1382,125 @@ exports.viewMyOrders = async (req, res) => {
 exports.viewOrdersByShopAdmin = async (req, res) => {
   try {
     const { shopId } = req.params;
+    const { status, startDate, endDate } = req.query;
 
-    const orders = await Order.find({ shopId })
-      .sort({ createdAt: -1 })
-      .lean();
+    // Build filter
+    const filter = { shopId };
+    
+    if (status) filter.status = status;
+    
+    if (startDate || endDate) {
+      filter.createdAt = {};
+      if (startDate) filter.createdAt.$gte = new Date(startDate);
+      if (endDate) filter.createdAt.$lte = new Date(endDate);
+    }
 
-    const formatted = orders.map(order => ({
-      orderId: order._id,
-      customer: order.deliveryAddress?.name,
-      contact: order.deliveryAddress?.contact,
-      address: order.deliveryAddress?.address,
-      totalPayable: order.totalPayable,
-      status: order.status,
-      createdAt: order.createdAt,
+    // Fetch orders with all necessary population
+    const [orders, total] = await Promise.all([
+      Order.find(filter)
+        .populate('userId', 'name email phone')
+        .populate('shopId', 'shopeDetails.shopName shopeDetails.shopAddress shopeDetails.EmiratesIdImage orders')
+        // Populate delivery boy with agency details
+        .populate({
+          path: 'assignedDeliveryBoy',
+          select: 'name phone agencyId',
+          populate: {
+            path: 'agencyId',
+            select: 'agencyDetails.agencyName agencyDetails.agencyContact',
+            model: 'DeliveryAgency'
+          }
+        })
+        .populate({
+          path: 'items.shopProductId',
+          populate: {
+            path: 'part',
+            select: 'partName images'
+          }
+        })
+        .sort({ createdAt: -1 })
+        .lean(),
+      Order.countDocuments(filter)
+    ]);
 
-      items: order.items.map(i => ({
-        quantity: i.quantity,
-        partNumber: i.snapshot.partNumber,
-        partName: i.snapshot.partName,
-        brand: i.snapshot.brand,
-        model: i.snapshot.model,
-        category: i.snapshot.category,
-        price: i.snapshot.price,
-        image: i.snapshot.image
-      }))
-    }));
+    // Format orders for table view
+    const formattedOrders = orders.map(order => {
+      const orderCount = order.shopId?.orders?.length || 0;
+      
+      // Extract delivery boy and agency information
+      const deliveryBoyName = order.assignedDeliveryBoy?.name || 'Not Assigned';
+      const agencyName = order.assignedDeliveryBoy?.agencyId?.agencyDetails?.agencyName || '-';
+      
+      return {
+        _id: order._id,
+        
+        // Customer
+        customerName: order.deliveryAddress?.name || order.userId?.name || '-',
+        customerPhone: order.deliveryAddress?.contact || order.userId?.phone || '-',
+        
+        // Status
+        orderStatus: order.status || order.orderStatus || 'pending',
+        
+        // First item details (for preview)
+        productName: order.items?.[0]?.snapshot?.partName || 
+                     order.items?.[0]?.shopProductId?.part?.partName || 
+                     'Product',
+        productImage: order.items?.[0]?.snapshot?.image || 
+                      order.items?.[0]?.shopProductId?.part?.images?.[0] || 
+                      null,
+        itemCount: order.items?.length || 0,
+        quantity: order.items?.reduce((sum, item) => sum + (item.quantity || 1), 0) || 1,
+        createdAt: order.createdAt,
+        
+        // Financial
+        totalAmount: order.subtotal || order.totalAmount || 0,
+        finalPayable: order.totalPayable || order.finalPayable || 0,
+        
+        // Delivery
+        deliveryAddress: order.deliveryAddress,
+        deliveryBoy: deliveryBoyName,
+        agencyName: agencyName,
+        
+        // Shop
+        shopName: order.shopId?.shopeDetails?.shopName || 'Unknown Shop',
+        shopAddress: order.shopId?.shopeDetails?.shopAddress || '-',
+        emiratesIdImage: order.shopId?.shopeDetails?.EmiratesIdImage || null,
+        orderCount: orderCount,
+        
+        // Payment
+        paymentMethod: order.paymentType || order.paymentMethod || 'Cash',
+        paymentStatus: order.paymentStatus || 'Pending',
+        
+        // All items (full details for this shop admin view)
+        // items: order.items?.map(item => ({
+        //   quantity: item.quantity || 1,
+        //   partNumber: item.snapshot?.partNumber || '-',
+        //   partName: item.snapshot?.partName || 
+        //             item.shopProductId?.part?.partName || 
+        //             'Product',
+        //   brand: item.snapshot?.brand || '-',
+        //   model: item.snapshot?.model || '-',
+        //   category: item.snapshot?.category || '-',
+        //   price: item.snapshot?.price || item.price || 0,
+        //   image: item.snapshot?.image || 
+        //          item.shopProductId?.part?.images?.[0] || 
+        //          null
+        // })) || []
+      };
+    });
 
-    res.json({ success: true, data: formatted });
+    res.json({
+      success: true,
+      data: formattedOrders,
+      total: total
+    });
 
   } catch (err) {
-    res.status(500).json({ success: false, message: err.message });
+    console.error('❌ View Orders By Shop Admin Error:', err);
+    res.status(500).json({
+      success: false,
+      message: 'Failed to fetch shop orders',
+      error: err.message
+    });
   }
 };
 

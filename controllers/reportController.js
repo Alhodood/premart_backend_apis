@@ -98,7 +98,7 @@ exports.getCancelledOrders = async (req, res) => {
         
         // Status
         status: order.status,
-        cancelReason: order.cancelReason || '-'
+       cancelReason: order.cancellation?.reason || '-',
       }));
     });
 
@@ -648,7 +648,7 @@ exports.getShopCancelledOrders = async (req, res) => {
         partNumber: item.snapshot?.partNumber || '-',
         quantity: item.quantity,
         orderTotal: order.totalPayable,
-        cancelReason: order.cancelReason || '-'
+        cancelReason: order.cancellation?.reason || '-'
       }));
     });
 
@@ -1016,58 +1016,7 @@ exports.getShopPendingOrders = async (req, res) => {
   }
 };
 
-/**
- * Shop Cancelled Orders Report
- * GET /api/report/orders/cancelled/by-shop?shopId=xxx
- */
-exports.getShopCancelledOrders = async (req, res) => {
-  try {
-    const { shopId } = req.query;
 
-    if (!shopId) {
-      return res.status(400).json({ 
-        success: false, 
-        message: 'Shop ID is required' 
-      });
-    }
-
-    const orders = await Order.find({
-      shopId,
-      status: 'Cancelled'
-    })
-      .populate('userId', 'name email phone')
-      .populate('shopId', 'shopName')
-      .sort({ updatedAt: -1 })
-      .lean();
-
-    const formatted = orders.map(order => ({
-      orderId: order._id,
-      orderNumber: order.orderNumber || `ORD-${order._id.toString().slice(-6)}`,
-      customerName: order.deliveryAddress?.name || order.userId?.name || '-',
-      customerContact: order.deliveryAddress?.contact || order.userId?.phone || '-',
-      itemCount: order.items?.length || 0,
-      totalAmount: Math.round((order.totalPayable || 0) * 100) / 100,
-      cancellationReason: order.cancellationReason || '-',
-      cancelledAt: order.updatedAt,
-      orderDate: order.createdAt,
-      refundStatus: order.refundStatus || 'N/A'
-    }));
-
-    res.status(200).json({ 
-      success: true, 
-      count: formatted.length,
-      totalLostRevenue: formatted.reduce((sum, o) => sum + o.totalAmount, 0),
-      data: formatted 
-    });
-  } catch (error) {
-    console.error('Shop Cancelled Orders Error:', error);
-    res.status(500).json({ 
-      success: false, 
-      message: 'Failed to fetch cancelled orders', 
-      error: error.message 
-    });
-  }
-};
 
 /**
  * Shop Returned Orders Report
