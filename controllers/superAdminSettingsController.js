@@ -24,12 +24,15 @@ exports.getSuperAdminSettings = async (req, res) => {
         appName: 'PreMart',
         supportEmail: 'support@premart.com',
         supportPhone: '+971-XXX-XXXX',
+        supportWhatsapp: '+971-XXX-XXXX',  // ✅ NEW
         platformCommission: 10,
         taxRate: 5,
         stripePublicKey: '',
         stripeSecretKey: '',
         deliveryCharge: 30,
-        maxActiveOrdersPerDeliveryBoy: 5
+        freeDeliveryThreshold: 500,
+        maxActiveOrdersPerDeliveryBoy: 5,
+        perKmRate: 2
       };
       await superAdmin.save();
     }
@@ -44,12 +47,15 @@ exports.getSuperAdminSettings = async (req, res) => {
         appName: superAdmin.settings.appName || 'PreMart',
         supportEmail: superAdmin.settings.supportEmail || '',
         supportPhone: superAdmin.settings.supportPhone || '',
+        supportWhatsapp: superAdmin.settings.supportWhatsapp || '',  // ✅ NEW
         platformCommission: superAdmin.settings.platformCommission || 10,
         taxRate: superAdmin.settings.taxRate || 5,
         stripePublicKey: superAdmin.settings.stripePublicKey || '',
         stripeSecretKey: superAdmin.settings.stripeSecretKey || '',
         deliveryCharge: superAdmin.settings.deliveryCharge || 30,
+        freeDeliveryThreshold: superAdmin.settings.freeDeliveryThreshold || 500,
         maxActiveOrdersPerDeliveryBoy: superAdmin.settings.maxActiveOrdersPerDeliveryBoy || 5,
+        perKmRate: superAdmin.settings.perKmRate || 2,
         updatedAt: superAdmin.updatedAt
       }
     });
@@ -113,12 +119,43 @@ exports.updateSuperAdminSettings = async (req, res) => {
       }
     }
 
+    if (updateData.freeDeliveryThreshold !== undefined) {
+      const threshold = Number(updateData.freeDeliveryThreshold);
+      if (isNaN(threshold) || threshold < 0) {
+        return res.status(400).json({
+          success: false,
+          message: 'Free delivery threshold must be a positive number'
+        });
+      }
+    }
+
     if (updateData.maxActiveOrdersPerDeliveryBoy !== undefined) {
       const maxOrders = Number(updateData.maxActiveOrdersPerDeliveryBoy);
       if (isNaN(maxOrders) || maxOrders < 1 || maxOrders > 20) {
         return res.status(400).json({
           success: false,
           message: 'Max active orders must be between 1 and 20'
+        });
+      }
+    }
+
+    if (updateData.perKmRate !== undefined) {
+      const kmRate = Number(updateData.perKmRate);
+      if (isNaN(kmRate) || kmRate < 0) {
+        return res.status(400).json({
+          success: false,
+          message: 'Per KM rate must be a positive number'
+        });
+      }
+    }
+
+    // ✅ NEW: Validate WhatsApp number
+    if (updateData.supportWhatsapp !== undefined) {
+      const whatsapp = updateData.supportWhatsapp.trim();
+      if (whatsapp && !whatsapp.startsWith('+')) {
+        return res.status(400).json({
+          success: false,
+          message: 'WhatsApp number must include country code (e.g., +971)'
         });
       }
     }
@@ -138,6 +175,10 @@ exports.updateSuperAdminSettings = async (req, res) => {
     if (updateData.supportPhone !== undefined) {
       superAdmin.settings.supportPhone = updateData.supportPhone.trim();
     }
+    // ✅ NEW: Update WhatsApp number
+    if (updateData.supportWhatsapp !== undefined) {
+      superAdmin.settings.supportWhatsapp = updateData.supportWhatsapp.trim();
+    }
     if (updateData.platformCommission !== undefined) {
       superAdmin.settings.platformCommission = Number(updateData.platformCommission);
     }
@@ -153,8 +194,14 @@ exports.updateSuperAdminSettings = async (req, res) => {
     if (updateData.deliveryCharge !== undefined) {
       superAdmin.settings.deliveryCharge = Number(updateData.deliveryCharge);
     }
+    if (updateData.freeDeliveryThreshold !== undefined) {
+      superAdmin.settings.freeDeliveryThreshold = Number(updateData.freeDeliveryThreshold);
+    }
     if (updateData.maxActiveOrdersPerDeliveryBoy !== undefined) {
       superAdmin.settings.maxActiveOrdersPerDeliveryBoy = Number(updateData.maxActiveOrdersPerDeliveryBoy);
+    }
+    if (updateData.perKmRate !== undefined) {
+      superAdmin.settings.perKmRate = Number(updateData.perKmRate);
     }
 
     // Mark settings as modified (important for nested objects)
@@ -205,12 +252,15 @@ exports.resetSuperAdminSettings = async (req, res) => {
       appName: 'PreMart',
       supportEmail: 'support@premart.com',
       supportPhone: '+971-XXX-XXXX',
+      supportWhatsapp: '+971-XXX-XXXX',  // ✅ NEW
       platformCommission: 10,
       taxRate: 5,
       stripePublicKey: '',
       stripeSecretKey: '',
       deliveryCharge: 30,
-      maxActiveOrdersPerDeliveryBoy: 5
+      freeDeliveryThreshold: 500,
+      maxActiveOrdersPerDeliveryBoy: 5,
+      perKmRate: 2
     };
 
     superAdmin.markModified('settings');
@@ -234,7 +284,4 @@ exports.resetSuperAdminSettings = async (req, res) => {
       error: err.message
     });
   }
-
-
-
 };
