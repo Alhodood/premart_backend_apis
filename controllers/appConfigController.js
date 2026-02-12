@@ -7,6 +7,8 @@ const DEFAULT_CONFIG = {
   appName: 'PreMart',
   supportEmail: 'support@premart.com',
   supportPhone: '+971-XXX-XXXX',
+  supportWhatsApp: '+971-XXX-XXXX',
+  freeDeliveryThreshold: 100,
   taxRate: 5,
   deliveryCharge: 30,
   stripePublicKey: ''
@@ -39,8 +41,10 @@ exports.getAppConfig = async (req, res) => {
         appName: superAdmin.settings.appName || DEFAULT_CONFIG.appName,
         supportEmail: superAdmin.settings.supportEmail || DEFAULT_CONFIG.supportEmail,
         supportPhone: superAdmin.settings.supportPhone || DEFAULT_CONFIG.supportPhone,
+        supportWhatsApp: superAdmin.settings.supportWhatsapp || DEFAULT_CONFIG.supportWhatsApp,
         taxRate: superAdmin.settings.taxRate || DEFAULT_CONFIG.taxRate,
         deliveryCharge: superAdmin.settings.deliveryCharge || DEFAULT_CONFIG.deliveryCharge,
+        freeDeliveryThreshold: superAdmin.settings.freeDeliveryThreshold || DEFAULT_CONFIG.freeDeliveryThreshold,
         stripePublicKey: superAdmin.settings.stripePublicKey || DEFAULT_CONFIG.stripePublicKey
       }
     });
