@@ -229,8 +229,7 @@ exports.createOrder = async (req, res) => {
     const deliverycharge = originalTotal < 500;
     const masterDeliveryCharge = deliverycharge ? 30 : 0;
     const finalPayable = totalAmount + masterDeliveryCharge;
-
-    // ========================
+// ========================
     // 8. CREATE MASTER ORDER
     // ========================
     const masterOrder = await MasterOrder.create({
@@ -243,6 +242,8 @@ exports.createOrder = async (req, res) => {
         discountAmount: totalDiscount
       } : null
     });
+
+    console.log(`✅ Master order created: ${masterOrder._id}`);
 
     // ========================
     // 9. CREATE PER-SHOP ORDERS
@@ -259,54 +260,47 @@ exports.createOrder = async (req, res) => {
         shopTotal += p.price * p.quantity;
       });
 
-      // ✅ Calculate proportional discount for this shop
+      // Calculate proportional discount
       let shopDiscount = 0;
       if (couponDiscount > 0 && originalTotal > 0) {
         shopDiscount = +(couponDiscount * (shopTotal / originalTotal)).toFixed(2);
       }
 
-      // ✅ Calculate delivery distance and earning
+      // Calculate delivery distance and earning
       const shopLatLng = shop?.shopeDetails?.shopLocation?.split(',').map(Number);
-let deliveryDistance = 0;
-let deliveryEarning = 0;
+      let deliveryDistance = 0;
+      let deliveryEarning = 0;
 
-if (shopLatLng?.length === 2 && deliveryAddress.latitude && deliveryAddress.longitude) {
-  // 🔥 FIX: Explicitly convert to numbers
-  const shopLat = Number(shopLatLng[0]);
-  const shopLng = Number(shopLatLng[1]);
-  const deliveryLat = Number(deliveryAddress.latitude);
-  const deliveryLng = Number(deliveryAddress.longitude);
-  
-  // Validate that all coordinates are valid numbers
-  if (!isNaN(shopLat) && !isNaN(shopLng) && !isNaN(deliveryLat) && !isNaN(deliveryLng)) {
-    const distanceInMeters = geolib.getDistance(
-      { latitude: shopLat, longitude: shopLng },
-      { latitude: deliveryLat, longitude: deliveryLng }
-    );
-    
-    deliveryDistance = +(distanceInMeters / 1000).toFixed(2); // Convert to KM
-    deliveryEarning = +(PER_KM_RATE * deliveryDistance).toFixed(2);
-    
-    console.log(`📍 Distance calculated: ${deliveryDistance} km, Earning: ${deliveryEarning} AED`);
-  } else {
-    console.error('❌ Invalid coordinates:', { shopLat, shopLng, deliveryLat, deliveryLng });
-  }
-}
+      if (shopLatLng?.length === 2 && deliveryAddress.latitude && deliveryAddress.longitude) {
+        const shopLat = Number(shopLatLng[0]);
+        const shopLng = Number(shopLatLng[1]);
+        const deliveryLat = Number(deliveryAddress.latitude);
+        const deliveryLng = Number(deliveryAddress.longitude);
+        
+        if (!isNaN(shopLat) && !isNaN(shopLng) && !isNaN(deliveryLat) && !isNaN(deliveryLng)) {
+          const distanceInMeters = geolib.getDistance(
+            { latitude: shopLat, longitude: shopLng },
+            { latitude: deliveryLat, longitude: deliveryLng }
+          );
+          
+          deliveryDistance = +(distanceInMeters / 1000).toFixed(2);
+          deliveryEarning = +(PER_KM_RATE * deliveryDistance).toFixed(2);
+          
+          console.log(`📍 Shop ${shopId}: Distance ${deliveryDistance} km, Earning ${deliveryEarning} AED`);
+        }
+      }
 
-      // ✅ Calculate shop's delivery charge (30 if master order < 500)
       const shopDeliveryCharge = deliverycharge ? 30 : 0;
-
-      // ✅ Calculate final payable for this shop
       const shopFinalPayable = shopTotal - shopDiscount + shopDeliveryCharge;
 
-      // ✅ Reduce stock from ShopProduct
+      // Reduce stock
       for (const p of shopProducts) {
         await ShopProduct.findByIdAndUpdate(p.shopProductId, {
           $inc: { stock: -p.quantity }
         });
       }
 
-      // ✅ Create order with correct calculations
+      // Create order
       const createdOrder = await Order.create({
         userId,
         shopId,
@@ -330,41 +324,51 @@ if (shopLatLng?.length === 2 && deliveryAddress.latitude && deliveryAddress.long
         }),
         deliveryAddress,
         subtotal: shopTotal,
-        discount: shopDiscount,              // ✅ FIX: Now includes discount
+        discount: shopDiscount,
         deliveryCharge: shopDeliveryCharge,
-        totalPayable: shopFinalPayable,      // ✅ FIX: Correct calculation
+        totalPayable: shopFinalPayable,
         coupon: appliedCoupon ? {
           code: appliedCoupon.code,
           discountType: appliedCoupon.discountType,
           discountValue: appliedCoupon.discountValue,
-          discountAmount: shopDiscount       // ✅ Per-shop discount amount
+          discountAmount: shopDiscount
         } : null,
         paymentType,
         transactionId: transactionId || null,
         deliveryDistance,
         deliveryEarning,
-        status: 'Pending',                   // ✅ Changed from orderStatus
+        status: 'Pending',
         statusHistory: [
           { status: 'Pending', date: new Date() }
         ]
       });
 
-      // ✅✅ ADD THIS IMMEDIATELY AFTER ORDER CREATION:
-await Shop.findByIdAndUpdate(
-  shopId,
-  {
-    $push: {
-      orders: { orderId: createdOrder._id }
-    }
-  }
-);
+      console.log(`✅ Order created for shop ${shopId}: ${createdOrder._id}`);
 
-console.log(`✅ Order ${createdOrder._id} added to shop ${shopId}`);
-
-
+      // Add order to shop
+      await Shop.findByIdAndUpdate(
+        shopId,
+        {
+          $push: {
+            orders: { orderId: createdOrder._id }
+          }
+        }
+      );
 
       perShopResults.push(createdOrder);
     }
+
+    // ✅✅ FIX: Move this OUTSIDE the loop - AFTER all orders are created
+    await MasterOrder.findByIdAndUpdate(
+      masterOrder._id,
+      {
+        $set: {
+          orderIds: perShopResults.map(o => o._id)  // ✅ Use $set instead of $push
+        }
+      }
+    );
+
+    console.log(`✅ Added ${perShopResults.length} order IDs to master order ${masterOrder._id}`);
 
     // ========================
     // 10. CLEAR CART
