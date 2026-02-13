@@ -712,7 +712,15 @@ exports.getAllOrders = async (req, res) => {
         
         // Payment
         paymentMethod: order.paymentType || order.paymentMethod || 'Cash',
-        paymentStatus: order.paymentStatus || 'Pending'
+        paymentStatus: order.paymentStatus || 'Pending',
+
+        // Cancellation details (if cancelled)
+...(order.status === 'Cancelled' && order.cancellation ? {
+  cancelReason: order.cancellation.reason || '-',
+  cancelledBy: order.cancellation.cancelledBy || '-',
+  cancelledAt: order.cancellation.cancelledAt || null,
+  cancelAdditionalComments: order.cancellation.additionalComments || '',
+} : {}),
       };
     });
 
@@ -1469,6 +1477,13 @@ exports.viewOrdersByShopAdmin = async (req, res) => {
         // Payment
         paymentMethod: order.paymentType || order.paymentMethod || 'Cash',
         paymentStatus: order.paymentStatus || 'Pending',
+
+        ...(order.status === 'Cancelled' && order.cancellation ? {
+    cancelReason: order.cancellation.reason || '-',
+    cancelledBy: order.cancellation.cancelledBy || '-',
+    cancelledAt: order.cancellation.cancelledAt || null,
+    cancelAdditionalComments: order.cancellation.additionalComments || '',
+  } : {}),
         
         // All items (full details for this shop admin view)
         // items: order.items?.map(item => ({

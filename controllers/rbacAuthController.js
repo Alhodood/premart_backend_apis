@@ -313,7 +313,7 @@ exports.sendOtp = async (req, res) => {
 
 exports.verifyOtp = async (req, res) => {
   try {
-    const { phone, role, countryCode, latitude, longitude, agencyId, code, deviceToken } = req.body;
+    const { phone, role, countryCode, latitude, longitude, agencyId, code, deviceToken, deviceInfo } = req.body;
 
     if (!deviceToken) {
       return res.status(400).json({
@@ -337,32 +337,32 @@ exports.verifyOtp = async (req, res) => {
     const Model = roleModelMap[role];
     let user = await Model.findOne({ phone });
 
+    // ❌ User does not exist — reject login
     if (!user) {
-      // New user - create and assign device
-      user = await Model.create({
-        phone, role, countryCode, latitude, longitude,
-        agencyId: agencyId || null,
-        isOnline: false,
-        availability: true,
-        activeDeviceToken: deviceToken,
-        lastLoginAt: new Date(),
+      return res.status(404).json({
+        success: false,
+        message: 'No account found with this phone number. Please contact your agency admin to register.',
+        notRegistered: true,
       });
-    } else {
-      // ✅ CHECK: Is another device already logged in?
-      if (user.activeDeviceToken && user.activeDeviceToken !== deviceToken) {
-        return res.status(409).json({
-          success: false,
-          message: 'Your account is already logged in on another device. Please logout from the other device first.',
-          alreadyLoggedIn: true,
-          activeDeviceInfo: user.activeDeviceInfo || 'Unknown device',
-        });
-      }
-
-      // Same device or no active session - update device token
-      user.activeDeviceToken = deviceToken;
-      user.lastLoginAt = new Date();
-      await user.save();
     }
+
+    // ✅ CHECK: Is another device already logged in?
+    if (user.activeDeviceToken && user.activeDeviceToken !== deviceToken) {
+      return res.status(409).json({
+        success: false,
+        message: 'Your account is already logged in on another device. Please logout from the other device first.',
+        alreadyLoggedIn: true,
+        activeDeviceInfo: user.activeDeviceInfo || 'Unknown device',
+      });
+    }
+
+    // Update session info
+    user.activeDeviceToken = deviceToken;
+    user.activeDeviceInfo = deviceInfo || 'Unknown device';
+    user.lastLoginAt = new Date();
+    if (latitude) user.latitude = latitude;
+    if (longitude) user.longitude = longitude;
+    await user.save();
 
     const token = jwt.sign(
       { id: user._id, role },
