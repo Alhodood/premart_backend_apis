@@ -1,17 +1,12 @@
+// models/MasterOrder.js
 const mongoose = require('mongoose');
 
-const masterInvoiceSchema = new mongoose.Schema({
-  
+const masterOrderSchema = new mongoose.Schema({
   userId: { type: mongoose.Schema.Types.ObjectId, ref: 'User', required: true },
-  
-  orderIds: [{ type: mongoose.Schema.Types.ObjectId, ref: 'Order' }],
+  orderIds: [{ type: mongoose.Schema.Types.ObjectId, ref: 'Order' }], // ✅ This will store order IDs
   totalAmount: { type: Number, required: true },
-  finalPayable: { type: String, required: true },
-  deliverycharge: {
-  type: Number,
-  required: true,
-  default: 0,
-},
+  finalPayable: { type: Number, required: true }, // ✅ Changed to Number
+  deliverycharge: { type: Number, required: true, default: 0 },
   couponApplied: {
     code: String,
     discountType: String,
@@ -21,4 +16,4 @@ const masterInvoiceSchema = new mongoose.Schema({
   createdAt: { type: Date, default: Date.now }
 });
 
-module.exports = mongoose.model('MasterOrder', masterInvoiceSchema);
+module.exports = mongoose.model('MasterOrder', masterOrderSchema);
