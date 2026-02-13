@@ -323,6 +323,7 @@ exports.createOrder = async (req, res) => {
           };
         }),
         deliveryAddress,
+        
         subtotal: shopTotal,
         discount: shopDiscount,
         deliveryCharge: shopDeliveryCharge,
@@ -355,8 +356,51 @@ exports.createOrder = async (req, res) => {
         }
       );
 
+      try {
+    const socketModule = require('../sockets/socket');
+    
+    // Format order for real-time update
+    const orderData = {
+      _id: createdOrder._id,
+      customerName: createdOrder.deliveryAddress?.name || 'Customer',
+      customerPhone: createdOrder.deliveryAddress?.contact || '-',
+      orderStatus: createdOrder.status,
+      productName: createdOrder.items[0]?.snapshot?.partName || 'Product',
+      productImage: createdOrder.items[0]?.snapshot?.image || null,
+      itemCount: createdOrder.items.length,
+      quantity: createdOrder.items.reduce((sum, item) => sum + item.quantity, 0),
+      totalAmount: createdOrder.subtotal,
+      finalPayable: createdOrder.totalPayable,
+      paymentMethod: createdOrder.paymentType,
+      paymentStatus: createdOrder.paymentStatus,
+      createdAt: createdOrder.createdAt,
+      deliveryAddress: createdOrder.deliveryAddress,
+      // Mark as new for frontend highlighting
+      isNew: true
+    };
+
+    // ✅ Emit to shop admin
+    socketModule.emitToShop(shopId, 'new_order', orderData);
+
+    // ✅ Emit to super admins
+    socketModule.emitToSuperAdmins('new_order', {
+      ...orderData,
+      shopId: shopId,
+      shopName: shop?.shopeDetails?.shopName || 'Unknown Shop'
+    });
+
+    console.log(`🔔 New order notification sent for order ${createdOrder._id}`);
+
+  } catch (socketError) {
+    console.error('❌ Socket emission error:', socketError.message);
+    // Don't fail order creation if socket fails
+  }
+
+
       perShopResults.push(createdOrder);
     }
+
+    
 
     // ✅✅ FIX: Move this OUTSIDE the loop - AFTER all orders are created
     await MasterOrder.findByIdAndUpdate(
