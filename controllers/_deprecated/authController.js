@@ -145,7 +145,7 @@ exports.updateProfile = async (req, res) => {
       return res.status(400).json({ message: 'userId param is required', success: false });
     }
 
-    const { name, email, phone, dob } = req.body;
+    const { name, email, phone, dob, profileImage } = req.body;
 
     const user = await User.findById(userId);        // <-- findById
     if (!user) {
@@ -155,6 +155,7 @@ exports.updateProfile = async (req, res) => {
     if (name) user.name = name;
     if (email) user.email = email;
     if (dob) user.dob = dob;
+    if (profileImage !== undefined) user.profileImage = profileImage;
 
     if (phone && phone !== user.phone) {
       user.accountVerify = false;
@@ -174,6 +175,7 @@ exports.updateProfile = async (req, res) => {
         role: user.role,
         accountStatus: user.accountVerify,
         dob: user.dob,
+        profileImage: user.profileImage,
       }
     });
   } catch (err) {
