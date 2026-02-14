@@ -207,12 +207,12 @@ exports.login = async (req, res) => {
       });
 
       if (!user) {
-        return res.status(401).json({ success: false, message: 'Invalid credentials' });
+        return res.status(401).json({ success: false, message: 'Email not found' });
       }
 
       const match = await user.comparePassword(password);
       if (!match) {
-        return res.status(401).json({ success: false, message: 'Invalid credentials' });
+        return res.status(401).json({ success: false, message: 'Incorrect password' });
       }
 
       const token = generateToken({ id: user._id, role });
@@ -245,12 +245,12 @@ exports.login = async (req, res) => {
     }
 
     if (!user || !user.comparePassword) {
-      return res.status(401).json({ success: false, message: 'Invalid credentials' });
+      return res.status(401).json({ success: false, message: 'Email or phone not found' });
     }
 
     const match = await user.comparePassword(password);
     if (!match) {
-      return res.status(401).json({ success: false, message: 'Invalid credentials' });
+      return res.status(401).json({ success: false, message: 'Incorrect password' });
     }
 
     // ✅ CHECK ACCOUNT VISIBILITY FOR CUSTOMER
