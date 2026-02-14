@@ -82,6 +82,7 @@ exports.loginUser = async (req, res) => {
         email: user.email,
         phone: user.phone,
         role: user.role,
+        profileImage: user.profileImage,
         token
       }
     });

@@ -276,6 +276,7 @@ exports.login = async (req, res) => {
         phone: user.phone,
         accountVerify: user.accountVerify,
         dob: user.dob,
+        profileImage: user.profileImage,
       }
     };
 
