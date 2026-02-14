@@ -544,7 +544,8 @@ exports.viewAssignedOrders = async (req, res) => {
   }
 };
 
-// Get nearby assigned orders for delivery boy (within 20km, orderStatus='Delivery Boy Assigned')
+// controllers/deliveryBoyController.js
+
 exports.getNearbyAssignedOrders = async (req, res) => {
   try {
     const deliveryBoyId = req.params.deliveryBoyId;
@@ -561,102 +562,125 @@ exports.getNearbyAssignedOrders = async (req, res) => {
     const { latitude: boyLat, longitude: boyLng } = deliveryBoy;
     const RANGE_KM = 20;
 
-    // ✅ Changed orderStatus to status
+    // ✅ Fetch orders with ALL active delivery statuses
+    const activeStatuses = [
+      'Delivery Boy Assigned',
+      'Accepted by Delivery Boy',
+      'Reached Pickup',
+      'Waiting to Pick',
+      'Order Picked',
+      'On the way',
+      'Reached Drop'
+    ];
+
     const assignedOrders = await Order.find({ 
-      status: 'Delivery Boy Assigned' 
-    }).populate('deliveryAddress');
+      status: { $in: activeStatuses }
+    });
+
+    console.log(`📦 Found ${assignedOrders.length} orders with active delivery statuses`);
 
     const formattedNearbyOrders = [];
 
+    // ✅ FIX: Use mongoose.model() instead of require
+    const mongoose = require('mongoose');
+    const Shop = mongoose.model('Shop');
+    const geolib = require('geolib');
+
     for (const order of assignedOrders) {
-      const shop = await Shop.findById(order.shopId);
-      const shopLocation = shop?.shopeDetails?.shopLocation;
-      if (!shopLocation) continue;
-
-      const [shopLat, shopLng] = shopLocation.split(',').map(Number);
-
-      const pickupDistance = geolib.getDistance(
-        { latitude: boyLat, longitude: boyLng },
-        { latitude: shopLat, longitude: shopLng }
-      ) / 1000;
-
-      if (pickupDistance > RANGE_KM) continue;
-
-      let pickupTime = "N/A";
       try {
-        const pickupUrl = encodeURI(
-          `https://maps.googleapis.com/maps/api/distancematrix/json?origins=${boyLat},${boyLng}&destinations=${shopLat},${shopLng}&key=${GOOGLE_MAPS_API_KEY}`
-        );
-        const pickupResponse = await axios.get(pickupUrl);
-        const pickupElement = pickupResponse.data?.rows?.[0]?.elements?.[0];
-        pickupTime = pickupElement?.status === 'OK' && pickupElement?.duration
-          ? pickupElement.duration.text
-          : 'N/A';
-      } catch (err) {
-        pickupTime = "N/A";
-      }
-
-      let dropDistance = 0;
-      let dropTime = "N/A";
-      const customerLat = order?.deliveryAddress?.latitude;
-      const customerLng = order?.deliveryAddress?.longitude;
-      
-      if (shopLat && shopLng && customerLat && customerLng) {
-        dropDistance = geolib.getDistance(
-          { latitude: shopLat, longitude: shopLng },
-          { latitude: customerLat, longitude: customerLng }
-        ) / 1000;
+        // ✅ Use mongoose.model() to get Shop
+        const shop = await Shop.findById(order.shopId);
         
-        try {
-          const dropUrl = encodeURI(
-            `https://maps.googleapis.com/maps/api/distancematrix/json?origins=${shopLat},${shopLng}&destinations=${customerLat},${customerLng}&key=${GOOGLE_MAPS_API_KEY}`
-          );
-          const dropResponse = await axios.get(dropUrl);
-          const dropElement = dropResponse.data?.rows?.[0]?.elements?.[0];
-          dropTime = dropElement?.status === 'OK' && dropElement?.duration
-            ? dropElement.duration.text
-            : 'N/A';
-        } catch (err) {
-          dropTime = "N/A";
+        if (!shop?.shopeDetails?.shopLocation) {
+          console.warn(`⚠️ Skipping order ${order._id} - no shop location`);
+          continue;
         }
+
+        const shopLocation = shop.shopeDetails.shopLocation;
+        const coords = shopLocation.split(',').map(str => parseFloat(str.trim()));
+        
+        if (coords.length !== 2 || isNaN(coords[0]) || isNaN(coords[1])) {
+          console.warn(`⚠️ Skipping order ${order._id} - invalid shop coordinates`);
+          continue;
+        }
+
+        const [shopLat, shopLng] = coords;
+
+        // Calculate pickup distance
+        const pickupDistance = geolib.getDistance(
+          { latitude: boyLat, longitude: boyLng },
+          { latitude: shopLat, longitude: shopLng }
+        ) / 1000;
+
+        // ✅ Filter by distance
+        if (pickupDistance > RANGE_KM) {
+          console.log(`⚠️ Skipping order ${order._id} - too far (${pickupDistance.toFixed(2)} km)`);
+          continue;
+        }
+
+        // Calculate pickup time (30 km/h average speed)
+        const pickupTime = `${Math.ceil((pickupDistance / 30) * 60)} mins`;
+
+        // Calculate drop distance and time
+        let dropDistance = 0;
+        let dropTime = "N/A";
+        const customerLat = order?.deliveryAddress?.latitude;
+        const customerLng = order?.deliveryAddress?.longitude;
+        
+        if (shopLat && shopLng && customerLat && customerLng) {
+          dropDistance = geolib.getDistance(
+            { latitude: shopLat, longitude: shopLng },
+            { latitude: customerLat, longitude: customerLng }
+          ) / 1000;
+          
+          dropTime = `${Math.ceil((dropDistance / 30) * 60)} mins`;
+        }
+
+        const shopDetails = {
+          shopName: shop?.shopeDetails?.shopName || '',
+          shopAddress: shop?.shopeDetails?.shopAddress || '',
+          shopContact: shop?.shopeDetails?.shopContact || '',
+          shopLocation: shop?.shopeDetails?.shopLocation || '',
+        };
+
+        const deliveryDetails = {
+          deliveryBoyId: order.assignedDeliveryBoy || null,
+          orderStatus: order.status,
+          pickupDistance: pickupDistance.toFixed(2),
+          pickupTime,
+          dropDistance: dropDistance.toFixed(2),
+          dropTime,
+          deliveryEarnings: order.deliveryEarning || 0,
+        };
+
+        const deliveryAddress = {
+          name: order?.deliveryAddress?.name || "N/A",
+          address: order?.deliveryAddress?.address || "N/A",
+          contact: order?.deliveryAddress?.contact || "N/A",
+          area: order?.deliveryAddress?.area || "N/A",
+          place: order?.deliveryAddress?.place || "N/A",
+          latitude: order?.deliveryAddress?.latitude || null,
+          longitude: order?.deliveryAddress?.longitude || null
+        };
+
+        formattedNearbyOrders.push({
+          orderId: order._id,
+          shopDetails,
+          deliveryDetails,
+          deliveryAddress,
+          createdAt: order.createdAt,
+          updatedAt: order.updatedAt
+        });
+
+        console.log(`✅ Added order ${order._id} (${order.status}) - ${pickupDistance.toFixed(2)} km away`);
+
+      } catch (orderError) {
+        console.error(`❌ Error processing order ${order._id}:`, orderError.message);
+        continue;
       }
-
-      const shopDetails = {
-        shopName: shop?.shopeDetails?.shopName || '',
-        shopAddress: shop?.shopeDetails?.shopAddress || '',
-        shopContact: shop?.shopeDetails?.shopContact || '',
-        shopLocation: shop?.shopeDetails?.shopLocation || '',  // ✅ Added shopLocation
-      };
-
-      const deliveryDetails = {
-        deliveryBoyId: order.assignedDeliveryBoy || null,
-        orderStatus: order.status,  // ✅ Using 'status' field
-        pickupDistance: `${pickupDistance.toFixed(2)}`,
-        pickupTime,
-        dropDistance: `${dropDistance ? dropDistance.toFixed(2) : '0.00'}`,
-        dropTime,
-        deliveryEarnings: order.deliveryEarning || 0,
-      };
-
-      const deliveryAddress = {
-        name: order?.deliveryAddress?.name || "N/A",
-        address: order?.deliveryAddress?.address || "N/A",
-        contact: order?.deliveryAddress?.contact || "N/A",
-        area: order?.deliveryAddress?.area || "N/A",
-        place: order?.deliveryAddress?.place || "N/A",
-        latitude: order?.deliveryAddress?.latitude || null,
-        longitude: order?.deliveryAddress?.longitude || null
-      };
-
-      formattedNearbyOrders.push({
-        orderId: order._id,
-        shopDetails,
-        deliveryDetails,
-        deliveryAddress,
-        createdAt: order.createdAt,
-        updatedAt: order.updatedAt
-      });
     }
+
+    console.log(`📊 Returning ${formattedNearbyOrders.length} nearby orders`);
 
     return res.status(200).json({
       message: "Nearby assigned orders fetched successfully",

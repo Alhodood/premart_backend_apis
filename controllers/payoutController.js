@@ -356,7 +356,9 @@ exports.getShopPayoutById = async (req, res) => {
     const { status, from, to } = req.query;
 
     const filter = { shopId };
+    
     if (status) filter.status = status;
+    
     if (from && to) {
       filter.from = { $gte: new Date(from) };
       filter.to = { $lte: new Date(to) };
@@ -373,18 +375,41 @@ exports.getShopPayoutById = async (req, res) => {
       });
     }
 
+    // Calculate totals
     const totalSales = payouts.reduce((sum, p) => sum + p.totalSales, 0);
     const totalCommission = payouts.reduce((sum, p) => sum + p.platformCommission, 0);
     const totalNetPayable = payouts.reduce((sum, p) => sum + p.netPayable, 0);
     const totalPending = payouts.filter(p => p.status === 'Pending').reduce((sum, p) => sum + p.netPayable, 0);
     const totalPaid = payouts.filter(p => p.status === 'Paid').reduce((sum, p) => sum + p.netPayable, 0);
 
+    // Format payouts for table view
+    const formattedPayouts = payouts.map(payout => ({
+      _id: payout._id,
+      totalOrders: payout.totalOrders || 0,
+      totalSales: payout.totalSales || 0,
+      platformCommission: payout.platformCommission || 0,
+      netPayable: payout.netPayable || 0,
+      status: payout.status || 'Pending',
+      
+      from: payout.from,
+      to: payout.to,
+      createdAt: payout.createdAt,
+      updatedAt: payout.updatedAt
+    }));
+
+    // Extract shop details properly
+    const shopDetails = payouts[0].shopId?.shopeDetails || {};
+
     return res.status(200).json({
       message: 'Shop payouts fetched successfully',
       success: true,
       data: {
         shopId: payouts[0].shopId._id,
-        shopName: payouts[0].shopId?.shopeDetails?.shopName || 'N/A',
+        shopName: shopDetails.shopName || 'N/A',
+        shopAddress: shopDetails.shopAddress || 'N/A',
+        shopMail: shopDetails.shopMail || 'N/A',
+        shopContact: shopDetails.shopContact || 'N/A',
+        shopLicenseNumber: shopDetails.shopLicenseNumber || 'N/A',
         summary: {
           totalSales: totalSales.toFixed(2),
           totalCommission: totalCommission.toFixed(2),
@@ -392,7 +417,7 @@ exports.getShopPayoutById = async (req, res) => {
           totalPending: totalPending.toFixed(2),
           totalPaid: totalPaid.toFixed(2)
         },
-        payouts
+        payouts: formattedPayouts
       }
     });
 
