@@ -13,6 +13,7 @@ const customerAddress= require("./routes/customerAddressRoutes.js")
 const vinData= require("./routes/vinDataRoutes.js")
 const banner = require("./routes/bannerRoutes.js")
 const ExcelJS = require('exceljs');
+const placesRoutes = require('./routes/places');
 
 const notification = require('./routes/notificationRoutes.js')
 
@@ -133,6 +134,7 @@ app.use('/api/vehicle-config', require('./routes/vehicleConfigurationRoutes'));
 app.use('/api/super-admin', superAdminSettingsRoutes);
 app.use('/api/rating', productRatingRoutes);
 app.use('/api/app-config', appConfigRoutes);
+app.use('/api/places', placesRoutes);
 
 
 

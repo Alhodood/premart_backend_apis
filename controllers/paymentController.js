@@ -1,46 +1,302 @@
+// controllers/paymentController.js
 const Payment = require('../models/Payment');
 const Order = require('../models/Order');
+const MasterOrder = require('../models/MasterOrder');
+const { v4: uuidv4 } = require('uuid');
+
 
 exports.createPayment = async (req, res) => {
   try {
-    const { orderId, userId, shopId, amount, paymentMethod, transactionId, paymentStatus } = req.body;
+    const { masterOrderId, userId, amount, paymentMethod, paymentStatus, transactionId } = req.body;
 
-    if (!orderId || !userId || !amount || !paymentMethod || !paymentStatus) {
+    if (!masterOrderId || !userId || !amount || !paymentMethod || !paymentStatus) {
       return res.status(400).json({
-        message: 'Required fields missing',
+        message: 'Required fields missing: masterOrderId, userId, amount, paymentMethod, paymentStatus',
         success: false,
         data: []
       });
     }
 
-    const payment = new Payment({
-      orderId,
-      userId,
-      shopId,
-      amount,
-      paymentMethod,
-      transactionId,
-      paymentStatus: paymentStatus
-    });
+    console.log(`💳 Processing payment for master order: ${masterOrderId}`);
 
-    await payment.save();
-
-    // Auto-assign delivery boy within 5km after payment is saved
-    try {
-      const { autoAssignDeliveryBoyWithin5kmHelper } = require('../helper/autoAssignHelper');
-      await autoAssignDeliveryBoyWithin5kmHelper(orderId);
-    } catch (err) {
-      console.error('Auto assign delivery boy failed:', err.message);
+    // ✅ 1. Get master order
+    const masterOrder = await MasterOrder.findById(masterOrderId);
+    
+    if (!masterOrder) {
+      return res.status(404).json({
+        message: 'Master order not found',
+        success: false,
+        data: []
+      });
     }
 
+    if (!masterOrder.orderIds || masterOrder.orderIds.length === 0) {
+      return res.status(400).json({
+        message: 'No orders found in master order',
+        success: false,
+        data: []
+      });
+    }
+
+    console.log(`📦 Found ${masterOrder.orderIds.length} orders in master order`);
+
+    // ✅ 2. Fetch first order
+    const firstOrder = await Order.findById(masterOrder.orderIds[0]);
+    
+    if (!firstOrder) {
+      return res.status(404).json({
+        message: 'Order not found',
+        success: false,
+        data: []
+      });
+    }
+
+    // ✅ 3. Extract delivery address safely
+    let deliveryAddress = null;
+    
+    if (firstOrder.deliveryAddress) {
+      deliveryAddress = {
+        name: firstOrder.deliveryAddress.name || 'N/A',
+        contact: firstOrder.deliveryAddress.contact || 'N/A',
+        address: firstOrder.deliveryAddress.address || 'N/A',
+        area: firstOrder.deliveryAddress.area || 'N/A',
+        place: firstOrder.deliveryAddress.place || 'N/A',
+        latitude: firstOrder.deliveryAddress.latitude || null,
+        longitude: firstOrder.deliveryAddress.longitude || null,
+        addressType: firstOrder.deliveryAddress.addressType || 'Home'
+      };
+    }
+
+    // ✅ 4. Extract coupon info safely - FIXED NULL HANDLING
+    let couponCode = null;
+    let couponDetails = null;
+
+    // Helper function to safely convert to plain object
+    const toPlainObject = (obj) => {
+      if (!obj) return null;
+      return obj.toObject ? obj.toObject() : obj;
+    };
+
+    // Check order coupon first
+    if (firstOrder.coupon) {
+      const orderCoupon = toPlainObject(firstOrder.coupon);
+      
+      // ✅ FIX: Check if orderCoupon is not null AND has a code
+      if (orderCoupon && orderCoupon.code) {
+        couponCode = orderCoupon.code;
+        couponDetails = {
+          code: orderCoupon.code,
+          discountType: orderCoupon.discountType || null,
+          discountValue: orderCoupon.discountValue || null,
+          discountAmount: orderCoupon.discountAmount || null
+        };
+        console.log(`🎟️ Found coupon in order: ${couponCode}`);
+      }
+    }
+    
+    // Fallback to master order coupon only if we don't have one yet
+    if (!couponDetails && masterOrder.couponApplied) {
+      const masterCoupon = toPlainObject(masterOrder.couponApplied);
+      
+      // ✅ FIX: Check if masterCoupon is not null AND has a code
+      if (masterCoupon && masterCoupon.code) {
+        couponCode = masterCoupon.code;
+        couponDetails = {
+          code: masterCoupon.code,
+          discountType: masterCoupon.discountType || null,
+          discountValue: masterCoupon.discountValue || null,
+          discountAmount: masterCoupon.discountAmount || null
+        };
+        console.log(`🎟️ Found coupon in master order: ${couponCode}`);
+      }
+    }
+
+    if (!couponCode) {
+      console.log(`🎟️ No coupon applied to this order`);
+    }
+
+    console.log(`📍 Delivery Address: ${deliveryAddress?.address || 'N/A'}, ${deliveryAddress?.place || 'N/A'}`);
+
+    // ✅ 5. Auto-generate transaction ID if not provided
+    let finalTransactionId = transactionId;
+    
+    if (!finalTransactionId || finalTransactionId === null || finalTransactionId === 'null') {
+      const timestamp = Date.now();
+      const randomStr = uuidv4().split('-')[0].toUpperCase();
+      
+      switch(paymentMethod.toUpperCase()) {
+        case 'COD':
+          finalTransactionId = `COD_${timestamp}_${randomStr}`;
+          break;
+        case 'CARD':
+          finalTransactionId = `CARD_${timestamp}_${randomStr}`;
+          break;
+        case 'WALLET':
+          finalTransactionId = `WALLET_${timestamp}_${randomStr}`;
+          break;
+        case 'UPI':
+          finalTransactionId = `UPI_${timestamp}_${randomStr}`;
+          break;
+        default:
+          finalTransactionId = `TXN_${timestamp}_${randomStr}`;
+      }
+      
+      console.log(`✅ Auto-generated transaction ID: ${finalTransactionId}`);
+    }
+
+    // ✅ 6. Create payment record - Only include non-null fields
+    const paymentData = {
+      orderId: masterOrderId,
+      userId,
+      shopId: null,
+      amount,
+      paymentMethod: paymentMethod.toUpperCase(),
+      transactionId: finalTransactionId,
+      paymentStatus,
+    };
+
+    // Only add optional fields if they have values
+    if (deliveryAddress) {
+      paymentData.deliveryAddress = deliveryAddress;
+    }
+
+    if (couponCode) {
+      paymentData.couponCode = couponCode;
+    }
+
+    if (couponDetails) {
+      paymentData.couponDetails = couponDetails;
+    }
+
+    const payment = new Payment(paymentData);
+    await payment.save();
+    
+    console.log(`✅ Payment created: ${payment._id}`);
+    console.log(`   Transaction ID: ${payment.transactionId}`);
+    console.log(`   Amount: ${payment.amount}`);
+    console.log(`   Method: ${payment.paymentMethod}`);
+
+    // ✅ 7. Get all orders from master order
+    const orders = await Order.find({
+      _id: { $in: masterOrder.orderIds }
+    });
+
+    console.log(`📦 Found ${orders.length} orders to process for delivery assignment`);
+
+    // ✅ 8. Get available delivery boys
+    const DeliveryBoy = require('../models/DeliveryBoy');
+    const availableDeliveryBoys = await DeliveryBoy.find({ 
+      availability: true,
+    });
+
+    console.log(`👷 Available delivery boys: ${availableDeliveryBoys.length}`);
+
+    if (availableDeliveryBoys.length === 0) {
+      return res.status(200).json({
+        message: 'Payment recorded but no available delivery boys at the moment',
+        success: true,
+        data: {
+          payment: {
+            _id: payment._id,
+            transactionId: payment.transactionId,
+            amount: payment.amount,
+            paymentMethod: payment.paymentMethod,
+            paymentStatus: payment.paymentStatus,
+            deliveryAddress: payment.deliveryAddress || null,
+            couponCode: payment.couponCode || null,
+            couponDetails: payment.couponDetails || null,
+          },
+          ordersProcessed: 0,
+          ordersPending: orders.length
+        }
+      });
+    }
+
+    // ✅ 9. Auto-assign delivery boys to all orders
+    const { autoAssignDeliveryBoyWithin5kmHelper } = require('../helper/autoAssignHelper');
+    
+    const assignmentResults = [];
+
+    for (const order of orders) {
+      try {
+        console.log(`\n🔄 Processing order ${order._id}...`);
+        
+        // Skip if already assigned
+        if (order.assignedDeliveryBoy) {
+          console.log(`⚠️ Order ${order._id} already assigned, skipping`);
+          assignmentResults.push({
+            orderId: order._id,
+            status: 'already_assigned',
+            message: 'Order already has a delivery boy'
+          });
+          continue;
+        }
+
+        // Call auto-assign helper
+        const result = await autoAssignDeliveryBoyWithin5kmHelper(order._id);
+        
+        assignmentResults.push({
+          orderId: order._id,
+          status: result.success ? 'assigned' : 'failed',
+          message: result.message,
+          deliveryBoysNotified: result.data?.nearbyDeliveryBoys?.length || 0
+        });
+
+        // Small delay to prevent race conditions
+        await new Promise(resolve => setTimeout(resolve, 500));
+
+      } catch (assignError) {
+        console.error(`❌ Failed to assign order ${order._id}:`, assignError.message);
+        
+        assignmentResults.push({
+          orderId: order._id,
+          status: 'error',
+          message: assignError.message
+        });
+      }
+    }
+
+    // ✅ 10. Calculate summary
+    const successCount = assignmentResults.filter(r => r.status === 'assigned').length;
+    const failedCount = assignmentResults.filter(r => r.status === 'failed' || r.status === 'error').length;
+    const alreadyAssignedCount = assignmentResults.filter(r => r.status === 'already_assigned').length;
+
+    console.log(`\n📊 Assignment Summary:`);
+    console.log(`   ✅ Successfully assigned: ${successCount}`);
+    console.log(`   ❌ Failed: ${failedCount}`);
+    console.log(`   ⚠️ Already assigned: ${alreadyAssignedCount}`);
+
     return res.status(201).json({
-      message: 'Payment recorded successfully',
+      message: 'Payment recorded and orders assignment initiated',
       success: true,
-      data: payment
+      data: {
+        payment: {
+          _id: payment._id,
+          masterOrderId: payment.orderId,
+          userId: payment.userId,
+          amount: payment.amount,
+          paymentMethod: payment.paymentMethod,
+          paymentStatus: payment.paymentStatus,
+          transactionId: payment.transactionId,
+          deliveryAddress: payment.deliveryAddress || null,
+          couponCode: payment.couponCode || null,
+          couponDetails: payment.couponDetails || null,
+          createdAt: payment.createdAt
+        },
+        masterOrderId: masterOrder._id,
+        totalOrders: orders.length,
+        summary: {
+          successfullyAssigned: successCount,
+          failed: failedCount,
+          alreadyAssigned: alreadyAssignedCount
+        },
+        assignmentResults
+      }
     });
 
   } catch (error) {
-    console.error('Create Payment Error:', error);
+    console.error('❌ Create Payment Error:', error);
+    console.error('Stack trace:', error.stack);
     res.status(500).json({
       message: 'Failed to record payment',
       success: false,
@@ -48,7 +304,6 @@ exports.createPayment = async (req, res) => {
     });
   }
 };
-
 
 
 

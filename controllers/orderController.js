@@ -231,8 +231,7 @@ exports.createOrder = async (req, res) => {
     const deliverycharge = originalTotal < 500;
     const masterDeliveryCharge = deliverycharge ? 30 : 0;
     const finalPayable = totalAmount + masterDeliveryCharge;
-
-    // ========================
+// ========================
     // 8. CREATE MASTER ORDER
     // ========================
     const masterOrder = await MasterOrder.create({
@@ -245,6 +244,8 @@ exports.createOrder = async (req, res) => {
         discountAmount: totalDiscount
       } : null
     });
+
+    console.log(`✅ Master order created: ${masterOrder._id}`);
 
     // ========================
     // 9. CREATE PER-SHOP ORDERS
@@ -261,54 +262,47 @@ exports.createOrder = async (req, res) => {
         shopTotal += p.price * p.quantity;
       });
 
-      // ✅ Calculate proportional discount for this shop
+      // Calculate proportional discount
       let shopDiscount = 0;
       if (couponDiscount > 0 && originalTotal > 0) {
         shopDiscount = +(couponDiscount * (shopTotal / originalTotal)).toFixed(2);
       }
 
-      // ✅ Calculate delivery distance and earning
+      // Calculate delivery distance and earning
       const shopLatLng = shop?.shopeDetails?.shopLocation?.split(',').map(Number);
-let deliveryDistance = 0;
-let deliveryEarning = 0;
+      let deliveryDistance = 0;
+      let deliveryEarning = 0;
 
-if (shopLatLng?.length === 2 && deliveryAddress.latitude && deliveryAddress.longitude) {
-  // 🔥 FIX: Explicitly convert to numbers
-  const shopLat = Number(shopLatLng[0]);
-  const shopLng = Number(shopLatLng[1]);
-  const deliveryLat = Number(deliveryAddress.latitude);
-  const deliveryLng = Number(deliveryAddress.longitude);
-  
-  // Validate that all coordinates are valid numbers
-  if (!isNaN(shopLat) && !isNaN(shopLng) && !isNaN(deliveryLat) && !isNaN(deliveryLng)) {
-    const distanceInMeters = geolib.getDistance(
-      { latitude: shopLat, longitude: shopLng },
-      { latitude: deliveryLat, longitude: deliveryLng }
-    );
-    
-    deliveryDistance = +(distanceInMeters / 1000).toFixed(2); // Convert to KM
-    deliveryEarning = +(PER_KM_RATE * deliveryDistance).toFixed(2);
-    
-    console.log(`📍 Distance calculated: ${deliveryDistance} km, Earning: ${deliveryEarning} AED`);
-  } else {
-    console.error('❌ Invalid coordinates:', { shopLat, shopLng, deliveryLat, deliveryLng });
-  }
-}
+      if (shopLatLng?.length === 2 && deliveryAddress.latitude && deliveryAddress.longitude) {
+        const shopLat = Number(shopLatLng[0]);
+        const shopLng = Number(shopLatLng[1]);
+        const deliveryLat = Number(deliveryAddress.latitude);
+        const deliveryLng = Number(deliveryAddress.longitude);
+        
+        if (!isNaN(shopLat) && !isNaN(shopLng) && !isNaN(deliveryLat) && !isNaN(deliveryLng)) {
+          const distanceInMeters = geolib.getDistance(
+            { latitude: shopLat, longitude: shopLng },
+            { latitude: deliveryLat, longitude: deliveryLng }
+          );
+          
+          deliveryDistance = +(distanceInMeters / 1000).toFixed(2);
+          deliveryEarning = +(PER_KM_RATE * deliveryDistance).toFixed(2);
+          
+          console.log(`📍 Shop ${shopId}: Distance ${deliveryDistance} km, Earning ${deliveryEarning} AED`);
+        }
+      }
 
-      // ✅ Calculate shop's delivery charge (30 if master order < 500)
       const shopDeliveryCharge = deliverycharge ? 30 : 0;
-
-      // ✅ Calculate final payable for this shop
       const shopFinalPayable = shopTotal - shopDiscount + shopDeliveryCharge;
 
-      // ✅ Reduce stock from ShopProduct
+      // Reduce stock
       for (const p of shopProducts) {
         await ShopProduct.findByIdAndUpdate(p.shopProductId, {
           $inc: { stock: -p.quantity }
         });
       }
 
-      // ✅ Create order with correct calculations
+      // Create order
       const createdOrder = await Order.create({
         userId,
         shopId,
@@ -331,42 +325,96 @@ if (shopLatLng?.length === 2 && deliveryAddress.latitude && deliveryAddress.long
           };
         }),
         deliveryAddress,
+        
         subtotal: shopTotal,
-        discount: shopDiscount,              // ✅ FIX: Now includes discount
+        discount: shopDiscount,
         deliveryCharge: shopDeliveryCharge,
-        totalPayable: shopFinalPayable,      // ✅ FIX: Correct calculation
+        totalPayable: shopFinalPayable,
         coupon: appliedCoupon ? {
           code: appliedCoupon.code,
           discountType: appliedCoupon.discountType,
           discountValue: appliedCoupon.discountValue,
-          discountAmount: shopDiscount       // ✅ Per-shop discount amount
+          discountAmount: shopDiscount
         } : null,
         paymentType,
         transactionId: transactionId || null,
         deliveryDistance,
         deliveryEarning,
-        status: 'Pending',                   // ✅ Changed from orderStatus
+        status: 'Pending',
         statusHistory: [
           { status: 'Pending', date: new Date() }
         ]
       });
 
-      // ✅✅ ADD THIS IMMEDIATELY AFTER ORDER CREATION:
-await Shop.findByIdAndUpdate(
-  shopId,
-  {
-    $push: {
-      orders: { orderId: createdOrder._id }
-    }
+      console.log(`✅ Order created for shop ${shopId}: ${createdOrder._id}`);
+
+      // Add order to shop
+      await Shop.findByIdAndUpdate(
+        shopId,
+        {
+          $push: {
+            orders: { orderId: createdOrder._id }
+          }
+        }
+      );
+
+      try {
+    const socketModule = require('../sockets/socket');
+    
+    // Format order for real-time update
+    const orderData = {
+      _id: createdOrder._id,
+      customerName: createdOrder.deliveryAddress?.name || 'Customer',
+      customerPhone: createdOrder.deliveryAddress?.contact || '-',
+      orderStatus: createdOrder.status,
+      productName: createdOrder.items[0]?.snapshot?.partName || 'Product',
+      productImage: createdOrder.items[0]?.snapshot?.image || null,
+      itemCount: createdOrder.items.length,
+      quantity: createdOrder.items.reduce((sum, item) => sum + item.quantity, 0),
+      totalAmount: createdOrder.subtotal,
+      finalPayable: createdOrder.totalPayable,
+      paymentMethod: createdOrder.paymentType,
+      paymentStatus: createdOrder.paymentStatus,
+      createdAt: createdOrder.createdAt,
+      deliveryAddress: createdOrder.deliveryAddress,
+      // Mark as new for frontend highlighting
+      isNew: true
+    };
+
+    // ✅ Emit to shop admin
+    socketModule.emitToShop(shopId, 'new_order', orderData);
+
+    // ✅ Emit to super admins
+    socketModule.emitToSuperAdmins('new_order', {
+      ...orderData,
+      shopId: shopId,
+      shopName: shop?.shopeDetails?.shopName || 'Unknown Shop'
+    });
+
+    console.log(`🔔 New order notification sent for order ${createdOrder._id}`);
+
+  } catch (socketError) {
+    console.error('❌ Socket emission error:', socketError.message);
+    // Don't fail order creation if socket fails
   }
-);
-
-console.log(`✅ Order ${createdOrder._id} added to shop ${shopId}`);
-
 
 
       perShopResults.push(createdOrder);
     }
+
+    
+
+    // ✅✅ FIX: Move this OUTSIDE the loop - AFTER all orders are created
+    await MasterOrder.findByIdAndUpdate(
+      masterOrder._id,
+      {
+        $set: {
+          orderIds: perShopResults.map(o => o._id)  // ✅ Use $set instead of $push
+        }
+      }
+    );
+
+    console.log(`✅ Added ${perShopResults.length} order IDs to master order ${masterOrder._id}`);
 
     // ========================
     // 10. CLEAR CART
@@ -763,7 +811,14 @@ exports.getAllOrders = async (req, res) => {
         orderCount: orderCount,
         paymentMethod: order.paymentType || order.paymentMethod || 'Cash',
         paymentStatus: order.paymentStatus || 'Pending',
-        coupon: order.coupon
+
+        // Cancellation details (if cancelled)
+...(order.status === 'Cancelled' && order.cancellation ? {
+  cancelReason: order.cancellation.reason || '-',
+  cancelledBy: order.cancellation.cancelledBy || '-',
+  cancelledAt: order.cancellation.cancelledAt || null,
+  cancelAdditionalComments: order.cancellation.additionalComments || '',
+} : {}),
       };
     });
 
@@ -1416,63 +1471,132 @@ exports.viewMyOrders = async (req, res) => {
 exports.viewOrdersByShopAdmin = async (req, res) => {
   try {
     const { shopId } = req.params;
+    const { status, startDate, endDate } = req.query;
 
-    const orders = await Order.find({ shopId })
-      .sort({ createdAt: -1 })
-      .populate('items.shopProductId', 'price discountedPrice')
-      .lean();
+    // Build filter
+    const filter = { shopId };
+    
+    if (status) filter.status = status;
+    
+    if (startDate || endDate) {
+      filter.createdAt = {};
+      if (startDate) filter.createdAt.$gte = new Date(startDate);
+      if (endDate) filter.createdAt.$lte = new Date(endDate);
+    }
 
-    const formatted = orders.map(order => ({
-      orderId: order._id,
-      customer: order.deliveryAddress?.name,
-      contact: order.deliveryAddress?.contact,
-      address: order.deliveryAddress?.address,
-      totalPayable: order.totalPayable,
-      status: order.status,
-      createdAt: order.createdAt,
+    // Fetch orders with all necessary population
+    const [orders, total] = await Promise.all([
+      Order.find(filter)
+        .populate('userId', 'name email phone')
+        .populate('shopId', 'shopeDetails.shopName shopeDetails.shopAddress shopeDetails.EmiratesIdImage orders')
+        // Populate delivery boy with agency details
+        .populate({
+          path: 'assignedDeliveryBoy',
+          select: 'name phone agencyId',
+          populate: {
+            path: 'agencyId',
+            select: 'agencyDetails.agencyName agencyDetails.agencyContact',
+            model: 'DeliveryAgency'
+          }
+        })
+        .populate({
+          path: 'items.shopProductId',
+          populate: {
+            path: 'part',
+            select: 'partName images'
+          }
+        })
+        .sort({ createdAt: -1 })
+        .lean(),
+      Order.countDocuments(filter)
+    ]);
 
-      items: order.items.map(i => {
-        const shopProduct = i.shopProductId;
-        const snapshotPrice = i.snapshot?.price || 0;
-        const snapshotDiscounted = i.snapshot?.discountedPrice;
-        const shopOriginalPrice = shopProduct?.price || 0;
-        const shopDiscountedPrice = shopProduct?.discountedPrice;
+    // Format orders for table view
+    const formattedOrders = orders.map(order => {
+      const orderCount = order.shopId?.orders?.length || 0;
+      
+      // Extract delivery boy and agency information
+      const deliveryBoyName = order.assignedDeliveryBoy?.name || 'Not Assigned';
+      const agencyName = order.assignedDeliveryBoy?.agencyId?.agencyDetails?.agencyName || '-';
+      
+      return {
+        _id: order._id,
+        
+        // Customer
+        customerName: order.deliveryAddress?.name || order.userId?.name || '-',
+        customerPhone: order.deliveryAddress?.contact || order.userId?.phone || '-',
+        
+        // Status
+        orderStatus: order.status || order.orderStatus || 'pending',
+        
+        // First item details (for preview)
+        productName: order.items?.[0]?.snapshot?.partName || 
+                     order.items?.[0]?.shopProductId?.part?.partName || 
+                     'Product',
+        productImage: order.items?.[0]?.snapshot?.image || 
+                      order.items?.[0]?.shopProductId?.part?.images?.[0] || 
+                      null,
+        itemCount: order.items?.length || 0,
+        quantity: order.items?.reduce((sum, item) => sum + (item.quantity || 1), 0) || 1,
+        createdAt: order.createdAt,
+        
+        // Financial
+        totalAmount: order.subtotal || order.totalAmount || 0,
+        finalPayable: order.totalPayable || order.finalPayable || 0,
+        
+        // Delivery
+        deliveryAddress: order.deliveryAddress,
+        deliveryBoy: deliveryBoyName,
+        agencyName: agencyName,
+        
+        // Shop
+        shopName: order.shopId?.shopeDetails?.shopName || 'Unknown Shop',
+        shopAddress: order.shopId?.shopeDetails?.shopAddress || '-',
+        emiratesIdImage: order.shopId?.shopeDetails?.EmiratesIdImage || null,
+        orderCount: orderCount,
+        
+        // Payment
+        paymentMethod: order.paymentType || order.paymentMethod || 'Cash',
+        paymentStatus: order.paymentStatus || 'Pending',
 
-        let price, discountedPrice;
-        if (snapshotDiscounted != null) {
-          price = snapshotPrice;
-          discountedPrice = snapshotDiscounted;
-        } else if (shopDiscountedPrice != null && shopOriginalPrice > snapshotPrice) {
-          price = shopOriginalPrice;
-          discountedPrice = snapshotPrice;
-        } else {
-          price = shopOriginalPrice || snapshotPrice;
-          discountedPrice = snapshotPrice;
-        }
+        ...(order.status === 'Cancelled' && order.cancellation ? {
+    cancelReason: order.cancellation.reason || '-',
+    cancelledBy: order.cancellation.cancelledBy || '-',
+    cancelledAt: order.cancellation.cancelledAt || null,
+    cancelAdditionalComments: order.cancellation.additionalComments || '',
+  } : {}),
+        
+        // All items (full details for this shop admin view)
+        // items: order.items?.map(item => ({
+        //   quantity: item.quantity || 1,
+        //   partNumber: item.snapshot?.partNumber || '-',
+        //   partName: item.snapshot?.partName || 
+        //             item.shopProductId?.part?.partName || 
+        //             'Product',
+        //   brand: item.snapshot?.brand || '-',
+        //   model: item.snapshot?.model || '-',
+        //   category: item.snapshot?.category || '-',
+        //   price: item.snapshot?.price || item.price || 0,
+        //   image: item.snapshot?.image || 
+        //          item.shopProductId?.part?.images?.[0] || 
+        //          null
+        // })) || []
+      };
+    });
 
-        const finalPrice = discountedPrice;
-        const hasDiscount = price > discountedPrice;
-
-        return {
-          quantity: i.quantity,
-          partNumber: i.snapshot?.partNumber,
-          partName: i.snapshot?.partName,
-          brand: i.snapshot?.brand,
-          model: i.snapshot?.model,
-          category: i.snapshot?.category,
-          price,
-          discountedPrice,
-          finalPrice,
-          hasDiscount,
-          image: i.snapshot?.image
-        };
-      })
-    }));
-
-    res.json({ success: true, data: formatted });
+    res.json({
+      success: true,
+      data: formattedOrders,
+      total: total
+    });
 
   } catch (err) {
-    res.status(500).json({ success: false, message: err.message });
+    console.error('❌ View Orders By Shop Admin Error:', err);
+    res.status(500).json({
+      success: false,
+      message: 'Failed to fetch shop orders',
+      error: err.message
+    });
   }
 };
 
