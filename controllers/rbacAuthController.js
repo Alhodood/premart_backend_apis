@@ -200,33 +200,53 @@ exports.login = async (req, res) => {
     // =======================
     // AGENCY LOGIN (FIXED)
     // =======================
-    if (role === ROLES.AGENCY) {
-      const { DeliveryAgency } = require('../models/DeliveryAgency');
-      user = await DeliveryAgency.findOne({
-        'agencyDetails.email': email
-      });
+   if (role === ROLES.AGENCY) {
+  console.log('🔐 AGENCY LOGIN ATTEMPT');
+  console.log('Email:', email);
+  
+  const { DeliveryAgency } = require('../models/DeliveryAgency');
+  user = await DeliveryAgency.findOne({
+    'agencyDetails.agencyMail': email
+  });
 
-      if (!user) {
-        return res.status(401).json({ success: false, message: 'Invalid credentials' });
-      }
+  console.log('User found:', user ? 'YES' : 'NO');
+  if (user) console.log('Agency ID:', user._id.toString());
 
-      const match = await user.comparePassword(password);
-      if (!match) {
-        return res.status(401).json({ success: false, message: 'Invalid credentials' });
-      }
+  if (!user) {
+    return res.status(401).json({ 
+      success: false, 
+      message: 'Invalid credentials' 
+    });
+  }
 
-      const token = generateToken({ id: user._id, role });
-      return res.json({
-        success: true,
-        message: 'Login successful',
-        data: {
-          id: user._id,
-          role,
-          token,
-          agencyId: user._id
-        }
-      });
-    }
+  const match = await user.comparePassword(password);
+  console.log('Password match:', match ? 'YES' : 'NO');
+  
+  if (!match) {
+    return res.status(401).json({ 
+      success: false, 
+      message: 'Invalid credentials' 
+    });
+  }
+
+  const token = generateToken({ id: user._id, role });
+  
+  const responseData = {
+    id: user._id.toString(),
+    role,
+    token,
+    agencyId: user._id.toString()
+  };
+  
+  console.log('✅ LOGIN SUCCESS - Sending response:');
+  console.log(JSON.stringify(responseData, null, 2));
+  
+  return res.json({
+    success: true,
+    message: 'Login successful',
+    data: responseData
+  });
+}
 
     // =======================
     // ALL OTHER ROLES
@@ -282,6 +302,8 @@ exports.login = async (req, res) => {
     if (role === ROLES.SHOP_ADMIN) {
       response.shopId = user.shopId;
     }
+
+    
 
     res.json({
       success: true,
@@ -615,44 +637,90 @@ exports.createShopAdmin = async (req, res) => {
 exports.createAgency = async (req, res) => {
   try {
     const { agencyDetails } = req.body;
+    
+    console.log('📝 Create Agency Request:', agencyDetails);
 
+    // ✅ Validate required fields
     if (!agencyDetails?.agencyName || !agencyDetails?.agencyMail) {
-      return res.status(400).json({ success: false, message: 'Missing agency fields' });
+      return res.status(400).json({ 
+        success: false, 
+        message: 'Agency name and email are required' 
+      });
     }
 
-    const Model = roleModelMap[ROLES.AGENCY];
+    if (!agencyDetails?.agencyContact) {
+      return res.status(400).json({ 
+        success: false, 
+        message: 'Agency contact is required' 
+      });
+    }
 
-    const exists = await Model.findOne({
-      'agencyDetails.email': agencyDetails.email
+    // ✅ Validate new required fields
+    if (!agencyDetails?.city) {
+      return res.status(400).json({ 
+        success: false, 
+        message: 'City is required' 
+      });
+    }
+
+    if (!agencyDetails?.emirates || !Array.isArray(agencyDetails.emirates) || agencyDetails.emirates.length === 0) {
+      return res.status(400).json({ 
+        success: false, 
+        message: 'At least one emirate is required' 
+      });
+    }
+
+    if (!agencyDetails?.licenseAuthority) {
+      return res.status(400).json({ 
+        success: false, 
+        message: 'License issuing authority is required' 
+      });
+    }
+
+    const { DeliveryAgency } = require('../models/DeliveryAgency');
+
+    // Check if agency already exists
+    const exists = await DeliveryAgency.findOne({
+      'agencyDetails.email': agencyDetails.agencyMail
     });
 
     if (exists) {
-      return res.status(400).json({ success: false, message: 'Agency already exists' });
+      return res.status(400).json({ 
+        success: false, 
+        message: 'Agency with this email already exists' 
+      });
     }
 
-    const agency = await Model.create({
+    // ✅ Create agency with all fields
+    const agency = await DeliveryAgency.create({
       agencyDetails: {
         ...agencyDetails,
-        role: ROLES.AGENCY,
-        email: agencyDetails.email,
-        password: agencyDetails.password || 'Temp@123'
+        email: agencyDetails.agencyMail,
+        password: agencyDetails.password || 'password@123',
+        role: ROLES.AGENCY
       }
     });
+
+    console.log('✅ Agency created:', agency._id);
 
     return res.status(201).json({
       success: true,
       message: 'Agency created successfully',
       data: {
-        agencyId: agency._id
+        agencyId: agency._id,
+        agencyName: agency.agencyDetails.agencyName,
+        agencyEmail: agency.agencyDetails.agencyMail
       }
     });
-
   } catch (err) {
-    console.error('Create Agency Error:', err);
-    res.status(500).json({ success: false, message: err.message });
+    console.error('❌ Create Agency Error:', err);
+    res.status(500).json({ 
+      success: false, 
+      message: 'Failed to create agency',
+      error: err.message 
+    });
   }
 };
-
 // controllers/rbacAuthController.js
 
 exports.getCustomerDetailsById = async (req, res) => {
@@ -746,12 +814,11 @@ exports.getCustomerOrders = async (req, res) => {
   }
 };
 
-// ✅ AGENCY PUBLIC REGISTRATION (for agency owners to self-register)
+// ✅ AGENCY PUBLIC REGISTRATION (Updated)
 exports.registerAgency = async (req, res) => {
   try {
     const { email, password, agencyDetails } = req.body;
-
-    console.log('📝 Agency Registration Request:', { email, agencyDetails: !!agencyDetails });
+    console.log('📝 Agency Registration Request:', { email, agencyDetails });
 
     // Validate required fields
     if (!email || !password) {
@@ -765,6 +832,29 @@ exports.registerAgency = async (req, res) => {
       return res.status(400).json({
         success: false,
         message: 'Agency name and contact are required'
+      });
+    }
+
+    // ✅ NEW: Validate new required fields
+    if (!agencyDetails?.city) {
+      return res.status(400).json({
+        success: false,
+        message: 'City is required'
+      });
+    }
+
+    // ✅ FIXED: Check for emirates (plural, array)
+    if (!agencyDetails?.emirates || !Array.isArray(agencyDetails.emirates) || agencyDetails.emirates.length === 0) {
+      return res.status(400).json({
+        success: false,
+        message: 'At least one emirate is required'
+      });
+    }
+
+    if (!agencyDetails?.licenseAuthority) {
+      return res.status(400).json({
+        success: false,
+        message: 'License issuing authority is required'
       });
     }
 
@@ -782,7 +872,7 @@ exports.registerAgency = async (req, res) => {
       });
     }
 
-    // Create agency
+    // ✅ Create agency with all fields
     const agency = await DeliveryAgency.create({
       agencyDetails: {
         ...agencyDetails,
@@ -809,7 +899,6 @@ exports.registerAgency = async (req, res) => {
         token
       }
     });
-
   } catch (err) {
     console.error('❌ Agency Registration Error:', err);
     return res.status(500).json({
@@ -819,7 +908,6 @@ exports.registerAgency = async (req, res) => {
     });
   }
 };
-
 // ✅ SHOP ADMIN PUBLIC REGISTRATION (for shop owners to self-register)
 exports.registerShopAdmin = async (req, res) => {
   try {
