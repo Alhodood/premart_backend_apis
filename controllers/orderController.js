@@ -18,7 +18,9 @@ const PDFDocument = require('pdfkit');
 const Coupon = require('../models/Coupon');
 const Offer = require('../models/Offers');
 const GOOGLE_API_KEY = process.env.GOOGLE_MAPS_API_KEY;
-const PER_KM_RATE = parseFloat(process.env.PER_KM_RATE) || 2; // AED per km
+const { getSuperAdminSettings } = require('../helper/settingsHelper');
+const { notifyUser, sendPushOnly } = require('../helper/notificationHelper');
+const { sendOrderPlaced, sendOrderStatusUpdate } = require('../helper/mailHelper');
 
 
 
@@ -48,36 +50,32 @@ const getLatLngFromAddress = async (addressString) => {
 };
 
 
+
+
 exports.createOrder = async (req, res) => {
   try {
+    // ✅ STEP 2: Get settings at start
+    const settings = await getSuperAdminSettings();
+    console.log('⚙️ Settings:', {
+      perKmRate: settings.perKmRate,
+      deliveryCharge: settings.deliveryCharge,
+      freeDeliveryThreshold: settings.freeDeliveryThreshold
+    });
+
     const { couponCode, paymentType, transactionId } = req.body;
     const userId = req.user?._id || req.params.userId;
     
     if (!userId) {
-      return res.status(400).json({ 
-        message: 'User ID is required', 
-        success: false 
-      });
+      return res.status(400).json({ message: 'User ID required', success: false });
     }
 
-    // ========================
-    // 1. GET USER DATA
-    // ========================
     const User = require('../models/User');
     const userData = await User.findById(userId);
-    
     if (!userData) {
-      return res.status(400).json({ 
-        message: 'User not found', 
-        success: false 
-      });
+      return res.status(400).json({ message: 'User not found', success: false });
     }
 
-    // ========================
-    // 2. RESOLVE DELIVERY ADDRESS
-    // ========================
     let deliveryAddress = req.body.deliveryAddress;
-    
     if (deliveryAddress?.name && deliveryAddress?.address) {
       deliveryAddress = {
         ...deliveryAddress,
@@ -89,10 +87,7 @@ exports.createOrder = async (req, res) => {
     } else {
       const defaultAddress = userData.address?.find(a => a.default);
       if (!defaultAddress) {
-        return res.status(400).json({ 
-          message: 'No delivery address found', 
-          success: false 
-        });
+        return res.status(400).json({ message: 'No delivery address', success: false });
       }
       deliveryAddress = {
         ...defaultAddress.toObject(),
@@ -101,9 +96,6 @@ exports.createOrder = async (req, res) => {
       };
     }
 
-    // ========================
-    // 3. FETCH CART
-    // ========================
     const cart = await Cart.findOne({ userId })
       .populate({
         path: 'items.shopProductId',
@@ -124,15 +116,9 @@ exports.createOrder = async (req, res) => {
       });
 
     if (!cart || cart.items.length === 0) {
-      return res.status(400).json({ 
-        message: 'Cart is empty', 
-        success: false 
-      });
+      return res.status(400).json({ message: 'Cart is empty', success: false });
     }
 
-    // ========================
-    // 4. NORMALIZE CART ITEMS
-    // ========================
     const allProducts = cart.items.map(item => ({
       shopProductId: item.shopProductId._id,
       shopId: item.shopProductId.shopId,
@@ -143,9 +129,6 @@ exports.createOrder = async (req, res) => {
       part: item.shopProductId.part
     }));
 
-    // ========================
-    // 5. GROUP BY SHOP
-    // ========================
     const productsByShop = {};
     allProducts.forEach(p => {
       const sId = p.shopId.toString();
@@ -153,58 +136,29 @@ exports.createOrder = async (req, res) => {
       productsByShop[sId].push(p);
     });
 
-    // ========================
-    // 6. CALCULATE TOTALS
-    // ========================
     let originalTotal = 0;
     for (const p of allProducts) {
       originalTotal += p.price * p.quantity;
     }
 
-    // ========================
-    // 7. APPLY COUPON
-    // ========================
     let couponDiscount = 0;
     let appliedCoupon = null;
 
     if (couponCode) {
-      const coupon = await Coupon.findOne({ 
-        code: couponCode, 
-        isActive: true 
-      });
-
+      const coupon = await Coupon.findOne({ code: couponCode, isActive: true });
       if (!coupon) {
-        return res.status(400).json({ 
-          message: 'Invalid coupon', 
-          success: false 
-        });
+        return res.status(400).json({ message: 'Invalid coupon', success: false });
       }
-
-      // Check expiry
       if (coupon.expiryDate && new Date() > coupon.expiryDate) {
-        return res.status(400).json({ 
-          message: 'Coupon has expired', 
-          success: false 
-        });
+        return res.status(400).json({ message: 'Coupon expired', success: false });
       }
-
-      // Check usage limit
       if (coupon.usageLimit && coupon.usedCount >= coupon.usageLimit) {
-        return res.status(400).json({ 
-          message: 'Coupon usage limit reached', 
-          success: false 
-        });
+        return res.status(400).json({ message: 'Coupon limit reached', success: false });
       }
-
-      // Check minimum order amount
       if (coupon.minOrderAmount && originalTotal < coupon.minOrderAmount) {
-        return res.status(400).json({ 
-          message: `Minimum order amount is ${coupon.minOrderAmount}`, 
-          success: false 
-        });
+        return res.status(400).json({ message: `Minimum order: ${coupon.minOrderAmount}`, success: false });
       }
 
-      // Calculate discount
       if (coupon.discountType === 'percent') {
         couponDiscount = (originalTotal * coupon.discountValue) / 100;
       } else if (coupon.discountType === 'flat' || coupon.discountType === 'amount') {
@@ -217,7 +171,6 @@ exports.createOrder = async (req, res) => {
         discountValue: coupon.discountValue
       };
 
-      // Update coupon usage
       coupon.usedCount += 1;
       if (!coupon.userId) coupon.userId = [];
       coupon.userId.push(userId);
@@ -227,48 +180,36 @@ exports.createOrder = async (req, res) => {
     const totalDiscount = couponDiscount;
     const totalAmount = +(originalTotal - totalDiscount).toFixed(2);
     
-    // Master delivery charge (applies to entire order if < 500)
-    const deliverycharge = originalTotal < 500;
-    const masterDeliveryCharge = deliverycharge ? 30 : 0;
+    // ✅ STEP 3: Use settings
+    const deliverycharge = originalTotal < settings.freeDeliveryThreshold;
+    const masterDeliveryCharge = deliverycharge ? settings.deliveryCharge : 0;
     const finalPayable = totalAmount + masterDeliveryCharge;
-// ========================
-    // 8. CREATE MASTER ORDER
-    // ========================
+
     const masterOrder = await MasterOrder.create({
       userId,
       totalAmount: originalTotal,
       finalPayable,
       deliverycharge: masterDeliveryCharge,
-      couponApplied: appliedCoupon ? {
-        ...appliedCoupon,
-        discountAmount: totalDiscount
-      } : null
+      couponApplied: appliedCoupon ? { ...appliedCoupon, discountAmount: totalDiscount } : null
     });
 
-    console.log(`✅ Master order created: ${masterOrder._id}`);
-
-    // ========================
-    // 9. CREATE PER-SHOP ORDERS
-    // ========================
     const perShopResults = [];
 
     for (const shopId of Object.keys(productsByShop)) {
       const shop = await Shop.findById(shopId);
       const shopProducts = productsByShop[shopId];
 
-      // Calculate shop subtotal
       let shopTotal = 0;
       shopProducts.forEach(p => {
         shopTotal += p.price * p.quantity;
       });
 
-      // Calculate proportional discount
       let shopDiscount = 0;
       if (couponDiscount > 0 && originalTotal > 0) {
         shopDiscount = +(couponDiscount * (shopTotal / originalTotal)).toFixed(2);
       }
 
-      // Calculate delivery distance and earning
+      // ✅ STEP 4: Use settings for delivery
       const shopLatLng = shop?.shopeDetails?.shopLocation?.split(',').map(Number);
       let deliveryDistance = 0;
       let deliveryEarning = 0;
@@ -286,23 +227,19 @@ exports.createOrder = async (req, res) => {
           );
           
           deliveryDistance = +(distanceInMeters / 1000).toFixed(2);
-          deliveryEarning = +(PER_KM_RATE * deliveryDistance).toFixed(2);
+          deliveryEarning = +(settings.perKmRate * deliveryDistance).toFixed(2);
           
-          console.log(`📍 Shop ${shopId}: Distance ${deliveryDistance} km, Earning ${deliveryEarning} AED`);
+          console.log(`📍 Shop ${shopId}: ${deliveryDistance}km @ ${settings.perKmRate} AED/km = ${deliveryEarning} AED`);
         }
       }
 
-      const shopDeliveryCharge = deliverycharge ? 30 : 0;
+      const shopDeliveryCharge = deliverycharge ? settings.deliveryCharge : 0;
       const shopFinalPayable = shopTotal - shopDiscount + shopDeliveryCharge;
 
-      // Reduce stock
       for (const p of shopProducts) {
-        await ShopProduct.findByIdAndUpdate(p.shopProductId, {
-          $inc: { stock: -p.quantity }
-        });
+        await ShopProduct.findByIdAndUpdate(p.shopProductId, { $inc: { stock: -p.quantity } });
       }
 
-      // Create order
       const createdOrder = await Order.create({
         userId,
         shopId,
@@ -325,7 +262,6 @@ exports.createOrder = async (req, res) => {
           };
         }),
         deliveryAddress,
-        
         subtotal: shopTotal,
         discount: shopDiscount,
         deliveryCharge: shopDeliveryCharge,
@@ -341,89 +277,66 @@ exports.createOrder = async (req, res) => {
         deliveryDistance,
         deliveryEarning,
         status: 'Pending',
-        statusHistory: [
-          { status: 'Pending', date: new Date() }
-        ]
+        statusHistory: [{ status: 'Pending', date: new Date() }]
       });
 
-      console.log(`✅ Order created for shop ${shopId}: ${createdOrder._id}`);
-
-      // Add order to shop
-      await Shop.findByIdAndUpdate(
-        shopId,
-        {
-          $push: {
-            orders: { orderId: createdOrder._id }
-          }
-        }
-      );
+      await Shop.findByIdAndUpdate(shopId, { $push: { orders: { orderId: createdOrder._id } } });
 
       try {
-    const socketModule = require('../sockets/socket');
-    
-    // Format order for real-time update
-    const orderData = {
-      _id: createdOrder._id,
-      customerName: createdOrder.deliveryAddress?.name || 'Customer',
-      customerPhone: createdOrder.deliveryAddress?.contact || '-',
-      orderStatus: createdOrder.status,
-      productName: createdOrder.items[0]?.snapshot?.partName || 'Product',
-      productImage: createdOrder.items[0]?.snapshot?.image || null,
-      itemCount: createdOrder.items.length,
-      quantity: createdOrder.items.reduce((sum, item) => sum + item.quantity, 0),
-      totalAmount: createdOrder.subtotal,
-      finalPayable: createdOrder.totalPayable,
-      paymentMethod: createdOrder.paymentType,
-      paymentStatus: createdOrder.paymentStatus,
-      createdAt: createdOrder.createdAt,
-      deliveryAddress: createdOrder.deliveryAddress,
-      // Mark as new for frontend highlighting
-      isNew: true
-    };
+        const socketModule = require('../sockets/socket');
+        const orderData = {
+          _id: createdOrder._id,
+          customerName: createdOrder.deliveryAddress?.name || 'Customer',
+          customerPhone: createdOrder.deliveryAddress?.contact || '-',
+          orderStatus: createdOrder.status,
+          productName: createdOrder.items[0]?.snapshot?.partName || 'Product',
+          productImage: createdOrder.items[0]?.snapshot?.image || null,
+          itemCount: createdOrder.items.length,
+          quantity: createdOrder.items.reduce((sum, item) => sum + item.quantity, 0),
+          totalAmount: createdOrder.subtotal,
+          finalPayable: createdOrder.totalPayable,
+          paymentMethod: createdOrder.paymentType,
+          paymentStatus: createdOrder.paymentStatus,
+          createdAt: createdOrder.createdAt,
+          deliveryAddress: createdOrder.deliveryAddress,
+          isNew: true
+        };
 
-    // ✅ Emit to shop admin
-    socketModule.emitToShop(shopId, 'new_order', orderData);
-
-    // ✅ Emit to super admins
-    socketModule.emitToSuperAdmins('new_order', {
-      ...orderData,
-      shopId: shopId,
-      shopName: shop?.shopeDetails?.shopName || 'Unknown Shop'
-    });
-
-    console.log(`🔔 New order notification sent for order ${createdOrder._id}`);
-
-  } catch (socketError) {
-    console.error('❌ Socket emission error:', socketError.message);
-    // Don't fail order creation if socket fails
-  }
-
+        socketModule.emitToShop(shopId, 'new_order', orderData);
+        socketModule.emitToSuperAdmins('new_order', { ...orderData, shopId, shopName: shop?.shopeDetails?.shopName || 'Unknown' });
+      } catch (socketError) {
+        console.error('Socket error:', socketError.message);
+      }
 
       perShopResults.push(createdOrder);
     }
 
-    
-
-    // ✅✅ FIX: Move this OUTSIDE the loop - AFTER all orders are created
-    await MasterOrder.findByIdAndUpdate(
-      masterOrder._id,
-      {
-        $set: {
-          orderIds: perShopResults.map(o => o._id)  // ✅ Use $set instead of $push
-        }
-      }
-    );
-
-    console.log(`✅ Added ${perShopResults.length} order IDs to master order ${masterOrder._id}`);
-
-    // ========================
-    // 10. CLEAR CART
-    // ========================
+    await MasterOrder.findByIdAndUpdate(masterOrder._id, { $set: { orderIds: perShopResults.map(o => o._id) } });
     await Cart.updateOne({ userId }, { $set: { items: [] } });
 
-    // ========================
-    // 11. RETURN RESPONSE
-    // ========================
+    const firstOrderId = perShopResults[0]?._id;
+    if (userId && firstOrderId) {
+      notifyUser(
+        userId.toString(),
+        'Order placed',
+        `Your order has been placed successfully. Total: ${finalPayable}`,
+        { route: 'order_details', order_id: String(firstOrderId) },
+        'order'
+      ).catch((e) => console.error('Notification failed:', e.message));
+    }
+
+    if (userData?.email) {
+      const itemsSummary = perShopResults.length === 1
+        ? `${perShopResults[0].items?.length || 0} item(s)`
+        : `${perShopResults.length} shop(s), ${perShopResults.reduce((s, o) => s + (o.items?.length || 0), 0)} item(s)`;
+      sendOrderPlaced(userData.email, userData.name, {
+        orderId: String(firstOrderId),
+        totalPayable: finalPayable,
+        itemsSummary
+      }).then((r) => { if (!r.sent) console.warn('Order placed email skipped:', r.error); })
+        .catch((e) => console.warn('Order placed email error:', e.message));
+    }
+
     return res.status(201).json({
       success: true,
       message: 'Order placed successfully',
@@ -440,13 +353,64 @@ exports.createOrder = async (req, res) => {
 
   } catch (err) {
     console.error('Create Order Error:', err);
-    res.status(500).json({
-      message: 'Failed to place order',
-      success: false,
-      error: err.message
-    });
+    res.status(500).json({ message: 'Failed to place order', success: false, error: err.message });
   }
 };
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 
 exports.getOrderById = async (req, res) => {
   try {
@@ -1616,7 +1580,7 @@ exports.updateOrderStatus = async (req, res) => {
 
     const updatedOrder = await Order.findByIdAndUpdate(
       orderId,
-      { orderStatus: newStatus },
+      { status: newStatus },
       { new: true }
     );
 
@@ -1648,6 +1612,29 @@ exports.updateOrderStatus = async (req, res) => {
       }
     } catch (err) {
       console.error('Socket.IO emit failed:', err.message);
+    }
+
+    // In-app notification + push for customer
+    if (updatedOrder.userId) {
+      notifyUser(
+        updatedOrder.userId.toString(),
+        'Order update',
+        `Your order #${updatedOrder._id} is now ${newStatus}`,
+        { route: 'order_details', order_id: String(updatedOrder._id) },
+        'order_status'
+      ).catch((e) => console.error('Notification failed:', e.message));
+    }
+
+    const User = require('../models/User');
+    const orderUser = await User.findById(updatedOrder.userId).select('email name').lean();
+    if (orderUser?.email) {
+      sendOrderStatusUpdate(
+        orderUser.email,
+        orderUser.name,
+        String(updatedOrder._id),
+        newStatus
+      ).then((r) => { if (!r.sent) console.warn('Order status email skipped:', r.error); })
+        .catch((e) => console.warn('Order status email error:', e.message));
     }
 
     return res.status(200).json({
@@ -1761,6 +1748,29 @@ exports.updateOrderStatus = async (req, res) => {
         console.error('Socket.IO emit failed:', err.message);
       }
 
+      if (updatedOrder.userId) {
+        notifyUser(
+          updatedOrder.userId.toString(),
+          'Order cancelled',
+          `Your order #${updatedOrder._id} has been cancelled.`,
+          { route: 'order_details', order_id: String(updatedOrder._id) },
+          'order_status'
+        ).catch((e) => console.error('Notification failed:', e.message));
+        const User = require('../models/User');
+        const cancelUser = await User.findById(updatedOrder.userId).select('email name').lean();
+        if (cancelUser?.email) {
+          const cancelMessage = reason ? `Reason: ${reason}${additionalComments ? `. ${additionalComments}` : ''}` : null;
+          sendOrderStatusUpdate(
+            cancelUser.email,
+            cancelUser.name,
+            String(updatedOrder._id),
+            'Cancelled',
+            cancelMessage
+          ).then((r) => { if (!r.sent) console.warn('Order cancelled email skipped:', r.error); })
+            .catch((e) => console.warn('Order cancelled email error:', e.message));
+        }
+      }
+
       return res.status(200).json({
         message: 'Order cancelled successfully',
         success: true,
@@ -1810,7 +1820,32 @@ exports.updateOrderStatus = async (req, res) => {
           data: []
         });
       }
-  
+
+      if (updatedOrder.userId) {
+        notifyUser(
+          updatedOrder.userId.toString(),
+          'Order refunded',
+          `Your order #${updatedOrder._id} has been refunded.`,
+          { route: 'order_details', order_id: String(updatedOrder._id) },
+          'order_status'
+        ).catch((e) => console.error('Notification failed:', e.message));
+        const User = require('../models/User');
+        const refundUser = await User.findById(updatedOrder.userId).select('email name').lean();
+        if (refundUser?.email) {
+          const refundMessage = updatedOrder.refundDetails
+            ? `Amount: ${updatedOrder.refundDetails.refundAmount || 'Full'}. ${updatedOrder.refundDetails.refundReason || ''}`
+            : null;
+          sendOrderStatusUpdate(
+            refundUser.email,
+            refundUser.name,
+            String(updatedOrder._id),
+            'Refunded',
+            refundMessage
+          ).then((r) => { if (!r.sent) console.warn('Order refunded email skipped:', r.error); })
+            .catch((e) => console.warn('Order refunded email error:', e.message));
+        }
+      }
+
       return res.status(200).json({
         message: 'Order refunded successfully',
         success: true,
@@ -1866,7 +1901,7 @@ exports.updateOrderStatus = async (req, res) => {
         updateFields,
         { new: true }
       );
-  
+
       if (!updatedOrder) {
         return res.status(404).json({
           message: 'Order not found',
@@ -1874,13 +1909,34 @@ exports.updateOrderStatus = async (req, res) => {
           data: []
         });
       }
-  
+
+      if (action === 'accept' && updatedOrder.userId) {
+        notifyUser(
+          updatedOrder.userId.toString(),
+          'Order accepted',
+          `Your order #${updatedOrder._id} has been accepted by the delivery partner.`,
+          { route: 'order_details', order_id: String(updatedOrder._id) },
+          'order_status'
+        ).catch((e) => console.error('Notification failed:', e.message));
+        const User = require('../models/User');
+        const orderUser = await User.findById(updatedOrder.userId).select('email name').lean();
+        if (orderUser?.email) {
+          sendOrderStatusUpdate(
+            orderUser.email,
+            orderUser.name,
+            String(updatedOrder._id),
+            'Accepted by Delivery Boy',
+            'Your delivery partner is on the way.'
+          ).then((r) => { if (!r.sent) console.warn('Order status email skipped:', r.error); })
+            .catch((e) => console.warn('Order status email error:', e.message));
+        }
+      }
+
       return res.status(200).json({
         message: `Order ${action}ed successfully`,
         success: true,
         data: updatedOrder
       });
-  
     } catch (error) {
       console.error('Delivery Boy Accept/Reject Error:', error);
       res.status(500).json({
@@ -1957,7 +2013,20 @@ exports.updateOrderStatus = async (req, res) => {
       order.assignedDeliveryBoy = deliveryBoyId;
       order.orderStatus = 'Delivery Boy Assigned';
       await order.save();
-  
+
+      const User = require('../models/User');
+      const orderUser = await User.findById(order.userId).select('email name').lean();
+      if (orderUser?.email) {
+        sendOrderStatusUpdate(
+          orderUser.email,
+          orderUser.name,
+          String(order._id),
+          'Delivery Boy Assigned',
+          'A delivery partner has been assigned to your order.'
+        ).then((r) => { if (!r.sent) console.warn('Order status email skipped:', r.error); })
+          .catch((e) => console.warn('Order status email error:', e.message));
+      }
+
       return res.status(200).json({
         message: 'Order manually assigned to delivery boy',
         success: true,
@@ -2253,16 +2322,14 @@ try {
     }
 
     try {
-      // Emit to the delivery boy's room
       io.to(deliveryBoyId).emit('new_order_assigned', emissionData);
+      sendPushOnly(deliveryBoyId, 'New order assigned', 'You have been assigned a new order.', {
+        route: 'order_assigned',
+        order_id: order._id.toString()
+      }).catch(() => {});
       console.log(`   ✅ Emission sent to room: ${deliveryBoyId}`);
-      
-      if (isUserConnected(deliveryBoyId)) {
-        successfulEmissions++;
-      } else {
-        console.log(`   ⚠️ Warning: User not in connected list, but emission attempted`);
-        failedEmissions++;
-      }
+      if (isUserConnected(deliveryBoyId)) successfulEmissions++;
+      else failedEmissions++;
     } catch (emitError) {
       console.error(`   ❌ Emission failed: ${emitError.message}`);
       failedEmissions++;
@@ -2280,6 +2347,19 @@ try {
 }
 
 console.log('🔔 ========== SOCKET EMISSION END ==========\n');
+
+    const User = require('../models/User');
+    const orderUser = await User.findById(order.userId).select('email name').lean();
+    if (orderUser?.email) {
+      sendOrderStatusUpdate(
+        orderUser.email,
+        orderUser.name,
+        String(order._id),
+        'Delivery Boy Assigned',
+        'A delivery partner has been assigned to your order.'
+      ).then((r) => { if (!r.sent) console.warn('Order status email skipped:', r.error); })
+        .catch((e) => console.warn('Order status email error:', e.message));
+    }
 
     return res.status(200).json({
       message: `Order assignment request sent to ${nearbyDeliveryBoys.length} delivery boys within ${usedRadius} km`,

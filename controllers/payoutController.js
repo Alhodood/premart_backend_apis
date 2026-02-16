@@ -11,7 +11,8 @@ const { DeliveryAgency } = require('../models/DeliveryAgency');
 const AgencyPayout = require('../models/AgencyPayout');
 const ShopPayout = require('../models/ShopPayout');
 
-const PLATFORM_COMMISSION_PERCENT = 5;
+const { getSuperAdminSettings } = require('../helper/settingsHelper');  // ✅ ADD at top
+
 
 
 // ═══════════════════════════════════════════════════════════════
@@ -20,6 +21,12 @@ const PLATFORM_COMMISSION_PERCENT = 5;
 
 exports.multiShopPayoutSummary = async (req, res) => {
   try {
+    // ✅ STEP 1: Get commission from settings (NOT hardcoded!)
+    const settings = await getSuperAdminSettings();
+    const PLATFORM_COMMISSION_PERCENT = settings.platformCommission;
+    
+    console.log(`💼 Using platform commission: ${PLATFORM_COMMISSION_PERCENT}% (from settings)`);
+
     let { from, to } = req.query;
     let filter = { paymentStatus: 'Paid' };
 
@@ -57,15 +64,19 @@ exports.multiShopPayoutSummary = async (req, res) => {
 
     for (const shopId in shopPayouts) {
       const shopData = shopPayouts[shopId];
+      
+      // ✅ Use commission from settings
       const commission = (shopData.totalSales * PLATFORM_COMMISSION_PERCENT) / 100;
       const netPayable = shopData.totalSales - commission;
+
+      console.log(`🏪 Shop ${shopId}: Sales=${shopData.totalSales}, Commission=${commission} (${PLATFORM_COMMISSION_PERCENT}%), Net=${netPayable}`);
 
       // ✅ Only check PENDING payouts
       const existingPayout = await ShopPayout.findOne({
         shopId,
         from: { $lte: new Date(to) },
         to: { $gte: new Date(from) },
-        status: 'Pending'  // ✅ Added status filter
+        status: 'Pending'  // ✅ Critical: Only update pending payouts
       });
 
       let payout;
@@ -75,6 +86,7 @@ exports.multiShopPayoutSummary = async (req, res) => {
         existingPayout.platformCommission = commission;
         existingPayout.netPayable = netPayable;
         payout = await existingPayout.save();
+        console.log(`✅ Updated PENDING payout for shop ${shopId}`);
       } else {
         payout = await ShopPayout.create({
           shopId,
@@ -86,6 +98,7 @@ exports.multiShopPayoutSummary = async (req, res) => {
           to,
           status: 'Pending'
         });
+        console.log(`✅ Created NEW PENDING payout for shop ${shopId}`);
       }
 
       payoutReport.push({

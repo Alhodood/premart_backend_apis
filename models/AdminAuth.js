@@ -1,92 +1,52 @@
+// models/AdminAuth.js - COMPLETE UPDATED VERSION
 const mongoose = require('mongoose');
 const bcrypt = require('bcrypt');
 const { ROLES } = require('../constants/roles');
 
-/* ------------------------------
-   SETTINGS (Super Admin only)
---------------------------------*/
 const SettingsSchema = new mongoose.Schema({
-  appName: { type: String, default: '' },
-  supportEmail: { type: String, default: '' },
-  supportPhone: { type: String, default: '' },
-  supportWhatsapp: { type: String, default: '' },  // ✅ NEW: WhatsApp Number
-  platformCommission: { type: Number, default: 0 },
-  taxRate: { type: Number, default: 0 },
+  appName: { type: String, default: 'PreMart' },
+  supportEmail: { type: String, default: 'support@premart.ae' },
+  supportPhone: { type: String, default: '+971XXXXXXXXX' },
+  supportWhatsapp: { type: String, default: '+971XXXXXXXXX' },
+  platformCommission: { type: Number, default: 5 },
+  agencyCommission: { type: Number, default: 2 },
+  taxRate: { type: Number, default: 5 },
   stripePublicKey: { type: String, default: '' },
   stripeSecretKey: { type: String, default: '' },
-  deliveryCharge: { type: Number, default: 0 },
-  freeDeliveryThreshold: { type: Number, default: 500 },  // ✅ NEW
-  maxActiveOrdersPerDeliveryBoy: { type: Number, default: 5 },
-  perKmRate: { type: Number, default: 2 }  // ✅ NEW
+  deliveryCharge: { type: Number, default: 30 },
+  freeDeliveryThreshold: { type: Number, default: 500 },
+  perKmRate: { type: Number, default: 2 },
+  maxActiveOrdersPerDeliveryBoy: { type: Number, default: 5 }
 }, { _id: false });
 
-
-/* ------------------------------
-   SUPER ADMIN SCHEMA
---------------------------------*/
 const SuperAdminSchema = new mongoose.Schema({
   name: { type: String, required: true },
-
   email: { type: String, unique: true, sparse: true },
   phone: { type: String, unique: true, sparse: true },
-
   password: { type: String, required: true },
-
   countryCode: { type: String, required: true },
   dob: { type: String },
-
   accountVerify: { type: Boolean, default: true },
-
-  role: {
-    type: String,
-    enum: Object.values(ROLES),
-    default: ROLES.SUPER_ADMIN
-  },
-
+  role: { type: String, enum: Object.values(ROLES), default: ROLES.SUPER_ADMIN },
   settings: { type: SettingsSchema, default: () => ({}) }
-
 }, { timestamps: true });
 
-
-/* ------------------------------
-   SHOP ADMIN SCHEMA
---------------------------------*/
 const ShopAdminSchema = new mongoose.Schema({
   name: { type: String, required: true },
-
   email: { type: String, unique: true, sparse: true },
   phone: { type: String, unique: true, sparse: true },
-
   password: { type: String, required: true },
-
-  countryCode: { type: String, },
+  countryCode: { type: String },
   dob: { type: String },
-
-  role: {
-    type: String,
-    enum: Object.values(ROLES),
-    default: ROLES.SHOP_ADMIN,
-    
-  },
+  role: { type: String, enum: Object.values(ROLES), default: ROLES.SHOP_ADMIN },
   shopId: { type: mongoose.Schema.Types.ObjectId, ref: 'Shop' },
-  
-
   location: { type: String },
-
-  emiratesIdImage: { type: String, },
-  companyLicenseImage: { type: String,  }
-
+  emiratesIdImage: { type: String },
+  companyLicenseImage: { type: String }
 }, { timestamps: true });
 
-
-
-
-/* ------------------------------
-   PASSWORD HASHING (BOTH)
---------------------------------*/
 async function hashPassword(next) {
   if (!this.isModified('password')) return next();
-
   try {
     const salt = await bcrypt.genSalt(10);
     this.password = await bcrypt.hash(this.password, salt);
@@ -99,10 +59,6 @@ async function hashPassword(next) {
 SuperAdminSchema.pre('save', hashPassword);
 ShopAdminSchema.pre('save', hashPassword);
 
-
-/* ------------------------------
-   PASSWORD COMPARISON (BOTH)
---------------------------------*/
 function comparePassword(candidatePassword) {
   return bcrypt.compare(candidatePassword, this.password);
 }
@@ -110,15 +66,7 @@ function comparePassword(candidatePassword) {
 SuperAdminSchema.methods.comparePassword = comparePassword;
 ShopAdminSchema.methods.comparePassword = comparePassword;
 
-
-
-/* ------------------------------
-   EXPORT MODELS
---------------------------------*/
 const SuperAdmin = mongoose.model('SuperAdmin', SuperAdminSchema);
 const ShopAdmin = mongoose.model('ShopAdmin', ShopAdminSchema);
 
-module.exports = {
-  SuperAdmin,
-  ShopAdmin
-};
+module.exports = { SuperAdmin, ShopAdmin };

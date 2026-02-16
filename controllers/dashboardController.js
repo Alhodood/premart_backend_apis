@@ -15,21 +15,37 @@ exports.getSuperAdminDashboard = async (req, res) => {
     const lastMonthLabel = formatMonth(lastMonthStart);
 
     const getGrowth = (current, previous) => {
-      if (previous === 0 && current === 0) return `0%`;
-      const change = previous === 0 ? 100 : ((current - previous) / previous) * 100;
-      return `${Math.round(Math.abs(change))}%`;
+      if (current === 0 && previous === 0) return '0%';
+      if (previous === 0 && current > 0) return '+100%';
+      if (current === 0 && previous > 0) return '-100%';
+      
+      const percentChange = ((current - previous) / previous) * 100;
+      const rounded = Math.round(percentChange);
+      const sign = rounded >= 0 ? '+' : '';
+      return `${sign}${rounded}%`;
     };
 
+    // ✅ FIXED: Only count orders with paymentStatus = "Paid"
     const [totalOrders, previousOrders] = await Promise.all([
-      Order.countDocuments({ createdAt: { $gte: currentMonthStart } }),
+      Order.countDocuments({
+        createdAt: { $gte: currentMonthStart },
+        paymentStatus: 'Paid' // ✅ NEW FILTER
+      }),
       Order.countDocuments({
         createdAt: { $gte: lastMonthStart, $lt: currentMonthStart },
+        paymentStatus: 'Paid' // ✅ NEW FILTER
       }),
     ]);
 
+    // ✅ FIXED: Only sum sales from orders with paymentStatus = "Paid"
     const [thisSales, lastSales] = await Promise.all([
       Order.aggregate([
-        { $match: { createdAt: { $gte: currentMonthStart } } },
+        {
+          $match: {
+            createdAt: { $gte: currentMonthStart },
+            paymentStatus: 'Paid' // ✅ NEW FILTER
+          }
+        },
         {
           $group: {
             _id: null,
@@ -49,6 +65,7 @@ exports.getSuperAdminDashboard = async (req, res) => {
         {
           $match: {
             createdAt: { $gte: lastMonthStart, $lt: currentMonthStart },
+            paymentStatus: 'Paid' // ✅ NEW FILTER
           },
         },
         {
@@ -71,14 +88,17 @@ exports.getSuperAdminDashboard = async (req, res) => {
     const totalSalesAmount = thisSales[0]?.total || 0;
     const previousSalesAmount = lastSales[0]?.total || 0;
 
+    // ✅ FIXED: Only count coupon usage in paid orders
     const [couponOrdersThisMonth, couponOrdersLastMonth] = await Promise.all([
       Order.countDocuments({
         createdAt: { $gte: currentMonthStart },
         'coupon.code': { $exists: true, $ne: null },
+        paymentStatus: 'Paid' // ✅ NEW FILTER
       }),
       Order.countDocuments({
         createdAt: { $gte: lastMonthStart, $lt: currentMonthStart },
         'coupon.code': { $exists: true, $ne: null },
+        paymentStatus: 'Paid' // ✅ NEW FILTER
       }),
     ]);
 
@@ -112,6 +132,7 @@ exports.getSuperAdminDashboard = async (req, res) => {
       console.log('⚠️ Agency payable calculation failed:', error.message);
     }
 
+    // ✅ FIXED: Only calculate top products from paid AND delivered orders
     let topSellingProductsTotalAmount = 0;
     let topSellingProductsLastAmount = 0;
     try {
@@ -119,6 +140,7 @@ exports.getSuperAdminDashboard = async (req, res) => {
         {
           $match: {
             status: 'Delivered',
+            paymentStatus: 'Paid', // ✅ NEW FILTER
             createdAt: { $gte: currentMonthStart },
           },
         },
@@ -148,6 +170,7 @@ exports.getSuperAdminDashboard = async (req, res) => {
           {
             $match: {
               status: 'Delivered',
+              paymentStatus: 'Paid', // ✅ NEW FILTER
               createdAt: { $gte: lastMonthStart, $lt: currentMonthStart },
             },
           },
@@ -190,6 +213,14 @@ exports.getSuperAdminDashboard = async (req, res) => {
       }),
     ]);
 
+    console.log('📊 Dashboard Stats:', {
+      totalSales: totalSalesAmount,
+      totalOrders,
+      topProductsSales: topSellingProductsTotalAmount,
+      couponUsage: couponOrdersThisMonth,
+      totalVisitors: totalVisitorsCount,
+    });
+
     const responseData = {
       totalSalesAmount: Math.round(totalSalesAmount).toString(),
       salesGrowth: getGrowth(totalSalesAmount, previousSalesAmount),
@@ -218,6 +249,8 @@ exports.getSuperAdminDashboard = async (req, res) => {
       visitorGrowth: getGrowth(newVisitorsThisMonth, newVisitorsLastMonth),
       visitorDateCompared: lastMonthLabel,
     };
+
+    console.log('✅ Response data:', JSON.stringify(responseData, null, 2));
 
     res.status(200).json({
       message: 'Super Admin Dashboard Analytics',

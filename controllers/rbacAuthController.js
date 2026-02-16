@@ -1,11 +1,15 @@
 const jwt = require('jsonwebtoken');
 const roleModelMap = require('../constants/roleModelMap');
+const { linkDeviceToUser } = require('./deviceController');
 
 const { Shop } = require('../models/Shop');
 const { ROLES } = require('../constants/roles');
 const User = require('../models/User');
 const DeliveryBoy = require('../models/DeliveryBoy');
 const crypto = require('crypto');
+const { sendGreetings, sendPasswordResetOtp, sendRegisterOtp } = require('../helper/mailHelper');
+const EmailVerification = require('../models/EmailVerification');
+const OTP_EXPIRY_MINUTES = 15;
 
 // ✅ FIX: Import ShopAdmin from Admin.js, NOT Shop.js
 const { ShopAdmin, SuperAdmin } = require('../models/AdminAuth');
@@ -104,6 +108,7 @@ exports.register = async (req, res) => {
       newUser = await User.create({
         name,
         email,
+        dob,
         phone,
         password,
         countryCode,
@@ -139,6 +144,7 @@ exports.register = async (req, res) => {
       newUser = await ShopAdmin.create({
         name,
         email,
+        dob,
         phone,
         password,
         countryCode,
@@ -151,8 +157,12 @@ exports.register = async (req, res) => {
       });
     }
 
-    // Generate OTP and send (if you have OTP logic)
-    // ... your existing OTP logic
+    // Send welcome email if user has email
+    if (newUser.email) {
+      sendGreetings(newUser.email, newUser.name || newUser.agencyDetails?.name)
+        .then((r) => { if (!r.sent) console.warn('Welcome email skipped:', r.error); })
+        .catch((e) => console.warn('Welcome email error:', e.message));
+    }
 
     return res.status(201).json({
       success: true,
@@ -162,6 +172,7 @@ exports.register = async (req, res) => {
         name: newUser.name,
         phone: newUser.phone,
         email: newUser.email,
+        dob: newUser.dob != null ? newUser.dob : null,
         role: newUser.role,
         ...(role === ROLES.DELIVERY_BOY && {
           emiratesId: newUser.emiratesId,
@@ -187,9 +198,286 @@ exports.register = async (req, res) => {
   }
 };
 
+/** Generate 6-digit OTP */
+function generateOtp() {
+  return String(Math.floor(100000 + Math.random() * 900000));
+}
+
+/**
+ * Step 1: Send verification OTP to email. Account is NOT created yet.
+ * Body: same as register (name, email, phone, password, countryCode, role, ...). Email is required.
+ */
+exports.sendRegistrationVerification = async (req, res) => {
+  try {
+    const {
+      name, email, dob, phone, password, countryCode, role,
+      latitude, longitude, agencyId, emiratesId, areaAssigned, licenseNo, city, profileImage, licenseImage
+    } = req.body;
+
+    if (!email || !phone || !password || !countryCode) {
+      return res.status(400).json({
+        success: false,
+        message: 'Email, phone, password, and country code are required for verification'
+      });
+    }
+
+    if (!role || ![ROLES.CUSTOMER, ROLES.DELIVERY_BOY, ROLES.SHOP_ADMIN].includes(role)) {
+      return res.status(400).json({
+        success: false,
+        message: 'Valid role (CUSTOMER, DELIVERY_BOY, SHOP_ADMIN) is required'
+      });
+    }
+
+    if (role === ROLES.DELIVERY_BOY) {
+      if (latitude === undefined || longitude === undefined) {
+        return res.status(400).json({
+          success: false,
+          message: 'Latitude and longitude are required for delivery boy registration'
+        });
+      }
+      if (typeof latitude !== 'number' || typeof longitude !== 'number') {
+        return res.status(400).json({
+          success: false,
+          message: 'Latitude and longitude must be numbers'
+        });
+      }
+      if (agencyId) {
+        const { DeliveryAgency } = require('../models/DeliveryAgency');
+        const agencyExists = await DeliveryAgency.findById(agencyId);
+        if (!agencyExists) {
+          return res.status(404).json({ success: false, message: 'Invalid agency ID' });
+        }
+      }
+    }
+
+    let existingUser;
+    if (role === ROLES.CUSTOMER) {
+      existingUser = await User.findOne({ $or: [{ phone }, { email: email.toLowerCase() }] });
+    } else if (role === ROLES.DELIVERY_BOY) {
+      existingUser = await DeliveryBoy.findOne({ $or: [{ phone }, { email: email.toLowerCase() }] });
+    } else if (role === ROLES.SHOP_ADMIN) {
+      existingUser = await ShopAdmin.findOne({ $or: [{ phone }, { email: email.toLowerCase() }] });
+    }
+    if (existingUser) {
+      return res.status(400).json({
+        success: false,
+        message: 'User with this phone or email already exists'
+      });
+    }
+
+    const otp = generateOtp();
+    const expiresAt = new Date(Date.now() + OTP_EXPIRY_MINUTES * 60 * 1000);
+    await EmailVerification.findOneAndUpdate(
+      { email: email.toLowerCase().trim() },
+      { otp, expiresAt },
+      { upsert: true, new: true }
+    );
+
+    const mailResult = await sendRegisterOtp(email.trim(), otp, name || 'User');
+    if (!mailResult.sent) {
+      console.warn('Verification email failed:', mailResult.error);
+      return res.status(500).json({
+        success: false,
+        message: 'Failed to send verification email',
+        error: mailResult.error
+      });
+    }
+
+    return res.status(200).json({
+      success: true,
+      message: 'Verification code sent to your email. Use it to complete registration.',
+      data: { email: email.trim() }
+    });
+  } catch (err) {
+    console.error('❌ Send registration verification error:', err);
+    return res.status(500).json({
+      success: false,
+      message: 'Failed to send verification',
+      error: err.message
+    });
+  }
+};
+
+/**
+ * Step 2: Verify email OTP and create account. Call after sendRegistrationVerification.
+ * Body: email, otp, + same registration fields (name, phone, password, countryCode, role, ...).
+ */
+exports.verifyEmailAndRegister = async (req, res) => {
+  try {
+    const {
+      email, otp,
+      name, dob, phone, password, countryCode, role,
+      latitude, longitude, agencyId, emiratesId, areaAssigned, licenseNo, city, profileImage, licenseImage
+    } = req.body;
+
+    if (!email || !otp) {
+      return res.status(400).json({
+        success: false,
+        message: 'Email and OTP are required'
+      });
+    }
+
+    const record = await EmailVerification.findOne({ email: email.toLowerCase().trim() });
+    if (!record) {
+      return res.status(400).json({
+        success: false,
+        message: 'No verification found for this email. Please request a new code.'
+      });
+    }
+    if (record.otp !== String(otp).trim()) {
+      return res.status(400).json({
+        success: false,
+        message: 'Invalid verification code'
+      });
+    }
+    if (new Date() > record.expiresAt) {
+      await EmailVerification.deleteOne({ _id: record._id });
+      return res.status(400).json({
+        success: false,
+        message: 'Verification code has expired. Please request a new code.'
+      });
+    }
+
+    if (!phone || !password || !countryCode || !role) {
+      return res.status(400).json({
+        success: false,
+        message: 'Phone, password, country code, and role are required'
+      });
+    }
+
+    if (role === ROLES.DELIVERY_BOY) {
+      if (latitude === undefined || longitude === undefined) {
+        return res.status(400).json({
+          success: false,
+          message: 'Latitude and longitude are required for delivery boy registration'
+        });
+      }
+      if (typeof latitude !== 'number' || typeof longitude !== 'number') {
+        return res.status(400).json({
+          success: false,
+          message: 'Latitude and longitude must be numbers'
+        });
+      }
+      if (agencyId) {
+        const { DeliveryAgency } = require('../models/DeliveryAgency');
+        const agencyExists = await DeliveryAgency.findById(agencyId);
+        if (!agencyExists) {
+          return res.status(404).json({ success: false, message: 'Invalid agency ID' });
+        }
+      }
+    }
+
+    let existingUser;
+    if (role === ROLES.CUSTOMER) {
+      existingUser = await User.findOne({ phone });
+    } else if (role === ROLES.DELIVERY_BOY) {
+      existingUser = await DeliveryBoy.findOne({ phone });
+    } else if (role === ROLES.SHOP_ADMIN) {
+      existingUser = await ShopAdmin.findOne({ phone });
+    }
+    if (existingUser) {
+      return res.status(400).json({
+        success: false,
+        message: 'User with this phone number already exists'
+      });
+    }
+
+    let newUser;
+    if (role === ROLES.CUSTOMER) {
+      newUser = await User.create({
+        name,
+        email: email.trim(),
+        dob,
+        phone,
+        password,
+        countryCode,
+        role: ROLES.CUSTOMER
+      });
+    } else if (role === ROLES.DELIVERY_BOY) {
+      newUser = await DeliveryBoy.create({
+        name: name || 'New Delivery Boy',
+        email: email.trim(),
+        phone,
+        password,
+        countryCode,
+        dob,
+        licenseNo,
+        emiratesId,
+        profileImage,
+        licenseImage,
+        areaAssigned,
+        city,
+        latitude,
+        longitude,
+        availability: true,
+        isOnline: false,
+        accountVerify: false,
+        assignedOrders: [],
+        role: ROLES.DELIVERY_BOY,
+        agencyId: agencyId || null
+      });
+    } else if (role === ROLES.SHOP_ADMIN) {
+      newUser = await ShopAdmin.create({
+        name,
+        email: email.trim(),
+        dob,
+        phone,
+        password,
+        countryCode,
+        role: ROLES.SHOP_ADMIN
+      });
+    } else {
+      return res.status(400).json({
+        success: false,
+        message: 'Invalid role specified'
+      });
+    }
+
+    await EmailVerification.deleteOne({ _id: record._id });
+
+    if (newUser.email) {
+      sendGreetings(newUser.email, newUser.name || newUser.agencyDetails?.name)
+        .then((r) => { if (!r.sent) console.warn('Welcome email skipped:', r.error); })
+        .catch((e) => console.warn('Welcome email error:', e.message));
+    }
+
+    return res.status(201).json({
+      success: true,
+      message: 'Registration successful',
+      data: {
+        userId: newUser._id,
+        name: newUser.name,
+        phone: newUser.phone,
+        email: newUser.email,
+        dob: newUser.dob != null ? newUser.dob : null,
+        role: newUser.role,
+        ...(role === ROLES.DELIVERY_BOY && {
+          emiratesId: newUser.emiratesId,
+          licenseNo: newUser.licenseNo,
+          areaAssigned: newUser.areaAssigned,
+          city: newUser.city,
+          profileImage: newUser.profileImage,
+          licenseImage: newUser.licenseImage,
+          location: {
+            latitude: newUser.latitude,
+            longitude: newUser.longitude
+          }
+        })
+      }
+    });
+  } catch (err) {
+    console.error('❌ Verify email and register error:', err);
+    return res.status(500).json({
+      success: false,
+      message: 'Registration failed',
+      error: err.message
+    });
+  }
+};
+
 exports.login = async (req, res) => {
   try {
-    const { email, password, role } = req.body;
+    const { email, password, role, device_id, device_token } = req.body;
     
     if (!role || !roleModelMap[role]) {
       return res.status(400).json({ success: false, message: 'Invalid role' });
@@ -200,33 +488,54 @@ exports.login = async (req, res) => {
     // =======================
     // AGENCY LOGIN (FIXED)
     // =======================
-    if (role === ROLES.AGENCY) {
-      const { DeliveryAgency } = require('../models/DeliveryAgency');
-      user = await DeliveryAgency.findOne({
-        'agencyDetails.email': email
-      });
+   if (role === ROLES.AGENCY) {
+  console.log('🔐 AGENCY LOGIN ATTEMPT');
+  console.log('Email:', email);
+  
+  const { DeliveryAgency } = require('../models/DeliveryAgency');
+  user = await DeliveryAgency.findOne({
+    'agencyDetails.agencyMail': email
+  });
 
-      if (!user) {
-        return res.status(401).json({ success: false, message: 'Email not found' });
-      }
+  console.log('User found:', user ? 'YES' : 'NO');
+  if (user) console.log('Agency ID:', user._id.toString());
 
-      const match = await user.comparePassword(password);
-      if (!match) {
-        return res.status(401).json({ success: false, message: 'Incorrect password' });
-      }
+  if (!user) {
+    return res.status(401).json({ 
+      success: false, 
+      message: 'Invalid credentials' 
+    });
+  }
 
-      const token = generateToken({ id: user._id, role });
-      return res.json({
-        success: true,
-        message: 'Login successful',
-        data: {
-          id: user._id,
-          role,
-          token,
-          agencyId: user._id
-        }
-      });
-    }
+  const match = await user.comparePassword(password);
+  console.log('Password match:', match ? 'YES' : 'NO');
+  
+  if (!match) {
+    return res.status(401).json({ 
+      success: false, 
+      message: 'Invalid credentials' 
+    });
+  }
+
+  const token = generateToken({ id: user._id, role });
+  if (device_id || device_token) {
+    await linkDeviceToUser(user._id.toString(), device_id, device_token);
+  }
+  const responseData = {
+    id: user._id.toString(),
+    role,
+    token,
+    agencyId: user._id.toString(),
+
+  };
+  console.log('✅ LOGIN SUCCESS - Sending response:');
+  console.log(JSON.stringify(responseData, null, 2));
+  return res.json({
+    success: true,
+    message: 'Login successful',
+    data: responseData
+  });
+}
 
     // =======================
     // ALL OTHER ROLES
@@ -265,7 +574,9 @@ exports.login = async (req, res) => {
     }
 
     const token = generateToken({ id: user._id, role });
-
+    if (device_id || device_token) {
+      await linkDeviceToUser(user._id.toString(), device_id, device_token);
+    }
     const response = {
       id: user._id,
       role,
@@ -275,7 +586,7 @@ exports.login = async (req, res) => {
         email: user.email,
         phone: user.phone,
         accountVerify: user.accountVerify,
-        dob: user.dob,
+        dob: user.dob != null ? user.dob : null,
         profileImage: user.profileImage,
       }
     };
@@ -616,44 +927,90 @@ exports.createShopAdmin = async (req, res) => {
 exports.createAgency = async (req, res) => {
   try {
     const { agencyDetails } = req.body;
+    
+    console.log('📝 Create Agency Request:', agencyDetails);
 
+    // ✅ Validate required fields
     if (!agencyDetails?.agencyName || !agencyDetails?.agencyMail) {
-      return res.status(400).json({ success: false, message: 'Missing agency fields' });
+      return res.status(400).json({ 
+        success: false, 
+        message: 'Agency name and email are required' 
+      });
     }
 
-    const Model = roleModelMap[ROLES.AGENCY];
+    if (!agencyDetails?.agencyContact) {
+      return res.status(400).json({ 
+        success: false, 
+        message: 'Agency contact is required' 
+      });
+    }
 
-    const exists = await Model.findOne({
-      'agencyDetails.email': agencyDetails.email
+    // ✅ Validate new required fields
+    if (!agencyDetails?.city) {
+      return res.status(400).json({ 
+        success: false, 
+        message: 'City is required' 
+      });
+    }
+
+    if (!agencyDetails?.emirates || !Array.isArray(agencyDetails.emirates) || agencyDetails.emirates.length === 0) {
+      return res.status(400).json({ 
+        success: false, 
+        message: 'At least one emirate is required' 
+      });
+    }
+
+    if (!agencyDetails?.licenseAuthority) {
+      return res.status(400).json({ 
+        success: false, 
+        message: 'License issuing authority is required' 
+      });
+    }
+
+    const { DeliveryAgency } = require('../models/DeliveryAgency');
+
+    // Check if agency already exists
+    const exists = await DeliveryAgency.findOne({
+      'agencyDetails.email': agencyDetails.agencyMail
     });
 
     if (exists) {
-      return res.status(400).json({ success: false, message: 'Agency already exists' });
+      return res.status(400).json({ 
+        success: false, 
+        message: 'Agency with this email already exists' 
+      });
     }
 
-    const agency = await Model.create({
+    // ✅ Create agency with all fields
+    const agency = await DeliveryAgency.create({
       agencyDetails: {
         ...agencyDetails,
-        role: ROLES.AGENCY,
-        email: agencyDetails.email,
-        password: agencyDetails.password || 'Temp@123'
+        email: agencyDetails.agencyMail,
+        password: agencyDetails.password || 'password@123',
+        role: ROLES.AGENCY
       }
     });
+
+    console.log('✅ Agency created:', agency._id);
 
     return res.status(201).json({
       success: true,
       message: 'Agency created successfully',
       data: {
-        agencyId: agency._id
+        agencyId: agency._id,
+        agencyName: agency.agencyDetails.agencyName,
+        agencyEmail: agency.agencyDetails.agencyMail
       }
     });
-
   } catch (err) {
-    console.error('Create Agency Error:', err);
-    res.status(500).json({ success: false, message: err.message });
+    console.error('❌ Create Agency Error:', err);
+    res.status(500).json({ 
+      success: false, 
+      message: 'Failed to create agency',
+      error: err.message 
+    });
   }
 };
-
 // controllers/rbacAuthController.js
 
 exports.getCustomerDetailsById = async (req, res) => {
@@ -747,12 +1104,11 @@ exports.getCustomerOrders = async (req, res) => {
   }
 };
 
-// ✅ AGENCY PUBLIC REGISTRATION (for agency owners to self-register)
+// ✅ AGENCY PUBLIC REGISTRATION (Updated)
 exports.registerAgency = async (req, res) => {
   try {
     const { email, password, agencyDetails } = req.body;
-
-    console.log('📝 Agency Registration Request:', { email, agencyDetails: !!agencyDetails });
+    console.log('📝 Agency Registration Request:', { email, agencyDetails });
 
     // Validate required fields
     if (!email || !password) {
@@ -766,6 +1122,29 @@ exports.registerAgency = async (req, res) => {
       return res.status(400).json({
         success: false,
         message: 'Agency name and contact are required'
+      });
+    }
+
+    // ✅ NEW: Validate new required fields
+    if (!agencyDetails?.city) {
+      return res.status(400).json({
+        success: false,
+        message: 'City is required'
+      });
+    }
+
+    // ✅ FIXED: Check for emirates (plural, array)
+    if (!agencyDetails?.emirates || !Array.isArray(agencyDetails.emirates) || agencyDetails.emirates.length === 0) {
+      return res.status(400).json({
+        success: false,
+        message: 'At least one emirate is required'
+      });
+    }
+
+    if (!agencyDetails?.licenseAuthority) {
+      return res.status(400).json({
+        success: false,
+        message: 'License issuing authority is required'
       });
     }
 
@@ -783,7 +1162,7 @@ exports.registerAgency = async (req, res) => {
       });
     }
 
-    // Create agency
+    // ✅ Create agency with all fields
     const agency = await DeliveryAgency.create({
       agencyDetails: {
         ...agencyDetails,
@@ -810,7 +1189,6 @@ exports.registerAgency = async (req, res) => {
         token
       }
     });
-
   } catch (err) {
     console.error('❌ Agency Registration Error:', err);
     return res.status(500).json({
@@ -820,7 +1198,6 @@ exports.registerAgency = async (req, res) => {
     });
   }
 };
-
 // ✅ SHOP ADMIN PUBLIC REGISTRATION (for shop owners to self-register)
 exports.registerShopAdmin = async (req, res) => {
   try {
@@ -957,30 +1334,28 @@ exports.forgotPassword = async (req, res) => {
       });
     }
 
-    // ✅ TESTING: Use fixed OTP "123456" instead of generating random one
-    const resetOTP = "123456";
-    
-    // Set OTP expiry (15 minutes)
+    const resetOTP = String(crypto.randomInt(100000, 999999));
     const otpExpiry = new Date(Date.now() + 15 * 60 * 1000);
 
-    // Save OTP to user record
     user.resetPasswordOTP = resetOTP;
     user.resetPasswordExpires = otpExpiry;
     await user.save();
 
-    console.log('✅ Test OTP set:', resetOTP);
-    console.log('✅ OTP expiry:', otpExpiry);
+    const userName = user.name || user.agencyDetails?.name;
+    const mailResult = await sendPasswordResetOtp(email, resetOTP, userName);
+    if (!mailResult.sent) {
+      console.warn('Password reset email failed:', mailResult.error);
+      return res.status(503).json({
+        success: false,
+        message: 'Could not send OTP email. Please check your email or try again later.',
+        data: { email }
+      });
+    }
 
-    // ✅ TESTING: Return success without actually sending email
     return res.status(200).json({
       success: true,
-      message: 'Password reset OTP has been sent to your email. (Test mode: OTP is 123456)',
-      data: {
-        email,
-        // For testing only - shows OTP in response
-        otp: resetOTP,
-        expiresAt: otpExpiry
-      }
+      message: 'If an account exists with this email, a password reset OTP has been sent to your email.',
+      data: { email, expiresAt: otpExpiry }
     });
 
   } catch (err) {
@@ -1046,9 +1421,7 @@ exports.resetPassword = async (req, res) => {
       });
     }
 
-    // ✅ TESTING: Accept hardcoded OTP "123456" OR the stored OTP
-    const isValidOTP = otp === "123456" || (user.resetPasswordOTP && user.resetPasswordOTP === otp);
-    
+    const isValidOTP = user.resetPasswordOTP && String(user.resetPasswordOTP) === String(otp);
     if (!isValidOTP) {
       return res.status(400).json({
         success: false,
@@ -1056,8 +1429,7 @@ exports.resetPassword = async (req, res) => {
       });
     }
 
-    // Check if OTP expired (skip check if using test OTP "123456")
-    if (otp !== "123456" && user.resetPasswordExpires && new Date() > user.resetPasswordExpires) {
+    if (user.resetPasswordExpires && new Date() > user.resetPasswordExpires) {
       return res.status(400).json({
         success: false,
         message: 'OTP has expired. Please request a new one.'
