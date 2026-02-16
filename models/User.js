@@ -27,6 +27,7 @@ const UserSchema = new mongoose.Schema({
   password: { type: String },
   accountVisibility: { type: Boolean ,default:true},
   dob: String,
+  profileImage: { type: String, default: null },
   accountVerify:{type: Boolean, default:false},
   role: {
   type: String,
