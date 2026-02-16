@@ -120,6 +120,8 @@ exports.createOrder = async (req, res) => {
     const allProducts = cart.items.map(item => ({
       shopProductId: item.shopProductId._id,
       shopId: item.shopProductId.shopId,
+      originalPrice: item.shopProductId.price,
+      discountedPrice: item.shopProductId.discountedPrice || null,
       price: item.shopProductId.discountedPrice || item.shopProductId.price,
       quantity: item.quantity,
       part: item.shopProductId.part
@@ -251,8 +253,8 @@ exports.createOrder = async (req, res) => {
               brand: firstConfig?.brand || null,
               model: firstConfig?.model || null,
               category: p.part.category,
-              price: p.price,
-              discountedPrice: null,
+              price: p.originalPrice,
+              discountedPrice: p.discountedPrice,
               image: p.part.images?.[0] || null
             }
           };
@@ -396,6 +398,7 @@ exports.getOrderById = async (req, res) => {
       .populate('assignedDeliveryBoy', 'name phoneNumber')
       .populate({
         path: 'items.shopProductId',
+        select: 'price discountedPrice part',
         populate: {
           path: 'part',
           select: 'partName partNumber images category brand model'
@@ -413,74 +416,94 @@ exports.getOrderById = async (req, res) => {
     console.log('✅ Order found:', order._id);
     console.log('📦 Order items:', JSON.stringify(order.items, null, 2));
 
-    // Format response with correct field names matching Flutter expectations
+    // Format response matching catalog API style (price, discountedPrice, finalPrice)
     const formattedOrder = {
       _id: order._id,
       createdAt: order.createdAt,
-      
+
       // Status
       orderStatus: order.status || 'pending',
       statusHistory: order.statusHistory || [],
-      
+
       // Financial fields
       totalAmount: order.subtotal || 0,
       finalPayable: order.totalPayable || 0,
       discount: order.discount || 0,
+      deliveryChargeAmount: order.deliveryCharge || 0,
       deliverycharge: order.deliveryCharge > 0,
       deliveryEarning: order.deliveryEarning || 0,
       additionalcharges: 0,
-      
+      couponDiscount: order.coupon?.discountAmount || 0,
+
       // Quantity calculation
       quantity: order.items?.reduce((sum, item) => sum + (item.quantity || 1), 0) || 1,
-      
+
       // Customer info
       deliveryAddress: order.deliveryAddress,
       customerName: order.deliveryAddress?.name || order.userId?.name || '-',
       customerPhone: order.deliveryAddress?.contact || order.userId?.phone || '-',
-      
+
       // Payment
       paymentMethod: order.paymentType || 'Cash',
       paymentStatus: order.paymentStatus || 'Pending',
       transactionId: order.transactionId,
-      
+
       // Shop info
       shopId: order.shopId,
-      
-      // ✅ FIX: Properly format items with images
+
+      // Items - matching catalog format: price, discountedPrice, finalPrice
       items: order.items?.map(item => {
-        console.log('🔍 Processing item:', item.shopProductId?._id);
-        console.log('📸 Snapshot image:', item.snapshot?.image);
-        console.log('📸 Part images:', item.shopProductId?.part?.images);
-        
+        const shopProduct = item.shopProductId;
+        // For old orders: snapshot only has discounted price as "price" and discountedPrice is null
+        // Use ShopProduct's original price as fallback
+        const snapshotPrice = item.snapshot?.price || 0;
+        const snapshotDiscounted = item.snapshot?.discountedPrice;
+        const shopOriginalPrice = shopProduct?.price || 0;
+        const shopDiscountedPrice = shopProduct?.discountedPrice;
+
+        let price, discountedPrice;
+        if (snapshotDiscounted != null) {
+          // New order format: snapshot has both original and discounted
+          price = snapshotPrice;
+          discountedPrice = snapshotDiscounted;
+        } else if (shopDiscountedPrice != null && shopOriginalPrice > snapshotPrice) {
+          // Old order: snapshot.price is the discounted value, get original from ShopProduct
+          price = shopOriginalPrice;
+          discountedPrice = snapshotPrice;
+        } else {
+          // No discount at all
+          price = shopOriginalPrice || snapshotPrice;
+          discountedPrice = snapshotPrice;
+        }
+
+        const finalPrice = discountedPrice;
+        const hasDiscount = price > discountedPrice;
+
         return {
-          shopProductId: item.shopProductId?._id,
+          shopProductId: shopProduct?._id,
           quantity: item.quantity,
-          partName: item.snapshot?.partName || item.shopProductId?.part?.partName || 'Product',
-          partNumber: item.snapshot?.partNumber || item.shopProductId?.part?.partNumber,
-          price: item.snapshot?.price || 0,
-          // ✅ Include images from both snapshot and populated part
-          images: item.snapshot?.image 
-            ? [item.snapshot.image] 
-            : (item.shopProductId?.part?.images || []),
-          snapshot: item.snapshot, // Keep full snapshot for reference
+          partName: item.snapshot?.partName || shopProduct?.part?.partName || 'Product',
+          partNumber: item.snapshot?.partNumber || shopProduct?.part?.partNumber,
+          price: price,
+          discountedPrice: discountedPrice,
+          finalPrice: finalPrice,
+          hasDiscount: hasDiscount,
+          images: item.snapshot?.image
+            ? [item.snapshot.image]
+            : (shopProduct?.part?.images || []),
+          snapshot: item.snapshot,
           brand: item.snapshot?.brand,
           model: item.snapshot?.model,
           category: item.snapshot?.category
         };
       }) || [],
-      
+
       // Delivery boy
       assignedDeliveryBoy: order.assignedDeliveryBoy,
-      
+
       // Coupon
       coupon: order.coupon
     };
-
-    console.log('✅ Formatted order response');
-    console.log('💰 Total Amount:', formattedOrder.totalAmount);
-    console.log('💰 Final Payable:', formattedOrder.finalPayable);
-    console.log('📦 Items count:', formattedOrder.items.length);
-    console.log('🖼️ First item images:', formattedOrder.items[0]?.images);
 
     res.json({
       success: true,
@@ -609,18 +632,18 @@ exports.getAllCancelledOrders = async (req, res) => {
 
 exports.getAllOrders = async (req, res) => {
   try {
-    const { 
-      status, 
+    const {
+      status,
       shopId,
       startDate,
-      endDate 
+      endDate
     } = req.query;
 
     const filter = {};
-    
+
     if (status) filter.status = status;
     if (shopId) filter.shopId = shopId;
-    
+
     if (startDate || endDate) {
       filter.createdAt = {};
       if (startDate) filter.createdAt.$gte = new Date(startDate);
@@ -631,7 +654,6 @@ exports.getAllOrders = async (req, res) => {
       Order.find(filter)
         .populate('userId', 'name email phone')
         .populate('shopId', 'shopeDetails.shopName shopeDetails.shopAddress shopeDetails.EmiratesIdImage orders')
-        // ✅ UPDATED: Populate delivery boy with agency details
         .populate({
           path: 'assignedDeliveryBoy',
           select: 'name phone agencyId',
@@ -643,6 +665,7 @@ exports.getAllOrders = async (req, res) => {
         })
         .populate({
           path: 'items.shopProductId',
+          select: 'price discountedPrice part',
           populate: {
             path: 'part',
             select: 'partName images'
@@ -653,51 +676,78 @@ exports.getAllOrders = async (req, res) => {
       Order.countDocuments(filter)
     ]);
 
-    // Format orders for table view
+    // Helper: resolve price from snapshot + ShopProduct (handles old orders)
+    const resolvePrice = (snapshot, shopProduct) => {
+      const snapPrice = snapshot?.price || 0;
+      const snapDisc = snapshot?.discountedPrice;
+      const spPrice = shopProduct?.price || 0;
+      const spDisc = shopProduct?.discountedPrice;
+
+      if (snapDisc != null) {
+        return { price: snapPrice, discountedPrice: snapDisc };
+      }
+      if (spDisc != null && spPrice > snapPrice) {
+        return { price: spPrice, discountedPrice: snapPrice };
+      }
+      return { price: spPrice || snapPrice, discountedPrice: snapPrice };
+    };
+
     const formattedOrders = orders.map(order => {
       const orderCount = order.shopId?.orders?.length || 0;
-      
-      // ✅ Extract delivery boy and agency information
       const deliveryBoyName = order.assignedDeliveryBoy?.name || 'Not Assigned';
       const agencyName = order.assignedDeliveryBoy?.agencyId?.agencyDetails?.agencyName || '-';
-      
+
       return {
         _id: order._id,
-        
-        // Customer
         customerName: order.deliveryAddress?.name || order.userId?.name || '-',
         customerPhone: order.deliveryAddress?.contact || order.userId?.phone || '-',
-        
-        // Status
         orderStatus: order.status || order.orderStatus || 'pending',
-        
-        // First item details (for preview)
-        productName: order.items?.[0]?.snapshot?.partName || 
-                     order.items?.[0]?.shopProductId?.part?.partName || 
+        productName: order.items?.[0]?.snapshot?.partName ||
+                     order.items?.[0]?.shopProductId?.part?.partName ||
                      'Product',
-        productImage: order.items?.[0]?.snapshot?.image || 
-                      order.items?.[0]?.shopProductId?.part?.images?.[0] || 
+        productImage: order.items?.[0]?.snapshot?.image ||
+                      order.items?.[0]?.shopProductId?.part?.images?.[0] ||
                       null,
         itemCount: order.items?.length || 0,
         quantity: order.items?.reduce((sum, item) => sum + (item.quantity || 1), 0) || 1,
         createdAt: order.createdAt,
-        
-        // Financial
         totalAmount: order.subtotal || order.totalAmount || 0,
         finalPayable: order.totalPayable || order.finalPayable || 0,
-        
-        // Delivery
+        discount: order.discount || 0,
+        deliveryChargeAmount: order.deliveryCharge || 0,
+        couponDiscount: order.coupon?.discountAmount || 0,
+
+        items: order.items?.map(item => {
+          const sp = item.shopProductId;
+          const { price, discountedPrice } = resolvePrice(item.snapshot, sp);
+          const finalPrice = discountedPrice;
+          const hasDiscount = price > discountedPrice;
+
+          return {
+            shopProductId: sp?._id,
+            quantity: item.quantity,
+            partName: item.snapshot?.partName || sp?.part?.partName || 'Product',
+            partNumber: item.snapshot?.partNumber,
+            price,
+            discountedPrice,
+            finalPrice,
+            hasDiscount,
+            images: item.snapshot?.image
+              ? [item.snapshot.image]
+              : (sp?.part?.images || []),
+            brand: item.snapshot?.brand,
+            model: item.snapshot?.model,
+            category: item.snapshot?.category
+          };
+        }) || [],
+
         deliveryAddress: order.deliveryAddress,
         deliveryBoy: deliveryBoyName,
-        agencyName: agencyName, // ✅ NEW: Agency name
-        
-        // Shop
+        agencyName: agencyName,
         shopName: order.shopId?.shopeDetails?.shopName || 'Unknown Shop',
         shopAddress: order.shopId?.shopeDetails?.shopAddress || '-',
         emiratesIdImage: order.shopId?.shopeDetails?.EmiratesIdImage || null,
         orderCount: orderCount,
-        
-        // Payment
         paymentMethod: order.paymentType || order.paymentMethod || 'Cash',
         paymentStatus: order.paymentStatus || 'Pending',
 
@@ -710,23 +760,6 @@ exports.getAllOrders = async (req, res) => {
 } : {}),
       };
     });
-
-    // Get latest order date
-    const latestOrderDate = orders.length > 0 
-      ? orders[0].createdAt 
-      : null;
-
-    const formattedLatestDate = latestOrderDate
-      ? new Date(latestOrderDate).toLocaleString('en-IN', {
-          timeZone: 'Asia/Dubai',
-          year: 'numeric',
-          month: 'short',
-          day: '2-digit',
-          hour: '2-digit',
-          minute: '2-digit',
-          second: '2-digit'
-        })
-      : null;
 
     res.json({
       success: true,
@@ -749,20 +782,16 @@ exports.getAllOrders = async (req, res) => {
 //   try {
 //     const { couponCode, paymentType,transactionId } = req.body;
 //     // Ensure transactionId is destructured from req.body before payment creation
-    
 //     const userId = req.user?._id || req.params.userId;
 //     if (!userId) return res.status(400).json({ message: 'User ID is required', success: false });
 //     console.log(userId);
-
 //     // Step 1: Resolve deliveryAddress (prefer body, fallback to user's default)
 //     const User = require('../models/User');
 //     const userData = await User.findById(userId);
 //     if (!userData) {
 //       return res.status(400).json({ message: 'User not found', success: false });
 //     }
-
 //     let deliveryAddress = req.body.deliveryAddress;
-
 //     if (deliveryAddress && deliveryAddress.name && deliveryAddress.address) {
 //       // Normalize provided address and ensure optional fields
 //       deliveryAddress = {
@@ -787,28 +816,23 @@ exports.getAllOrders = async (req, res) => {
 //         longitude: defaultAddress.longitude || userData.longitude
 //       };
 //     }
-
 //     // Step 2: Fetch cart and products
 //     const cart = await Cart.findOne({ userId });
 //     if (!cart || cart.cartProduct.length === 0)
 //       return res.status(400).json({ message: 'Cart is empty', success: false });
-
 //     const cartItems = cart.cartProduct;
 //     const productIds = cartItems.map(item => item.productId);
 //     const productDocs = await Product.find({ _id: { $in: productIds } });
-
 //     // Map productId to quantity from cart
 //     const productQuantities = {};
 //     cartItems.forEach(item => {
 //       productQuantities[item.productId.toString()] = item.quantity;
 //     });
-
 //     // Attach quantity to each product
 //     const allProducts = productDocs.map(prod => {
 //       const quantity = productQuantities[prod._id.toString()] || 1;
 //       return { ...prod.toObject(), quantity };
 //     });
-
 //     // --- Group products by shopId ---
 //     const productsByShop = {};
 //     for (const prod of allProducts) {
@@ -816,7 +840,6 @@ exports.getAllOrders = async (req, res) => {
 //       if (!productsByShop[sId]) productsByShop[sId] = [];
 //       productsByShop[sId].push(prod);
 //     }
-
 //     // Calculate original total from nested part prices (all products)
 //     let originalTotal = 0;
 //     for (const product of allProducts) {
@@ -827,9 +850,7 @@ exports.getAllOrders = async (req, res) => {
 //         }
 //       }
 //     }
-
 //     // Step 3: Calculate offers (TODO: Per shop? Not implemented here)
-
 //     // Step 4: Apply coupon (applies only once to whole order, not per shop)
 //     const priceAfterOffers = originalTotal;
 //     let couponDiscount = 0, appliedCoupon = null;
@@ -840,7 +861,6 @@ exports.getAllOrders = async (req, res) => {
 //       if (new Date() > coupon.expiryDate) return res.status(400).json({ message: 'Coupon expired', success: false });
 //       if (coupon.usageLimit && currentUserUsage >= coupon.usageLimit)
 //         return res.status(400).json({ message: 'Coupon usage limit reached', success: false });
-
 //       if (coupon.minOrderAmount && priceAfterOffers < coupon.minOrderAmount) {
 //         console.warn(`Coupon minimum order not met: Required ₹${coupon.minOrderAmount}, but got ₹${priceAfterOffers}`);
 //         return res.status(400).json({
@@ -848,22 +868,18 @@ exports.getAllOrders = async (req, res) => {
 //           success: false
 //         });
 //       }
-
 //       couponDiscount = coupon.discountType === 'percent'
 //         ? (priceAfterOffers * coupon.discountValue) / 100
 //         : coupon.discountValue;
-
 //       appliedCoupon = {
 //         code: coupon.code,
 //         discountType: coupon.discountType,
 //         discountValue: coupon.discountValue
 //       };
-
 //       coupon.usedCount += 1;
 //       coupon.userId.push(userId);
 //       await coupon.save();
 //     }
-
 //     const totalDiscount = couponDiscount;
 //     const totalAmount = +(originalTotal - totalDiscount).toFixed(2);
 //     // Delivery charge logic: true for each order if master cart < 500, else false
@@ -875,7 +891,6 @@ exports.getAllOrders = async (req, res) => {
 //     }
 //     // Update finalPayable to include master delivery charge
 //     const finalPayable = totalAmount + masterDeliveryCharge;
-
 //     // Step 5: Get user lat/lng if missing
 //     if (!deliveryAddress.latitude || !deliveryAddress.longitude) {
 //       const fullAddress = `${deliveryAddress.flatNumber}, ${deliveryAddress.area}, ${deliveryAddress.place}`;
@@ -885,10 +900,8 @@ exports.getAllOrders = async (req, res) => {
 //         deliveryAddress.longitude = coords.longitude;
 //       }
 //     }
-
 //     // --- Step 6: Per-shop order creation, parallelized ---
 //     const shopIds = Object.keys(productsByShop);
-
 //     // --- Create MasterOrder first so its _id is available ---
 //     // We'll create an empty MasterOrder and update it after collecting orderIds
 //     const masterOrder = new MasterOrder({
@@ -906,7 +919,6 @@ exports.getAllOrders = async (req, res) => {
 //       } : null
 //     });
 //     await masterOrder.save();
-
 //     // Helper for per-shop order creation
 //     async function processShopOrder(shopId, shopProducts) {
 //       // Calculate per-shop total
@@ -919,7 +931,6 @@ exports.getAllOrders = async (req, res) => {
 //           }
 //         }
 //       }
-
 //       // Calculate delivery distance/earning
 //       const shop = await Shop.findOne({ _id: shopId });
 //       const shopLatLng = shop?.shopeDetails?.shopLocation?.split(',').map(Number);
@@ -932,7 +943,6 @@ exports.getAllOrders = async (req, res) => {
 //         ) / 1000;
 //         deliveryEarning = +(PER_KM_RATE * deliveryDistance).toFixed(2);
 //       }
-
 //       // Batch update stock for all products in this shop
 //       const stockUpdates = shopProducts.map(prod => {
 //         const quantityObj = cart.cartProduct.find(p => p.productId.toString() === prod._id.toString());
@@ -944,7 +954,6 @@ exports.getAllOrders = async (req, res) => {
 //         );
 //       });
 //       await Promise.all(stockUpdates);
-
 //       // Calculate per-shop coupon discount (proportionally to shop's products)
 //       let totalCouponDiscount = 0;
 //       if (couponDiscount > 0 && allProducts.length > 0) {
@@ -960,7 +969,6 @@ exports.getAllOrders = async (req, res) => {
 //         }
 //         totalCouponDiscount = +(couponDiscount * (shopSubtotal / originalTotal)).toFixed(2);
 //       }
-
 //       // Save order for this shop, and include masterOrderId
 //       const createdOrder = new Order({
 //         userId,
@@ -991,7 +999,6 @@ exports.getAllOrders = async (req, res) => {
 //       // Debug log for deliverycharge
 //       console.log(`Order for shop ${shopId} deliverycharge:`, originalTotal < 500);
 //       await createdOrder.save();
-
 //       // Push order to shop.orders[]
 //       const shopPushPromise = Shop.findByIdAndUpdate(shopId, {
 //         $push: {
@@ -1000,7 +1007,6 @@ exports.getAllOrders = async (req, res) => {
 //           }
 //         }
 //       });
-
 //       // Emit socket event per shop
 //       let io;
 //       try {
@@ -1013,10 +1019,8 @@ exports.getAllOrders = async (req, res) => {
 //       } catch (err) {
 //         console.error('Socket.IO emit failed:', err.message);
 //       }
-
 //       // Wait for shopPushPromise to finish
 //       await shopPushPromise;
-
 //       return {
 //         createdOrder,
 //         shopId,
@@ -1027,13 +1031,11 @@ exports.getAllOrders = async (req, res) => {
 //         productCount: shopProducts.length
 //       };
 //     }
-
 //     // Parallelize per-shop order creation
 //     const perShopOrderPromises = shopIds.map(shopId =>
 //       processShopOrder(shopId, productsByShop[shopId])
 //     );
 //     const perShopResults = await Promise.all(perShopOrderPromises);
-
 //     const allOrderIds = perShopResults.map(r => r.createdOrder._id);
 //     const perShopOrderInfo = perShopResults.map(r => ({
 //       order: r.createdOrder,
@@ -1044,14 +1046,11 @@ exports.getAllOrders = async (req, res) => {
 //       shopOriginalTotal: r.shopOriginalTotal,
 //       productCount: r.productCount
 //     }));
-
 //     // Update masterOrder with orderIds
 //     masterOrder.orderIds = allOrderIds;
 //     await masterOrder.save();
-
 //     // Step 8: Clear cart using batch update
 //     await Cart.updateOne({ userId }, { $set: { cartProduct: [] } });
-
 //     // 🔐 Create payment after order is saved successfully
 //     if (paymentType !== 'COD') {
 //       // For each shop, create a separate Payment document
@@ -1068,7 +1067,6 @@ exports.getAllOrders = async (req, res) => {
 //         await payment.save();
 //       }
 //     }
-
 //     // Step 9: Respond
 //     return res.status(201).json({
 //       message: 'Order placed successfully',
@@ -1092,7 +1090,6 @@ exports.getAllOrders = async (req, res) => {
 //         masterOrderId: masterOrder._id
 //       }
 //     });
-
 //   } catch (err) {
 //     console.error('Create Order Error:', err);
 //     res.status(500).json({
@@ -1102,7 +1099,6 @@ exports.getAllOrders = async (req, res) => {
 //     });
 //   }
 // };
-
 // Create Order From Direct Buy API Handler
 
 
@@ -1277,6 +1273,7 @@ exports.viewMyOrders = async (req, res) => {
     const orders = await Order.find({ userId })
       .sort({ createdAt: -1 })
       .populate('shopId', 'shopeDetails.shopName')
+      .populate('items.shopProductId', 'price discountedPrice')
       .lean();
 
     const formatted = orders.map(order => ({
@@ -1285,10 +1282,45 @@ exports.viewMyOrders = async (req, res) => {
       status: order.status,
       totalPayable: order.totalPayable,
       createdAt: order.createdAt,
-      items: order.items.map(i => ({
-        quantity: i.quantity,
-        ...i.snapshot
-      }))
+      items: order.items.map(i => {
+        const shopProduct = i.shopProductId;
+        const snapshotPrice = i.snapshot?.price || 0;
+        const snapshotDiscounted = i.snapshot?.discountedPrice;
+        const shopOriginalPrice = shopProduct?.price || 0;
+        const shopDiscountedPrice = shopProduct?.discountedPrice;
+
+        let price, discountedPrice;
+        if (snapshotDiscounted != null) {
+          // New order format: snapshot has both original and discounted
+          price = snapshotPrice;
+          discountedPrice = snapshotDiscounted;
+        } else if (shopDiscountedPrice != null && shopOriginalPrice > snapshotPrice) {
+          // Old order: snapshot.price is the discounted value, get original from ShopProduct
+          price = shopOriginalPrice;
+          discountedPrice = snapshotPrice;
+        } else {
+          // No discount at all
+          price = shopOriginalPrice || snapshotPrice;
+          discountedPrice = snapshotPrice;
+        }
+
+        const finalPrice = discountedPrice;
+        const hasDiscount = price > discountedPrice;
+
+        return {
+          quantity: i.quantity,
+          partNumber: i.snapshot?.partNumber,
+          partName: i.snapshot?.partName,
+          brand: i.snapshot?.brand,
+          model: i.snapshot?.model,
+          category: i.snapshot?.category,
+          price,
+          discountedPrice,
+          finalPrice,
+          hasDiscount,
+          image: i.snapshot?.image
+        };
+      })
     }));
 
     res.json({ success: true, data: formatted });
@@ -1374,6 +1406,7 @@ exports.viewMyOrders = async (req, res) => {
   // };
 
 // 2. View Orders By Shop (Shop Admin)
+
 exports.viewOrdersByShopAdmin = async (req, res) => {
   try {
     const { shopId } = req.params;
