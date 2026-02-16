@@ -33,10 +33,16 @@ const deliveryBoySchema = new mongoose.Schema(
       type: Boolean, 
       default: false 
     },
-    isOnline: { 
-      type: Boolean, 
-      default: false 
-    },
+    isOnline: {
+  type: Boolean,
+  default: false
+},
+
+// ⚠️ Legacy field — kept for backward compatibility
+availability: {
+  type: Boolean,
+  default: false
+},
     // ✅ FIX: Ensure assignedOrders always has default empty array
     assignedOrders: {
       type: [{ 
@@ -68,10 +74,7 @@ licenseImage: {
     longitude: { 
       type: Number 
     },
-    availability: { 
-      type: Boolean, 
-      default: true 
-    },
+   
     agencyId: { 
       type: mongoose.Schema.Types.ObjectId, 
       ref: 'DeliveryAgency' 

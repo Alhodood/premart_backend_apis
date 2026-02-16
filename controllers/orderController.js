@@ -18,7 +18,7 @@ const PDFDocument = require('pdfkit');
 const Coupon = require('../models/Coupon');
 const Offer = require('../models/Offers');
 const GOOGLE_API_KEY = process.env.GOOGLE_MAPS_API_KEY;
-const PER_KM_RATE = parseFloat(process.env.PER_KM_RATE) || 2; // AED per km
+const { getSuperAdminSettings } = require('../helper/settingsHelper');
 
 
 
@@ -48,36 +48,32 @@ const getLatLngFromAddress = async (addressString) => {
 };
 
 
+
+
 exports.createOrder = async (req, res) => {
   try {
+    // ✅ STEP 2: Get settings at start
+    const settings = await getSuperAdminSettings();
+    console.log('⚙️ Settings:', {
+      perKmRate: settings.perKmRate,
+      deliveryCharge: settings.deliveryCharge,
+      freeDeliveryThreshold: settings.freeDeliveryThreshold
+    });
+
     const { couponCode, paymentType, transactionId } = req.body;
     const userId = req.user?._id || req.params.userId;
     
     if (!userId) {
-      return res.status(400).json({ 
-        message: 'User ID is required', 
-        success: false 
-      });
+      return res.status(400).json({ message: 'User ID required', success: false });
     }
 
-    // ========================
-    // 1. GET USER DATA
-    // ========================
     const User = require('../models/User');
     const userData = await User.findById(userId);
-    
     if (!userData) {
-      return res.status(400).json({ 
-        message: 'User not found', 
-        success: false 
-      });
+      return res.status(400).json({ message: 'User not found', success: false });
     }
 
-    // ========================
-    // 2. RESOLVE DELIVERY ADDRESS
-    // ========================
     let deliveryAddress = req.body.deliveryAddress;
-    
     if (deliveryAddress?.name && deliveryAddress?.address) {
       deliveryAddress = {
         ...deliveryAddress,
@@ -89,10 +85,7 @@ exports.createOrder = async (req, res) => {
     } else {
       const defaultAddress = userData.address?.find(a => a.default);
       if (!defaultAddress) {
-        return res.status(400).json({ 
-          message: 'No delivery address found', 
-          success: false 
-        });
+        return res.status(400).json({ message: 'No delivery address', success: false });
       }
       deliveryAddress = {
         ...defaultAddress.toObject(),
@@ -101,9 +94,6 @@ exports.createOrder = async (req, res) => {
       };
     }
 
-    // ========================
-    // 3. FETCH CART
-    // ========================
     const cart = await Cart.findOne({ userId })
       .populate({
         path: 'items.shopProductId',
@@ -124,15 +114,9 @@ exports.createOrder = async (req, res) => {
       });
 
     if (!cart || cart.items.length === 0) {
-      return res.status(400).json({ 
-        message: 'Cart is empty', 
-        success: false 
-      });
+      return res.status(400).json({ message: 'Cart is empty', success: false });
     }
 
-    // ========================
-    // 4. NORMALIZE CART ITEMS
-    // ========================
     const allProducts = cart.items.map(item => ({
       shopProductId: item.shopProductId._id,
       shopId: item.shopProductId.shopId,
@@ -141,9 +125,6 @@ exports.createOrder = async (req, res) => {
       part: item.shopProductId.part
     }));
 
-    // ========================
-    // 5. GROUP BY SHOP
-    // ========================
     const productsByShop = {};
     allProducts.forEach(p => {
       const sId = p.shopId.toString();
@@ -151,58 +132,29 @@ exports.createOrder = async (req, res) => {
       productsByShop[sId].push(p);
     });
 
-    // ========================
-    // 6. CALCULATE TOTALS
-    // ========================
     let originalTotal = 0;
     for (const p of allProducts) {
       originalTotal += p.price * p.quantity;
     }
 
-    // ========================
-    // 7. APPLY COUPON
-    // ========================
     let couponDiscount = 0;
     let appliedCoupon = null;
 
     if (couponCode) {
-      const coupon = await Coupon.findOne({ 
-        code: couponCode, 
-        isActive: true 
-      });
-
+      const coupon = await Coupon.findOne({ code: couponCode, isActive: true });
       if (!coupon) {
-        return res.status(400).json({ 
-          message: 'Invalid coupon', 
-          success: false 
-        });
+        return res.status(400).json({ message: 'Invalid coupon', success: false });
       }
-
-      // Check expiry
       if (coupon.expiryDate && new Date() > coupon.expiryDate) {
-        return res.status(400).json({ 
-          message: 'Coupon has expired', 
-          success: false 
-        });
+        return res.status(400).json({ message: 'Coupon expired', success: false });
       }
-
-      // Check usage limit
       if (coupon.usageLimit && coupon.usedCount >= coupon.usageLimit) {
-        return res.status(400).json({ 
-          message: 'Coupon usage limit reached', 
-          success: false 
-        });
+        return res.status(400).json({ message: 'Coupon limit reached', success: false });
       }
-
-      // Check minimum order amount
       if (coupon.minOrderAmount && originalTotal < coupon.minOrderAmount) {
-        return res.status(400).json({ 
-          message: `Minimum order amount is ${coupon.minOrderAmount}`, 
-          success: false 
-        });
+        return res.status(400).json({ message: `Minimum order: ${coupon.minOrderAmount}`, success: false });
       }
 
-      // Calculate discount
       if (coupon.discountType === 'percent') {
         couponDiscount = (originalTotal * coupon.discountValue) / 100;
       } else if (coupon.discountType === 'flat' || coupon.discountType === 'amount') {
@@ -215,7 +167,6 @@ exports.createOrder = async (req, res) => {
         discountValue: coupon.discountValue
       };
 
-      // Update coupon usage
       coupon.usedCount += 1;
       if (!coupon.userId) coupon.userId = [];
       coupon.userId.push(userId);
@@ -225,48 +176,36 @@ exports.createOrder = async (req, res) => {
     const totalDiscount = couponDiscount;
     const totalAmount = +(originalTotal - totalDiscount).toFixed(2);
     
-    // Master delivery charge (applies to entire order if < 500)
-    const deliverycharge = originalTotal < 500;
-    const masterDeliveryCharge = deliverycharge ? 30 : 0;
+    // ✅ STEP 3: Use settings
+    const deliverycharge = originalTotal < settings.freeDeliveryThreshold;
+    const masterDeliveryCharge = deliverycharge ? settings.deliveryCharge : 0;
     const finalPayable = totalAmount + masterDeliveryCharge;
-// ========================
-    // 8. CREATE MASTER ORDER
-    // ========================
+
     const masterOrder = await MasterOrder.create({
       userId,
       totalAmount: originalTotal,
       finalPayable,
       deliverycharge: masterDeliveryCharge,
-      couponApplied: appliedCoupon ? {
-        ...appliedCoupon,
-        discountAmount: totalDiscount
-      } : null
+      couponApplied: appliedCoupon ? { ...appliedCoupon, discountAmount: totalDiscount } : null
     });
 
-    console.log(`✅ Master order created: ${masterOrder._id}`);
-
-    // ========================
-    // 9. CREATE PER-SHOP ORDERS
-    // ========================
     const perShopResults = [];
 
     for (const shopId of Object.keys(productsByShop)) {
       const shop = await Shop.findById(shopId);
       const shopProducts = productsByShop[shopId];
 
-      // Calculate shop subtotal
       let shopTotal = 0;
       shopProducts.forEach(p => {
         shopTotal += p.price * p.quantity;
       });
 
-      // Calculate proportional discount
       let shopDiscount = 0;
       if (couponDiscount > 0 && originalTotal > 0) {
         shopDiscount = +(couponDiscount * (shopTotal / originalTotal)).toFixed(2);
       }
 
-      // Calculate delivery distance and earning
+      // ✅ STEP 4: Use settings for delivery
       const shopLatLng = shop?.shopeDetails?.shopLocation?.split(',').map(Number);
       let deliveryDistance = 0;
       let deliveryEarning = 0;
@@ -284,23 +223,19 @@ exports.createOrder = async (req, res) => {
           );
           
           deliveryDistance = +(distanceInMeters / 1000).toFixed(2);
-          deliveryEarning = +(PER_KM_RATE * deliveryDistance).toFixed(2);
+          deliveryEarning = +(settings.perKmRate * deliveryDistance).toFixed(2);
           
-          console.log(`📍 Shop ${shopId}: Distance ${deliveryDistance} km, Earning ${deliveryEarning} AED`);
+          console.log(`📍 Shop ${shopId}: ${deliveryDistance}km @ ${settings.perKmRate} AED/km = ${deliveryEarning} AED`);
         }
       }
 
-      const shopDeliveryCharge = deliverycharge ? 30 : 0;
+      const shopDeliveryCharge = deliverycharge ? settings.deliveryCharge : 0;
       const shopFinalPayable = shopTotal - shopDiscount + shopDeliveryCharge;
 
-      // Reduce stock
       for (const p of shopProducts) {
-        await ShopProduct.findByIdAndUpdate(p.shopProductId, {
-          $inc: { stock: -p.quantity }
-        });
+        await ShopProduct.findByIdAndUpdate(p.shopProductId, { $inc: { stock: -p.quantity } });
       }
 
-      // Create order
       const createdOrder = await Order.create({
         userId,
         shopId,
@@ -323,7 +258,6 @@ exports.createOrder = async (req, res) => {
           };
         }),
         deliveryAddress,
-        
         subtotal: shopTotal,
         discount: shopDiscount,
         deliveryCharge: shopDeliveryCharge,
@@ -339,89 +273,43 @@ exports.createOrder = async (req, res) => {
         deliveryDistance,
         deliveryEarning,
         status: 'Pending',
-        statusHistory: [
-          { status: 'Pending', date: new Date() }
-        ]
+        statusHistory: [{ status: 'Pending', date: new Date() }]
       });
 
-      console.log(`✅ Order created for shop ${shopId}: ${createdOrder._id}`);
-
-      // Add order to shop
-      await Shop.findByIdAndUpdate(
-        shopId,
-        {
-          $push: {
-            orders: { orderId: createdOrder._id }
-          }
-        }
-      );
+      await Shop.findByIdAndUpdate(shopId, { $push: { orders: { orderId: createdOrder._id } } });
 
       try {
-    const socketModule = require('../sockets/socket');
-    
-    // Format order for real-time update
-    const orderData = {
-      _id: createdOrder._id,
-      customerName: createdOrder.deliveryAddress?.name || 'Customer',
-      customerPhone: createdOrder.deliveryAddress?.contact || '-',
-      orderStatus: createdOrder.status,
-      productName: createdOrder.items[0]?.snapshot?.partName || 'Product',
-      productImage: createdOrder.items[0]?.snapshot?.image || null,
-      itemCount: createdOrder.items.length,
-      quantity: createdOrder.items.reduce((sum, item) => sum + item.quantity, 0),
-      totalAmount: createdOrder.subtotal,
-      finalPayable: createdOrder.totalPayable,
-      paymentMethod: createdOrder.paymentType,
-      paymentStatus: createdOrder.paymentStatus,
-      createdAt: createdOrder.createdAt,
-      deliveryAddress: createdOrder.deliveryAddress,
-      // Mark as new for frontend highlighting
-      isNew: true
-    };
+        const socketModule = require('../sockets/socket');
+        const orderData = {
+          _id: createdOrder._id,
+          customerName: createdOrder.deliveryAddress?.name || 'Customer',
+          customerPhone: createdOrder.deliveryAddress?.contact || '-',
+          orderStatus: createdOrder.status,
+          productName: createdOrder.items[0]?.snapshot?.partName || 'Product',
+          productImage: createdOrder.items[0]?.snapshot?.image || null,
+          itemCount: createdOrder.items.length,
+          quantity: createdOrder.items.reduce((sum, item) => sum + item.quantity, 0),
+          totalAmount: createdOrder.subtotal,
+          finalPayable: createdOrder.totalPayable,
+          paymentMethod: createdOrder.paymentType,
+          paymentStatus: createdOrder.paymentStatus,
+          createdAt: createdOrder.createdAt,
+          deliveryAddress: createdOrder.deliveryAddress,
+          isNew: true
+        };
 
-    // ✅ Emit to shop admin
-    socketModule.emitToShop(shopId, 'new_order', orderData);
-
-    // ✅ Emit to super admins
-    socketModule.emitToSuperAdmins('new_order', {
-      ...orderData,
-      shopId: shopId,
-      shopName: shop?.shopeDetails?.shopName || 'Unknown Shop'
-    });
-
-    console.log(`🔔 New order notification sent for order ${createdOrder._id}`);
-
-  } catch (socketError) {
-    console.error('❌ Socket emission error:', socketError.message);
-    // Don't fail order creation if socket fails
-  }
-
+        socketModule.emitToShop(shopId, 'new_order', orderData);
+        socketModule.emitToSuperAdmins('new_order', { ...orderData, shopId, shopName: shop?.shopeDetails?.shopName || 'Unknown' });
+      } catch (socketError) {
+        console.error('Socket error:', socketError.message);
+      }
 
       perShopResults.push(createdOrder);
     }
 
-    
-
-    // ✅✅ FIX: Move this OUTSIDE the loop - AFTER all orders are created
-    await MasterOrder.findByIdAndUpdate(
-      masterOrder._id,
-      {
-        $set: {
-          orderIds: perShopResults.map(o => o._id)  // ✅ Use $set instead of $push
-        }
-      }
-    );
-
-    console.log(`✅ Added ${perShopResults.length} order IDs to master order ${masterOrder._id}`);
-
-    // ========================
-    // 10. CLEAR CART
-    // ========================
+    await MasterOrder.findByIdAndUpdate(masterOrder._id, { $set: { orderIds: perShopResults.map(o => o._id) } });
     await Cart.updateOne({ userId }, { $set: { items: [] } });
 
-    // ========================
-    // 11. RETURN RESPONSE
-    // ========================
     return res.status(201).json({
       success: true,
       message: 'Order placed successfully',
@@ -438,13 +326,64 @@ exports.createOrder = async (req, res) => {
 
   } catch (err) {
     console.error('Create Order Error:', err);
-    res.status(500).json({
-      message: 'Failed to place order',
-      success: false,
-      error: err.message
-    });
+    res.status(500).json({ message: 'Failed to place order', success: false, error: err.message });
   }
 };
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 
 exports.getOrderById = async (req, res) => {
   try {

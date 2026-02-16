@@ -96,7 +96,12 @@ const superAdminSettingsSchema = new mongoose.Schema({
   appVersion: {
     type: String,
     default: '1.0.0'
-  }
+  },
+  deliveryRadiusKm: { type: Number, default: 50 },
+deliveryAssignmentRadius: { type: [Number], default: [3, 5, 10, 50] },
+estimatedSpeedKmh: { type: Number, default: 30 },
+shopCommission: { type: Number, default: 5 },  // Alias for platformCommission
+agencyCommission: { type: Number, default: 2 }
 }, {
   timestamps: true
 });
