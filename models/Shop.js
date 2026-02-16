@@ -13,6 +13,7 @@ const shopDetailsSchema = new mongoose.Schema({
     shopName: { type: String },
     shopAddress: { type: String },
     shopMail: { type: String },
+    
     shopContact: { type: String },
     shopLicenseNumber: { type: String },
     shopLicenseExpiry: { type: String },

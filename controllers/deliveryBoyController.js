@@ -16,6 +16,8 @@ const moment = require('moment');
 const { getIO } = require('../sockets/socket');
 const AgencyPayout = require('../models/AgencyPayout');
 const ShopPayout = require('../models/ShopPayout');
+const { getCommissionRates } = require('../helper/commissionHelper');
+
 
 
 // Calculate distance between 2 geo points (Haversine)
@@ -24,22 +26,6 @@ const ShopPayout = require('../models/ShopPayout');
 const twilio = require('twilio');
 const SuperAdminSettings = require('../models/SuperAdminSettings'); // ✅ Add this import
 
-// ✅ Helper function to get commission rates from settings
-async function getCommissionRates() {
-  try {
-    const settings = await SuperAdminSettings.findOne();
-    return {
-      shopCommission: settings?.shopCommission || 5, // Default 5%
-      agencyCommission: settings?.agencyCommission || 2 // Default 2%
-    };
-  } catch (error) {
-    console.error('Error fetching commission rates:', error);
-    return {
-      shopCommission: 5, // Fallback default
-      agencyCommission: 2 // Fallback default
-    };
-  }
-}
 
 
 exports.updateDeliveryBoy = async (req, res) => {
@@ -72,7 +58,7 @@ exports.updateDeliveryBoy = async (req, res) => {
 
     console.log('✅ Found existing delivery boy:', existingDeliveryBoy.name);
 
-    // ✅ FIX: Remove empty/null/undefined values from updateData
+    // ✅ Remove empty/null/undefined values from updateData
     Object.keys(updateData).forEach(key => {
       const value = updateData[key];
       if (value === '' || value === null || value === undefined || value === 'null' || value === 'Null') {
@@ -82,19 +68,17 @@ exports.updateDeliveryBoy = async (req, res) => {
 
     console.log('📝 Cleaned update data:', JSON.stringify(updateData, null, 2));
 
-    // ✅ FIX: Handle profileImage properly
+    // ✅ Handle profileImage properly
     if (updateData.profileImage !== undefined) {
       if (updateData.profileImage === null || 
           updateData.profileImage === 'null' || 
           updateData.profileImage === 'Null' ||
           updateData.profileImage === '') {
-        // If null/empty, keep existing image or set to null
         updateData.profileImage = existingDeliveryBoy.profileImage || null;
       }
-      // If it's a valid string URL, keep it as is
     }
 
-    // ✅ FIX: Handle licenseImage properly
+    // ✅ Handle licenseImage properly
     if (updateData.licenseImage !== undefined) {
       if (updateData.licenseImage === null || 
           updateData.licenseImage === 'null' || 
@@ -104,41 +88,67 @@ exports.updateDeliveryBoy = async (req, res) => {
       }
     }
 
-    // ✅ FIX: Ensure assignedOrders is always an array
+    // ✅ Ensure assignedOrders is always an array
     if (updateData.assignedOrders === undefined || updateData.assignedOrders === null) {
       updateData.assignedOrders = existingDeliveryBoy.assignedOrders || [];
     }
 
-    // ✅ FIX: Handle email updates - only check if email is provided and changed
+    // ✅ IMPROVED: Check for duplicate email with better error message
     if (updateData.email && updateData.email !== existingDeliveryBoy.email) {
-      // Check if email already exists
       const emailExists = await DeliveryBoy.findOne({
         email: updateData.email,
         _id: { $ne: deliveryBoyId }
       });
       
       if (emailExists) {
-        return res.status(400).json({
-          message: 'Email already in use by another delivery boy',
+        console.log('❌ Email already exists:', updateData.email);
+        return res.status(409).json({
+          message: `Email already exists: This email address (${updateData.email}) is already registered to another delivery agent.`,
           success: false,
-          data: null
+          data: null,
+          error: 'DUPLICATE_EMAIL',
+          field: 'email',
+          value: updateData.email
         });
       }
     }
 
-    // ✅ FIX: Handle phone updates - only check if phone is provided and changed
+    // ✅ IMPROVED: Check for duplicate phone with better error message
     if (updateData.phone && updateData.phone !== existingDeliveryBoy.phone) {
-      // Check if phone already exists
       const phoneExists = await DeliveryBoy.findOne({
         phone: updateData.phone,
         _id: { $ne: deliveryBoyId }
       });
       
       if (phoneExists) {
-        return res.status(400).json({
-          message: 'Phone number already in use by another delivery boy',
+        console.log('❌ Phone already exists:', updateData.phone);
+        return res.status(409).json({
+          message: `Phone already exists: This phone number (${updateData.phone}) is already registered to another delivery agent.`,
           success: false,
-          data: null
+          data: null,
+          error: 'DUPLICATE_PHONE',
+          field: 'phone',
+          value: updateData.phone
+        });
+      }
+    }
+
+    // ✅ IMPROVED: Check for duplicate Emirates ID with better error message
+    if (updateData.emiratesId && updateData.emiratesId !== existingDeliveryBoy.emiratesId) {
+      const emiratesIdExists = await DeliveryBoy.findOne({
+        emiratesId: updateData.emiratesId,
+        _id: { $ne: deliveryBoyId }
+      });
+      
+      if (emiratesIdExists) {
+        console.log('❌ Emirates ID already exists:', updateData.emiratesId);
+        return res.status(409).json({
+          message: `Emirates ID already exists: This Emirates ID (${updateData.emiratesId}) is already registered to another delivery agent.`,
+          success: false,
+          data: null,
+          error: 'DUPLICATE_EMIRATES_ID',
+          field: 'emiratesId',
+          value: updateData.emiratesId
         });
       }
     }
@@ -175,13 +185,36 @@ exports.updateDeliveryBoy = async (req, res) => {
     console.error('❌ Update Delivery Boy Error:', error);
     console.error('Error stack:', error.stack);
     
-    // Handle duplicate key errors
+    // ✅ IMPROVED: Handle MongoDB duplicate key errors with specific messages
     if (error.code === 11000) {
       const field = Object.keys(error.keyPattern)[0];
-      return res.status(400).json({
-        message: `${field} already exists`,
+      const value = error.keyValue[field];
+      
+      let userMessage = '';
+      let errorCode = 'DUPLICATE_KEY';
+      
+      if (field === 'email') {
+        userMessage = `Email already exists: This email address (${value}) is already registered to another delivery agent.`;
+        errorCode = 'DUPLICATE_EMAIL';
+      } else if (field === 'phone') {
+        userMessage = `Phone already exists: This phone number (${value}) is already registered to another delivery agent.`;
+        errorCode = 'DUPLICATE_PHONE';
+      } else if (field === 'emiratesId') {
+        userMessage = `Emirates ID already exists: This Emirates ID (${value}) is already registered to another delivery agent.`;
+        errorCode = 'DUPLICATE_EMIRATES_ID';
+      } else {
+        userMessage = `${field} already exists`;
+      }
+      
+      console.log('❌ Duplicate key error:', { field, value, errorCode });
+      
+      return res.status(409).json({
+        message: userMessage,
         success: false,
-        data: null
+        data: null,
+        error: errorCode,
+        field: field,
+        value: value
       });
     }
 
@@ -234,8 +267,8 @@ exports.getAllDeliveryBoys = async (req, res) => {
       email: boy.email || null,
        agencyName: boy.agencyId?.agencyDetails?.agencyName || null,
       phone: boy.phone || null,
-      countryCode: boy.countryCode || "+971",
-      dob: boy.dob || null,
+      //countryCode: boy.countryCode || "+971",
+      DOB: boy.dob || null,
       licenseNo: boy.licenseNo || null,
       accountVerify: boy.accountVerify ?? false,
       isOnline: boy.isOnline ?? false,
@@ -1074,7 +1107,6 @@ exports.deliveryBoyUpdateOrderStatus = async (req, res) => {
       status: newStatus,
       date: new Date()
     });
-    await updatedOrder.save();
 
     const currentMonth = new Date().toLocaleString('default', {
       month: 'long',
@@ -1087,23 +1119,27 @@ exports.deliveryBoyUpdateOrderStatus = async (req, res) => {
     if (updatedOrder.status === 'Delivered') {
       console.log('📦 Order delivered, processing payments...');
 
-      // ✅ Get commission rates from settings
+      // ✅ UPDATE: Payment status to "Paid"
+      updatedOrder.paymentStatus = 'Paid';
+      console.log('💳 Payment status updated to: Paid');
+
+      // ✅ STEP 1: Get commission rates from settings (NOT hardcoded!)
       const { shopCommission, agencyCommission } = await getCommissionRates();
-      console.log(`💼 Commission Rates: Shop=${shopCommission}%, Agency=${agencyCommission}%`);
+      console.log(`💼 Commission Rates from Settings: Shop=${shopCommission}%, Agency=${agencyCommission}%`);
 
       const startOfMonth = new Date(new Date().getFullYear(), new Date().getMonth(), 1);
       const endOfMonth = new Date(new Date().getFullYear(), new Date().getMonth() + 1, 0);
 
       // ════════════════════════════════════════════════════════════
-      // 1. AGENCY PAYMENT - FIXED
+      // 1. AGENCY PAYMENT - FIXED WITH SETTINGS
       // ════════════════════════════════════════════════════════════
       const orderEarning = Number(updatedOrder.deliveryEarning || 0);
       
-      // ✅ Apply agency commission (platform takes % from agency earnings)
+      // ✅ Apply agency commission from settings
       const agencyCommissionAmount = (orderEarning * agencyCommission) / 100;
       const netAgencyEarning = orderEarning - agencyCommissionAmount;
       
-      console.log(`💰 Agency Earnings - Gross: ${orderEarning} AED, Commission: ${agencyCommissionAmount} AED, Net: ${netAgencyEarning} AED`);
+      console.log(`💰 Agency Earnings - Gross: ${orderEarning} AED, Commission: ${agencyCommissionAmount} AED (${agencyCommission}%), Net: ${netAgencyEarning} AED`);
 
       const deliveryBoy = await DeliveryBoy.findById(updatedOrder.assignedDeliveryBoy).lean();
 
@@ -1118,7 +1154,7 @@ exports.deliveryBoyUpdateOrderStatus = async (req, res) => {
 
         if (agencyPayout) {
           agencyPayout.totalOrders += 1;
-          agencyPayout.totalEarnings += netAgencyEarning; // ✅ Store net earning
+          agencyPayout.totalEarnings += netAgencyEarning;
           agencyPayout.deliveryBoyId = deliveryBoy._id;
           agencyPayout.orderId = updatedOrder._id;
           await agencyPayout.save();
@@ -1129,7 +1165,7 @@ exports.deliveryBoyUpdateOrderStatus = async (req, res) => {
             deliveryBoyId: deliveryBoy._id,
             orderId: updatedOrder._id,
             totalOrders: 1,
-            totalEarnings: netAgencyEarning, // ✅ Store net earning
+            totalEarnings: netAgencyEarning,
             from: startOfMonth,
             to: endOfMonth,
             month: currentMonth,
@@ -1141,16 +1177,16 @@ exports.deliveryBoyUpdateOrderStatus = async (req, res) => {
       }
 
       // ════════════════════════════════════════════════════════════
-      // 2. SHOP PAYMENT - FIXED
+      // 2. SHOP PAYMENT - FIXED WITH SETTINGS
       // ════════════════════════════════════════════════════════════
       const shopId = updatedOrder.shopId;
       const orderAmount = Number(updatedOrder.totalPayable || 0);
       
-      // ✅ Apply shop commission (platform takes % from shop sales)
+      // ✅ Apply shop commission from settings
       const commission = (orderAmount * shopCommission) / 100;
       const netPayable = orderAmount - commission;
 
-      console.log(`🏪 Shop payment: Total=${orderAmount} AED, Commission=${commission} AED, Net=${netPayable} AED`);
+      console.log(`🏪 Shop payment: Total=${orderAmount} AED, Commission=${commission} AED (${shopCommission}%), Net=${netPayable} AED`);
 
       // ✅ CRITICAL FIX: Only find PENDING payouts
       let shopPayout = await ShopPayout.findOne({
@@ -1183,12 +1219,16 @@ exports.deliveryBoyUpdateOrderStatus = async (req, res) => {
       }
     }
 
+    // ✅ Save the order with updated payment status
+    await updatedOrder.save();
+
     // Socket.IO Notification
     try {
       const io = getIO();
       io.emit('order_status_changed', {
         orderId: updatedOrder._id,
         status: updatedOrder.status,
+        paymentStatus: updatedOrder.paymentStatus,
         shopId: updatedOrder.shopId,
         deliveryBoyId: updatedOrder.assignedDeliveryBoy,
         updatedAt: updatedOrder.updatedAt,
@@ -1270,24 +1310,32 @@ exports.getDeliveryBoysByAgency = async (req, res) => {
       return res.status(400).json({
         message: 'Agency ID is required',
         success: false,
-        data: []
+        data: [],
       });
     }
 
-    const deliveryBoys = await DeliveryBoy.find({ agencyId });
+    const deliveryBoys = await DeliveryBoy.find({ agencyId })
+      .select('-password -countryCode -__v')
+      .lean();  // ✅ convert to plain object
+
+    const formatted = deliveryBoys.map(({ dob, ...rest }) => ({
+      ...rest,
+      DOB: dob || null   // API contract field
+    }));
 
     return res.status(200).json({
       message: 'Delivery boys fetched successfully',
       success: true,
-      count: deliveryBoys.length,
-      data: deliveryBoys
+      count: formatted.length,
+      data: formatted
     });
+
   } catch (error) {
     console.error('Get Delivery Boys Error:', error);
-    res.status(500).json({
+    return res.status(500).json({
       message: 'Failed to fetch delivery boys',
       success: false,
-      data: error.message
+      data: error.message,
     });
   }
 };
@@ -1400,25 +1448,39 @@ exports.getNearbyOnlineDeliveryBoys = async (req, res) => {
 exports.toggleAvailability = async (req, res) => {
   try {
     const { deliveryBoyId } = req.params;
-    console.log('Requested Delivery Boy ID:', deliveryBoyId);
 
-    const deliveryBoy = await DeliveryBoy.findById(deliveryBoyId);
-    console.log('Fetched Delivery Boy:', deliveryBoy);
-  if (!deliveryBoy || deliveryBoy.role !== 'DELIVERY_BOY') {
-      console.log('Validation failed - either not found or role mismatch:', deliveryBoy?.role);
+    const deliveryBoy = await DeliveryBoy.findOne({
+      _id: deliveryBoyId,
+      role: 'DELIVERY_BOY'
+    });
+
+    if (!deliveryBoy) {
       return res.status(404).json({
         success: false,
         message: "Delivery Boy not found"
       });
     }
 
-    deliveryBoy.isOnline = !deliveryBoy.isOnline;
+    const newStatus = !deliveryBoy.isOnline;
+
+    deliveryBoy.isOnline = newStatus;
+    deliveryBoy.availability = newStatus;   // 🔥 KEEP IN SYNC
+
     await deliveryBoy.save();
+
+    // Optional real-time update
+    try {
+      const io = require('../sockets/socket').getIO();
+      io.emit('deliveryBoyStatusChanged', {
+        deliveryBoyId: deliveryBoy._id,
+        isOnline: newStatus
+      });
+    } catch (e) {}
 
     res.status(200).json({
       success: true,
-      message: `Status updated to ${deliveryBoy.isOnline ? 'Online' : 'Offline'}`,
-      isOnline: deliveryBoy.isOnline
+      message: `Status updated to ${newStatus ? 'Online' : 'Offline'}`,
+      isOnline: newStatus
     });
 
   } catch (err) {

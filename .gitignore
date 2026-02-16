@@ -9,6 +9,11 @@ yarn-error.log*
 .env.local
 .env.*.local
 
+# Secrets – never commit
+firebase-service-account.json
+**/firebase-service-account*.json
+**/*-service-account*.json
+
 # IDE
 .vscode/
 .idea/

@@ -5,6 +5,7 @@ let io;
 const connectedUsers = {}; // Delivery boys
 const connectedShops = {}; // Shop admins
 const connectedAdmins = {}; // Super admins
+const connectedCustomers = {}; // Customers (for in-app + order events)
 
 module.exports = {
   init: (server) => {
@@ -74,6 +75,19 @@ module.exports = {
         socket.emit('connection_confirmed', {
           userType: 'super_admin',
           adminId: adminId,
+          socketId: socket.id
+        });
+      }
+
+      // ✅ CUSTOMER CONNECTION (for in-app notifications + order events)
+      else if (userType === 'customer' && deliveryBoyId) {
+        const uid = deliveryBoyId.toString();
+        socket.join(uid);
+        connectedCustomers[uid] = socket.id;
+        console.log('👤 Customer registered:', uid);
+        socket.emit('connection_confirmed', {
+          userType: 'customer',
+          userId: uid,
           socketId: socket.id
         });
       }
@@ -154,6 +168,15 @@ module.exports = {
             break;
           }
         }
+
+        // Remove from customers
+        for (const id in connectedCustomers) {
+          if (connectedCustomers[id] === socket.id) {
+            delete connectedCustomers[id];
+            console.log('❌ Customer disconnected:', id);
+            break;
+          }
+        }
       });
     });
 
@@ -190,5 +213,14 @@ module.exports = {
     if (!io) throw new Error('Socket.IO not initialized');
     io.emit(event, data);
     console.log(`📢 Broadcasted '${event}' to all clients`);
+  },
+
+  /** Emit to a specific user (customer or delivery boy by userId). For in-app real-time notifications. */
+  emitToUser: (userId, event, data) => {
+    if (!io) return;
+    const uid = userId && userId.toString();
+    if (uid) {
+      io.to(uid).emit(event, data);
+    }
   }
 };

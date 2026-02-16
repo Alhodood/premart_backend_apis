@@ -1,5 +1,6 @@
 const Notification = require('../models/superNotification');
 const socketService = require('../sockets/socket');
+const { sendPushToUser } = require('../helper/fcmPushHelper');
 
 
 exports.createNotification = async (req, res) => {
@@ -36,35 +37,45 @@ exports.createNotification = async (req, res) => {
     console.log("🟡 Active users:", connectedUsers);
 
     if (!isScheduled) {
+      const payload = {
+        id: String(notification._id),
+        title,
+        message,
+        image: image || '',
+        createdAt: notification.createdAt?.toISOString?.() || new Date().toISOString(),
+      };
 
-      // Targeted
+      // Targeted: in-app (socket) + push
       if (recipientIds.length > 0) {
         recipientIds.forEach(uid => {
-          console.log("🟢 Emit to:", uid);
-
-          io.to(uid.toString()).emit("new_notification", {
-            id: notification._id,
-            title,
-            message,
-            image,
-            createdAt: notification.createdAt,
-          });
+          const uidStr = uid.toString?.() || uid;
+          io.to(uidStr).emit("new_notification", { ...payload, id: notification._id, createdAt: notification.createdAt });
+          sendPushToUser(uidStr, title || 'Notification', message || '', { notificationId: String(notification._id) })
+            .catch((e) => console.warn('Push to', uidStr, 'failed:', e.message));
         });
       }
-
-      // Role broadcast
+      // Role broadcast deliveryBoy: in-app (socket) + push to all delivery boys
       else if (role === 'deliveryBoy') {
-        Object.keys(connectedUsers).forEach(uid => {
-          console.log("🟢 Broadcast to:", uid);
-
-          io.to(uid).emit("new_notification", {
-            id: notification._id,
-            title,
-            message,
-            image,
-            createdAt: notification.createdAt,
-          });
-        });
+        const DeliveryBoy = require('../models/DeliveryBoy');
+        const deliveryBoyIds = await DeliveryBoy.find({}).select('_id').lean();
+        for (const { _id } of deliveryBoyIds) {
+          const uidStr = _id.toString();
+          io.to(uidStr).emit("new_notification", { ...payload, id: notification._id, createdAt: notification.createdAt });
+          await sendPushToUser(uidStr, title || 'Notification', message || '', { notificationId: String(notification._id) }).catch(() => {});
+        }
+      }
+      // Role customer or all: push to all users with device tokens (in-app list comes from getMyNotifications)
+      else if (role === 'customer' || role === 'all') {
+        const User = require('../models/User');
+        const DeviceToken = require('../models/DeviceToken');
+        const userIds = await DeviceToken.distinct('user_id');
+        for (const uid of userIds) {
+          const uidStr = uid && uid.toString();
+          if (uidStr) {
+            io.to(uidStr).emit("new_notification", { ...payload, id: notification._id, createdAt: notification.createdAt });
+            await sendPushToUser(uidStr, title || 'Notification', message || '', { notificationId: String(notification._id) }).catch(() => {});
+          }
+        }
       }
     }
 

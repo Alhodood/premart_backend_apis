@@ -50,8 +50,9 @@ const transmissionRoutes = require('./routes/transmissionRoutes');
 const superAdminSettingsRoutes = require('./routes/superAdminSettingsRoutes');
 const productRatingRoutes = require('./routes/productRatingRoutes');
 const appConfigRoutes = require('./routes/appConfigRoutes');
-
-
+const deviceRoutes = require('./routes/deviceRoutes');
+const userNotificationRoutes = require('./routes/userNotificationRoutes');
+const { initFirebase } = require('./helper/fcmPushHelper');
 
 const app = express();
 
@@ -100,8 +101,10 @@ global.io = io;
 global.connectedUsers = {};
 
 connectDB();
+initFirebase();
 
 app.use('/api/auth', authRoutes);
+app.use('/api/device', deviceRoutes);
 app.use('/api/shop', shopRoutes);
 app.use('/api',productRoutes);
 
@@ -135,8 +138,9 @@ app.use('/api/super-admin', superAdminSettingsRoutes);
 app.use('/api/rating', productRatingRoutes);
 app.use('/api/app-config', appConfigRoutes);
 app.use('/api/places', placesRoutes);
+app.use('/api/user-notifications', userNotificationRoutes);
 
-
+// Device FCM registration: POST /api/device/register (device_id, device_token)
 
 // Basic route
 app.get('/', (req, res) => {
