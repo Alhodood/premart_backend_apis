@@ -37,13 +37,15 @@ router.put('/assign-delivery-boy', orderController.assignOrderManually);
 
 router.patch('/auto-assign/:orderId', orderController.autoAssignDeliveryBoyWithin5km);
 
-router.post('/createDummy/:userId', orderController.seedDummyOrder);
+// router.post('/createDummy/:userId', orderController.seedDummyOrder); // seedDummyOrder is commented out in controller
 
  //--------
 
- router.get('/generateInvoice/:orderId', orderController.generateInvoice);
+ router.get('/generateInvoice/:orderId', protect, orderController.generateInvoice);
 
- router.get('/getOrderById/:orderId', orderController.getOrderById);
+ router.get('/getOrderById/:orderId', protect, orderController.getOrderById);
+
+ router.post('/send-invoice/:orderId', protect, orderController.sendInvoiceByEmail);
 
 
 
