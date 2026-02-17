@@ -87,6 +87,32 @@ async function removeToken(device_token) {
 }
 
 /**
+ * Send push to a single FCM token (e.g. DeliveryBoy.activeDeviceToken).
+ * @param {string} token - FCM device token
+ * @param {string} title - Notification title
+ * @param {string} body - Notification body
+ * @param {Record<string, string>} data - Data payload (values stringified)
+ */
+async function sendPushToToken(token, title, body, data) {
+  if (!token || typeof token !== 'string') return;
+  initFirebase();
+  if (!messaging) return;
+  const dataStr = stringifyData(data || {});
+  try {
+    await messaging.send({
+      token,
+      notification: { title: title || 'Notification', body: body || '' },
+      data: dataStr,
+      android: { priority: 'high' },
+      apns: { payload: { aps: { sound: 'default' } } },
+    });
+    console.log('FCM push sent to token');
+  } catch (err) {
+    console.error('FCM send error (token):', err.message);
+  }
+}
+
+/**
  * Send push to one user (all their devices). Handles missing/invalid tokens.
  * @param {string} userId - User ObjectId string (customer)
  * @param {string} title - Notification title (tray)
@@ -94,6 +120,7 @@ async function removeToken(device_token) {
  * @param {Record<string, string>} data - Data payload; app uses route/screen and order_id/id. All values must be strings.
  */
 async function sendPushToUser(userId, title, body, data) {
+  initFirebase();
   if (!messaging) {
     console.warn('FCM push skipped (Firebase not initialized). Set FIREBASE_SERVICE_ACCOUNT_PATH or FIREBASE_SERVICE_ACCOUNT_JSON.');
     return;
@@ -133,5 +160,6 @@ module.exports = {
   initFirebase,
   getFcmTokensForUser,
   sendPushToUser,
+  sendPushToToken,
   stringifyData,
 };
