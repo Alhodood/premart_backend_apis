@@ -2919,7 +2919,7 @@ async function getInvoicePdfBufferForMasterOrder(orders, options) {
 async function getInvoicePdfBuffer(order) {
   return new Promise((resolve, reject) => {
     try {
-      const doc = new PDFDocument({ size: 'A4', margin: 40 });
+      const doc = new PDFDocument({ size: 'A4', margin: 40, bufferPages: true });
       const buffers = [];
       doc.on('data', buffers.push.bind(buffers));
       doc.on('end', () => resolve(Buffer.concat(buffers)));
@@ -3063,11 +3063,11 @@ async function getInvoicePdfBuffer(order) {
       doc.font('Helvetica');
       y += 20;
 
-      // Amount in words
+      // Amount in words (limit height to avoid flowing to a new page)
       const whole = Math.floor(totalPayable);
       const fils = Math.round((totalPayable - whole) * 100);
       const words = numberToWords(whole);
-      doc.fontSize(9).text(`${words} AED AND ${String(fils).padStart(2, '0')} FILS`, margin, y, { width: pageW });
+      doc.fontSize(9).text(`${words} AED AND ${String(fils).padStart(2, '0')} FILS`, margin, y, { width: pageW, height: 28 });
       y += 24;
 
       // Footer – Premart / company
@@ -3078,9 +3078,42 @@ async function getInvoicePdfBuffer(order) {
       doc.font('Helvetica');
       const premartAddr = process.env.PREMART_INVOICE_ADDRESS || 'Premart';
       const premartTRN = process.env.PREMART_TRN || '';
-      doc.text(premartAddr, margin, footerY + 24, { width: pageW });
-      if (premartTRN) doc.text(`TRN: ${premartTRN}`, margin, footerY + 38);
+      // doc.text(premartAddr, margin, footerY + 24, { width: pageW });
+      // if (premartTRN) doc.text(`TRN: ${premartTRN}`, margin, footerY + 38);
       doc.fillColor('#000');
+
+      
+      const isCancelled = (order.status || order.orderStatus || '').toString() === 'Cancelled';
+      if (isCancelled) {
+        const stampFontSize = 44;
+        const stampText = 'CANCELLED';
+        const padding = 20;
+        doc.font('Helvetica-Bold').fontSize(stampFontSize);
+        const textWidth = doc.widthOfString(stampText);
+        const boxW = textWidth + padding * 2;
+        const boxH = stampFontSize + padding * 2;
+
+        function drawCancelledStamp() {
+          const pageCenterX = doc.page.width / 2;
+          const pageCenterY = doc.page.height / 2;
+          doc.save();
+          doc.translate(pageCenterX, pageCenterY);
+          doc.rotate(-25);
+          doc.opacity(0.85);
+          doc.strokeColor('red').lineWidth(3);
+          doc.fillColor('red');
+          doc.rect(-boxW / 2, -boxH / 2, boxW, boxH).stroke();
+          doc.text(stampText, -boxW / 2, -stampFontSize / 3, { width: boxW, align: 'center', lineBreak: false });
+          doc.restore();
+          doc.fillColor('#000').opacity(1).strokeColor('#000');
+        }
+
+        const range = doc.bufferedPageRange();
+        for (let i = range.start; i < range.start + range.count; i++) {
+          doc.switchToPage(i);
+          drawCancelledStamp();
+        }
+      }
 
       doc.end();
     } catch (err) {
