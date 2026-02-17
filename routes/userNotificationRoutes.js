@@ -4,5 +4,6 @@ const userNotificationController = require('../controllers/userNotificationContr
 
 router.get('/:userId', userNotificationController.getMyUserNotifications);
 router.patch('/:notificationId/read/:userId', userNotificationController.markUserNotificationRead);
+router.patch('/:userId/read-all', userNotificationController.markAllUserNotificationsRead);
 
 module.exports = router;

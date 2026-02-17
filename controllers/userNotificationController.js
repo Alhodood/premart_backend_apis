@@ -1,6 +1,10 @@
 const UserNotification = require('../models/UserNotification');
 
-/** List in-app notifications for a user (order events, etc.) */
+/**
+ * List all notifications for a user (customer mobile app).
+ * This includes every notification sent to the user: push notifications, order updates, promos, and admin broadcasts.
+ * Each item was delivered both in-app and as FCM push when sent via notifyUser().
+ */
 exports.getMyUserNotifications = async (req, res) => {
   try {
     const userId = req.params.userId;
@@ -46,6 +50,28 @@ exports.markUserNotificationRead = async (req, res) => {
     return res.status(200).json({ success: true, data: updated });
   } catch (err) {
     console.error('markUserNotificationRead error:', err);
+    return res.status(500).json({ success: false, message: err.message });
+  }
+};
+
+/** Mark all notifications as read for a user (e.g. "Mark all as read" in app) */
+exports.markAllUserNotificationsRead = async (req, res) => {
+  try {
+    const userId = req.params.userId;
+    if (!userId) {
+      return res.status(400).json({ success: false, message: 'userId required' });
+    }
+    const result = await UserNotification.updateMany(
+      { userId, read: false },
+      { read: true }
+    );
+    return res.status(200).json({
+      success: true,
+      message: 'All notifications marked as read',
+      modifiedCount: result.modifiedCount
+    });
+  } catch (err) {
+    console.error('markAllUserNotificationsRead error:', err);
     return res.status(500).json({ success: false, message: err.message });
   }
 };

@@ -1,7 +1,10 @@
 const Notification = require('../models/superNotification');
 const socketService = require('../sockets/socket');
-const { sendPushToUser } = require('../helper/fcmPushHelper');
+const { sendPushToUser, sendPushToToken } = require('../helper/fcmPushHelper');
+const { notifyUser } = require('../helper/notificationHelper');
 
+const DEFAULT_TITLE = 'Notification';
+const NOTIFICATION_TYPE_INFO = 'info';
 
 exports.createNotification = async (req, res) => {
   try {
@@ -29,52 +32,47 @@ exports.createNotification = async (req, res) => {
 
     await notification.save();
 
-    console.log("🟡 Notification saved:", notification._id);
-
-    const io = socketService.getIO();
-    const connectedUsers = socketService.getConnectedUsers();
-
-    console.log("🟡 Active users:", connectedUsers);
-
     if (!isScheduled) {
-      const payload = {
-        id: String(notification._id),
-        title,
-        message,
-        image: image || '',
-        createdAt: notification.createdAt?.toISOString?.() || new Date().toISOString(),
-      };
+      const titleText = title || DEFAULT_TITLE;
+      const messageText = message || '';
+      const data = { notificationId: String(notification._id) };
 
-      // Targeted: in-app (socket) + push
+      // Targeted users: UserNotification + socket + push via notifyUser (same as orderController)
       if (recipientIds.length > 0) {
-        recipientIds.forEach(uid => {
-          const uidStr = uid.toString?.() || uid;
-          io.to(uidStr).emit("new_notification", { ...payload, id: notification._id, createdAt: notification.createdAt });
-          sendPushToUser(uidStr, title || 'Notification', message || '', { notificationId: String(notification._id) })
-            .catch((e) => console.warn('Push to', uidStr, 'failed:', e.message));
-        });
-      }
-      // Role broadcast deliveryBoy: in-app (socket) + push to all delivery boys
-      else if (role === 'deliveryBoy') {
-        const DeliveryBoy = require('../models/DeliveryBoy');
-        const deliveryBoyIds = await DeliveryBoy.find({}).select('_id').lean();
-        for (const { _id } of deliveryBoyIds) {
-          const uidStr = _id.toString();
-          io.to(uidStr).emit("new_notification", { ...payload, id: notification._id, createdAt: notification.createdAt });
-          await sendPushToUser(uidStr, title || 'Notification', message || '', { notificationId: String(notification._id) }).catch(() => {});
+        for (const uid of recipientIds) {
+          const uidStr = normalizeUserId(uid);
+          if (!uidStr) continue;
+          await notifyUser(uidStr, titleText, messageText, data, NOTIFICATION_TYPE_INFO)
+            .catch((e) => console.warn('SuperNotification notify user failed:', uidStr, e.message));
         }
       }
-      // Role customer or all: push to all users with device tokens (in-app list comes from getMyNotifications)
-      else if (role === 'customer' || role === 'all') {
-        const User = require('../models/User');
-        const DeviceToken = require('../models/DeviceToken');
-        const userIds = await DeviceToken.distinct('user_id');
-        for (const uid of userIds) {
-          const uidStr = uid && uid.toString();
-          if (uidStr) {
-            io.to(uidStr).emit("new_notification", { ...payload, id: notification._id, createdAt: notification.createdAt });
-            await sendPushToUser(uidStr, title || 'Notification', message || '', { notificationId: String(notification._id) }).catch(() => {});
+      // Delivery boys: socket + push via activeDeviceToken (no UserNotification)
+      else if (role === 'deliveryBoy') {
+        const DeliveryBoy = require('../models/DeliveryBoy');
+        const io = socketService.getIO();
+        const payload = buildSocketPayload(notification, title, message, image);
+        const deliveryBoys = await DeliveryBoy.find({}).select('_id activeDeviceToken').lean();
+
+        for (const { _id, activeDeviceToken } of deliveryBoys) {
+          const uidStr = _id.toString();
+          io.to(uidStr).emit('new_notification', payload);
+          if (activeDeviceToken) {
+            await sendPushToToken(activeDeviceToken, titleText, messageText, data).catch(() => {});
+          } else {
+            await sendPushToUser(uidStr, titleText, messageText, data).catch(() => {});
           }
+        }
+      }
+      // Broadcast to customers / all: UserNotification + socket + push via notifyUser
+      else if (role === 'customer' || role === 'all') {
+        const DeviceToken = require('../models/DeviceToken');
+        const userIds = await DeviceToken.distinct('user_id', { user_id: { $ne: null } });
+
+        for (const uid of userIds) {
+          const uidStr = normalizeUserId(uid);
+          if (!uidStr) continue;
+          await notifyUser(uidStr, titleText, messageText, data, NOTIFICATION_TYPE_INFO)
+            .catch((e) => console.warn('SuperNotification notify user failed:', uidStr, e.message));
         }
       }
     }
@@ -84,9 +82,8 @@ exports.createNotification = async (req, res) => {
       message: 'Notification created',
       data: notification
     });
-
   } catch (err) {
-    console.error("❌ Create notification failed:", err);
+    console.error('Create notification failed:', err);
     return res.status(500).json({
       success: false,
       message: 'Failed to create notification',
@@ -94,6 +91,21 @@ exports.createNotification = async (req, res) => {
     });
   }
 };
+
+function normalizeUserId(uid) {
+  if (uid == null) return null;
+  return typeof uid.toString === 'function' ? uid.toString() : String(uid);
+}
+
+function buildSocketPayload(notification, title, message, image) {
+  return {
+    id: notification._id,
+    title: title || DEFAULT_TITLE,
+    message: message || '',
+    image: image || '',
+    createdAt: notification.createdAt?.toISOString?.() || new Date().toISOString()
+  };
+}
 
 
 exports.getAllNotifications = async (req, res) => {
