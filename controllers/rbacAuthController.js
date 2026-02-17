@@ -573,7 +573,9 @@ exports.login = async (req, res) => {
       }
     }
 
-    const token = generateToken({ id: user._id, role });
+    const tokenPayload = { id: user._id, role };
+    if (role === ROLES.SHOP_ADMIN && user.shopId) tokenPayload.shopId = user.shopId;
+    const token = generateToken(tokenPayload);
     if (device_id || device_token) {
       await linkDeviceToUser(user._id.toString(), device_id, device_token);
     }

@@ -8,6 +8,8 @@ const mongoose = require('mongoose');
 const Stock = require('../models/Stock');
 const axios = require('axios');
 const geolib = require('geolib');
+const path = require('path');
+const fs = require('fs');
 
 const { Shop } = require('../models/Shop');
 const MasterOrder = require('../models/MasterOrder');
@@ -20,7 +22,7 @@ const Offer = require('../models/Offers');
 const GOOGLE_API_KEY = process.env.GOOGLE_MAPS_API_KEY;
 const { getSuperAdminSettings } = require('../helper/settingsHelper');
 const { notifyUser, sendPushOnly } = require('../helper/notificationHelper');
-const { sendOrderPlaced, sendOrderStatusUpdate } = require('../helper/mailHelper');
+const { sendOrderPlaced, sendOrderStatusUpdate, sendOrderCancelled, sendOrderInvoiceEmail } = require('../helper/mailHelper');
 
 
 
@@ -329,12 +331,60 @@ exports.createOrder = async (req, res) => {
       const itemsSummary = perShopResults.length === 1
         ? `${perShopResults[0].items?.length || 0} item(s)`
         : `${perShopResults.length} shop(s), ${perShopResults.reduce((s, o) => s + (o.items?.length || 0), 0)} item(s)`;
-      sendOrderPlaced(userData.email, userData.name, {
-        orderId: String(firstOrderId),
-        totalPayable: finalPayable,
-        itemsSummary
-      }).then((r) => { if (!r.sent) console.warn('Order placed email skipped:', r.error); })
-        .catch((e) => console.warn('Order placed email error:', e.message));
+      const orderIds = perShopResults.map(o => o._id);
+      (async () => {
+        try {
+          const ordersWithShop = await Order.find({ _id: { $in: orderIds } }).populate('shopId').lean();
+          const allShopsDetail = ordersWithShop.map((ord) => {
+            const sd = ord.shopId?.shopeDetails || ord.shopId || {};
+            const items = (ord.items || []).map((it) => {
+              const snap = it.snapshot || {};
+              const unitPrice = snap.discountedPrice != null ? snap.discountedPrice : snap.price || 0;
+              const qty = it.quantity || 1;
+              return {
+                partName: snap.partName || 'Item',
+                partNumber: snap.partNumber || '',
+                qty,
+                unitPrice,
+                lineTotal: qty * unitPrice
+              };
+            });
+            return {
+              orderId: String(ord._id),
+              shopName: sd.shopName || 'Shop',
+              shopAddress: sd.shopAddress || '',
+              shopContact: sd.shopContact || sd.shopMail || '',
+              items,
+              subtotal: ord.subtotal ?? 0,
+              deliveryCharge: ord.deliveryCharge ?? 0,
+              discount: ord.discount ?? 0,
+              totalPayable: ord.totalPayable ?? 0
+            };
+          });
+          const orderData = {
+            orderId: String(firstOrderId),
+            masterOrderId: ordersWithShop.length > 1 ? String(masterOrder._id) : undefined,
+            totalPayable: finalPayable,
+            itemsSummary,
+            allShopsDetail: allShopsDetail.length > 0 ? allShopsDetail : undefined
+          };
+          let pdfBuffer = null;
+          if (ordersWithShop.length === 1) {
+            pdfBuffer = await getInvoicePdfBuffer(ordersWithShop[0]);
+          } else if (ordersWithShop.length > 1) {
+            pdfBuffer = await getInvoicePdfBufferForMasterOrder(ordersWithShop, {
+              masterOrderId: String(masterOrder._id),
+              grandTotal: finalPayable
+            });
+          }
+          const r = await sendOrderPlaced(userData.email, userData.name, orderData, pdfBuffer);
+          if (!r.sent) console.warn('Order placed email skipped:', r.error);
+        } catch (e) {
+          const orderData = { orderId: String(firstOrderId), totalPayable: finalPayable, itemsSummary };
+          const r = await sendOrderPlaced(userData.email, userData.name, orderData, null).catch(() => ({}));
+          if (!r?.sent) console.warn('Order placed email error:', e.message);
+        }
+      })();
     }
 
     return res.status(201).json({
@@ -435,6 +485,26 @@ exports.getOrderById = async (req, res) => {
       return res.status(404).json({
         success: false,
         message: 'Order not found'
+      });
+    }
+
+    // Enforce access: customer = own order only, shop admin = own shop, super admin = any
+    // JWT payload has .id (not ._id); see authMiddleware + rbacAuthController generateToken
+    const role = req.user?.role;
+    const requestUserId = (req.user?.id ?? req.user?._id)?.toString();
+    const requestShopId = req.user?.shopId?.toString();
+    const orderUserId = order.userId?._id?.toString() || order.userId?.toString();
+    const orderShopId = order.shopId?._id?.toString() || order.shopId?.toString();
+    if (role === 'CUSTOMER' && orderUserId !== requestUserId) {
+      return res.status(403).json({
+        success: false,
+        message: 'You do not have access to this order'
+      });
+    }
+    if (role === 'SHOP_ADMIN' && orderShopId !== requestShopId) {
+      return res.status(403).json({
+        success: false,
+        message: 'You do not have access to this order'
       });
     }
 
@@ -1759,13 +1829,13 @@ exports.updateOrderStatus = async (req, res) => {
         const User = require('../models/User');
         const cancelUser = await User.findById(updatedOrder.userId).select('email name').lean();
         if (cancelUser?.email) {
-          const cancelMessage = reason ? `Reason: ${reason}${additionalComments ? `. ${additionalComments}` : ''}` : null;
-          sendOrderStatusUpdate(
+          const reasonText = reason ? (additionalComments ? `${reason}. ${additionalComments}` : reason) : null;
+          sendOrderCancelled(
             cancelUser.email,
             cancelUser.name,
             String(updatedOrder._id),
-            'Cancelled',
-            cancelMessage
+            reasonText,
+            cancelledBy || 'customer'
           ).then((r) => { if (!r.sent) console.warn('Order cancelled email skipped:', r.error); })
             .catch((e) => console.warn('Order cancelled email error:', e.message));
         }
@@ -2064,6 +2134,7 @@ exports.updateOrderStatus = async (req, res) => {
 // ============================================
 // ENHANCED AUTO ASSIGN WITH SOCKET DEBUGGING
 // ============================================
+
 exports.autoAssignDeliveryBoyWithin5km = async (req, res) => {
   try {
     console.log('🚀 API hit: autoAssignDeliveryBoyWithin5km');
@@ -2598,146 +2669,489 @@ exports.getNearbyAssignedOrders = async (req, res) => {
   }
 };
 
-exports.seedDummyOrder = async (req, res) => {
-  try {
-    // Step 1: Create a dummy user ID
-    const userId = new mongoose.Types.ObjectId();
+// exports.seedDummyOrder = async (req, res) => {
+//   try {
+//     // Step 1: Create a dummy user ID
+//     const userId = new mongoose.Types.ObjectId();
 
-    // Step 2: Create a dummy shop
-    const shop = await Shop.create({
-      name: 'Dummy Shop',
-      shopeDetails: {
-        shopLocation: '12.9352,77.6145'
-      }
-    });
+//     // Step 2: Create a dummy shop
+//     const shop = await Shop.create({
+//       name: 'Dummy Shop',
+//       shopeDetails: {
+//         shopLocation: '12.9352,77.6145'
+//       }
+//     });
 
-    // Step 3: Add products to the shop
-    const product = {
-      _id: new mongoose.Types.ObjectId(),
-      name: 'Test Product',
-      price: 200,
-      image: 'https://via.placeholder.com/150'
-    };
+//     // Step 3: Add products to the shop
+//     const product = {
+//       _id: new mongoose.Types.ObjectId(),
+//       name: 'Test Product',
+//       price: 200,
+//       image: 'https://via.placeholder.com/150'
+//     };
 
-    const productDoc = await Product.create({
-      shopId: shop._id,
-      products: [product]
-    });
+//     const productDoc = await Product.create({
+//       shopId: shop._id,
+//       products: [product]
+//     });
 
-    // Step 4: Add dummy stock for that product
-    await Stock.create({
-      shopId: shop._id,
-      productId: product._id,
-      quantity: 10
-    });
+//     // Step 4: Add dummy stock for that product
+//     await Stock.create({
+//       shopId: shop._id,
+//       productId: product._id,
+//       quantity: 10
+//     });
 
-    // Step 5: Add dummy address for the user
-    await CustomerAddress.create({
-      userId,
-      customerAddress: [{
-        name: 'John Doe',
-        email: 'john@example.com',
-        flatNumber: '123',
-        contact: '9999999999',
-        area: 'Koramangala',
-        place: 'Bangalore',
-        default: true,
-        addressType: 'Home',
-        latitude: 12.9376,
-        longitude: 77.6192
-      }]
-    });
+//     // Step 5: Add dummy address for the user
+//     await CustomerAddress.create({
+//       userId,
+//       customerAddress: [{
+//         name: 'John Doe',
+//         email: 'john@example.com',
+//         flatNumber: '123',
+//         contact: '9999999999',
+//         area: 'Koramangala',
+//         place: 'Bangalore',
+//         default: true,
+//         addressType: 'Home',
+//         latitude: 12.9376,
+//         longitude: 77.6192
+//       }]
+//     });
 
-    // Step 6: Add product to the cart
-    await Cart.create({
-      userId,
-      cartProduct: [product._id]
-    });
+//     // Step 6: Add product to the cart
+//     await Cart.create({
+//       userId,
+//       cartProduct: [product._id]
+//     });
 
-    return res.status(201).json({
-      message: 'Dummy user, shop, product, stock, address, and cart seeded successfully',
-      success: true,
-      data: {
-        userId: userId,
-        productId: product._id,
-        shopId: shop._id
-      }
-    });
+//     return res.status(201).json({
+//       message: 'Dummy user, shop, product, stock, address, and cart seeded successfully',
+//       success: true,
+//       data: {
+//         userId: userId,
+//         productId: product._id,
+//         shopId: shop._id
+//       }
+//     });
 
-  } catch (error) {
-    console.error('Dummy Order Seed Error:', error);
-    return res.status(500).json({
-      message: 'Failed to seed dummy order data',
-      success: false,
-      error: error.message
-    });
+//   } catch (error) {
+//     console.error('Dummy Order Seed Error:', error);
+//     return res.status(500).json({
+//       message: 'Failed to seed dummy order data',
+//       success: false,
+//       error: error.message
+//     });
+//   }
+// };
+
+const ONES = ['', 'ONE', 'TWO', 'THREE', 'FOUR', 'FIVE', 'SIX', 'SEVEN', 'EIGHT', 'NINE', 'TEN', 'ELEVEN', 'TWELVE', 'THIRTEEN', 'FOURTEEN', 'FIFTEEN', 'SIXTEEN', 'SEVENTEEN', 'EIGHTEEN', 'NINETEEN'];
+const TENS = ['', '', 'TWENTY', 'THIRTY', 'FORTY', 'FIFTY', 'SIXTY', 'SEVENTY', 'EIGHTY', 'NINETY'];
+
+function numberToWords(n) {
+  n = Math.floor(Number(n)) || 0;
+  if (n === 0) return 'ZERO';
+  if (n < 20) return ONES[n];
+  if (n < 100) return (TENS[Math.floor(n / 10)] + ' ' + ONES[n % 10]).trim();
+  if (n < 1000) {
+    const h = Math.floor(n / 100);
+    const r = n % 100;
+    return (ONES[h] + ' HUNDRED' + (r ? ' ' + numberToWords(r) : '')).trim();
   }
-};
+  if (n < 1000000) {
+    const th = Math.floor(n / 1000);
+    const r = n % 1000;
+    return (numberToWords(th) + ' THOUSAND' + (r ? ' ' + numberToWords(r) : '')).trim();
+  }
+  if (n < 1000000000) {
+    const m = Math.floor(n / 1000000);
+    const r = n % 1000000;
+    return (numberToWords(m) + ' MILLION' + (r ? ' ' + numberToWords(r) : '')).trim();
+  }
+  return String(n);
+}
 
-// Generate Invoice PDF (User or Shop)
-exports.generateInvoice =  async (req, res) => {
+/**
+ * Generate combined invoice PDF for a master order (multiple shops).
+ * @param {Array<Object>} orders - Array of orders (lean, shopId populated), each with items[].snapshot
+ * @param {{ masterOrderId: string, grandTotal: number }} options
+ * @returns {Promise<Buffer>}
+ */
+async function getInvoicePdfBufferForMasterOrder(orders, options) {
+  if (!orders || orders.length === 0) return getInvoicePdfBuffer(orders[0]); // fallback
+  return new Promise((resolve, reject) => {
+    try {
+      const doc = new PDFDocument({ size: 'A4', margin: 40 });
+      const buffers = [];
+      doc.on('data', buffers.push.bind(buffers));
+      doc.on('end', () => resolve(Buffer.concat(buffers)));
+      doc.on('error', reject);
+
+      const pageW = doc.page.width - 80;
+      const margin = 40;
+      const colDesc = margin;
+      const colQty = margin + pageW * 0.45;
+      const colUnit = margin + pageW * 0.58;
+      const colSub = margin + pageW * 0.75;
+      let y = 40;
+
+      // Logo / title
+      const logoPath = process.env.PREMART_LOGO_PATH || path.join(__dirname, '..', 'public', 'logo.png');
+      if (fs.existsSync(logoPath)) {
+        doc.image(logoPath, margin, y, { width: 100 });
+        y += 42;
+      } else {
+        doc.fontSize(22).font('Helvetica-Bold').text('PREMART', margin, y, { align: 'left' });
+        y += 32;
+      }
+      doc.font('Helvetica').fontSize(18).text('TAX INVOICE – ORDER SUMMARY', margin, y, { align: 'center', width: pageW });
+      y += 28;
+      doc.fontSize(10).text(`Master Order #: ${options.masterOrderId || 'N/A'}`, margin, y);
+      y += 14;
+      const firstOrder = orders[0];
+      const addr = firstOrder?.deliveryAddress || {};
+      doc.font('Helvetica-Bold').text('Bill To:', margin, y);
+      doc.font('Helvetica');
+      y += 14;
+      doc.fontSize(10).text(addr.name || 'Customer', margin, y);
+      y += 12;
+      doc.text(addr.address || '—', margin, y, { width: pageW / 2 });
+      y += 12;
+      doc.text(`Contact: ${addr.contact || '—'}`, margin, y);
+      y += 20;
+
+      orders.forEach((order, shopIndex) => {
+        const sd = order.shopId?.shopeDetails || order.shopId || {};
+        const shopName = sd.shopName || `Shop ${shopIndex + 1}`;
+        const shopAddress = sd.shopAddress || '';
+        const shopContact = sd.shopContact || sd.shopMail || '';
+
+        if (y > doc.page.height - 180) {
+          doc.addPage();
+          y = 40;
+        }
+        doc.fontSize(11).font('Helvetica-Bold').text(`Shop: ${shopName}`, margin, y);
+        doc.font('Helvetica').fontSize(9);
+        y += 14;
+        doc.text(`Order #: ${order._id}`, margin, y);
+        y += 12;
+        if (shopAddress) { doc.text(shopAddress, margin, y, { width: pageW }); y += 12; }
+        if (shopContact) { doc.text(`Contact: ${shopContact}`, margin, y); y += 12; }
+        y += 6;
+
+        const tableTop = y;
+        doc.font('Helvetica-Bold').fontSize(9);
+        doc.rect(margin, tableTop, pageW, 18).fillAndStroke('#f0f0f0', '#333');
+        doc.fillColor('#000').text('Description', colDesc + 4, tableTop + 4, { width: colQty - colDesc - 4 });
+        doc.text('Qty', colQty + 4, tableTop + 4);
+        doc.text('Unit Price', colUnit + 4, tableTop + 4);
+        doc.text('Subtotal', colSub + 4, tableTop + 4);
+        doc.font('Helvetica').fillColor('#000');
+        y = tableTop + 20;
+
+        const items = order.items || [];
+        let shopSubtotal = 0;
+        items.forEach((item) => {
+          const snap = item.snapshot || {};
+          const name = snap.partName || 'Item';
+          const partNo = snap.partNumber || '';
+          const qty = item.quantity || 1;
+          const unitPrice = snap.discountedPrice != null ? snap.discountedPrice : snap.price || 0;
+          const lineTotal = qty * unitPrice;
+          shopSubtotal += lineTotal;
+          const desc = (partNo ? `${name} (${partNo})` : name).substring(0, 35);
+          doc.fontSize(9).text(desc, colDesc + 4, y, { width: colQty - colDesc - 4 });
+          doc.text(String(qty), colQty + 4, y);
+          doc.text(`AED ${Number(unitPrice).toFixed(2)}`, colUnit + 4, y);
+          doc.text(`AED ${Number(lineTotal).toFixed(2)}`, colSub + 4, y);
+          y += 16;
+        });
+
+        y += 6;
+        doc.fontSize(9).text(`Subtotal: AED ${Number(order.subtotal ?? shopSubtotal).toFixed(2)}`, margin, y);
+        y += 12;
+        const deliveryCharge = Number(order.deliveryCharge || 0);
+        if (deliveryCharge > 0) {
+          doc.text(`Delivery: AED ${deliveryCharge.toFixed(2)}`, margin, y);
+          y += 12;
+        }
+        const discount = Number(order.discount || 0);
+        if (discount > 0) {
+          doc.text(`Discount: -AED ${discount.toFixed(2)}`, margin, y);
+          y += 12;
+        }
+        doc.font('Helvetica-Bold').text(`Shop total: AED ${Number(order.totalPayable || 0).toFixed(2)}`, margin, y);
+        doc.font('Helvetica');
+        y += 24;
+      });
+
+      if (y > doc.page.height - 120) {
+        doc.addPage();
+        y = 40;
+      }
+      doc.font('Helvetica-Bold').fontSize(12).text(`Grand total: AED ${Number(options.grandTotal || 0).toFixed(2)}`, margin, y);
+      doc.font('Helvetica');
+      y += 20;
+      const whole = Math.floor(options.grandTotal || 0);
+      const fils = Math.round((options.grandTotal - whole) * 100);
+      doc.fontSize(9).text(`${numberToWords(whole)} AED AND ${String(fils).padStart(2, '0')} FILS`, margin, y, { width: pageW });
+      y += 30;
+
+      const footerY = doc.page.height - 50;
+      doc.strokeColor('#ccc').lineWidth(0.5).moveTo(margin, footerY).lineTo(margin + pageW, footerY).stroke();
+      doc.fontSize(9).fillColor('#555').font('Helvetica-Bold').text('PREMART', margin, footerY + 10);
+      doc.font('Helvetica');
+      doc.text(process.env.PREMART_INVOICE_ADDRESS || 'Premart', margin, footerY + 24, { width: pageW });
+      if (process.env.PREMART_TRN) doc.text(`TRN: ${process.env.PREMART_TRN}`, margin, footerY + 38);
+      doc.fillColor('#000');
+      doc.end();
+    } catch (err) {
+      reject(err);
+    }
+  });
+}
+
+/**
+ * Generate invoice PDF buffer – UAE tax invoice style.
+ * Order should be lean, with shopId populated.
+ * @returns {Promise<Buffer>}
+ */
+async function getInvoicePdfBuffer(order) {
+  return new Promise((resolve, reject) => {
+    try {
+      const doc = new PDFDocument({ size: 'A4', margin: 40 });
+      const buffers = [];
+      doc.on('data', buffers.push.bind(buffers));
+      doc.on('end', () => resolve(Buffer.concat(buffers)));
+      doc.on('error', reject);
+
+      const pageW = doc.page.width - 80;
+      const margin = 40;
+      let y = 40;
+
+      // ----- Logo at top -----
+      const logoPath = process.env.PREMART_LOGO_PATH || path.join(__dirname, '..', 'public', 'logo.png');
+      if (fs.existsSync(logoPath)) {
+        doc.image(logoPath, margin, y, { width: 100 });
+        y += 42;
+      } else {
+        doc.fontSize(22).font('Helvetica-Bold').text('PREMART', margin, y, { align: 'left' });
+        y += 32;
+      }
+
+      doc.font('Helvetica');
+      doc.fontSize(18).text('TAX INVOICE', margin, y, { align: 'center', width: pageW });
+      y += 36;
+
+      const sd = order.shopId?.shopeDetails || order.shopId || {};
+      const shopName = sd.shopName || 'N/A';
+      const shopAddress = sd.shopAddress || '';
+      const shopContact = sd.shopContact || sd.shopMail || '';
+      const shopTRN = sd.taxRegistrationNumber || process.env.PREMART_TRN || '';
+
+      // ----- Two columns: Bill To (left) | Invoice details (right) -----
+      const col1X = margin;
+      const col2X = margin + pageW / 2;
+
+      doc.fontSize(10).font('Helvetica-Bold').text('Bill To:', col1X, y);
+      doc.font('Helvetica');
+      y += 14;
+      const addr = order.deliveryAddress || {};
+      doc.fontSize(10).text(addr.name || 'Customer', col1X, y);
+      y += 12;
+      doc.text(addr.address || '—', col1X, y, { width: pageW / 2 - 10 });
+      y += 12;
+      doc.text(`Contact: ${addr.contact || '—'}`, col1X, y);
+      y += 12;
+      if (shopTRN) {
+        doc.text(`TRN: ${shopTRN}`, col1X, y);
+        y += 12;
+      }
+      const billToBottom = y;
+
+      y = billToBottom - (12 * 3 + 14);
+      doc.fontSize(10).font('Helvetica-Bold').text('Invoice Details', col2X, y);
+      doc.font('Helvetica');
+      y += 14;
+      const invDate = new Date(order.createdAt || Date.now());
+      const dueDate = new Date(invDate);
+      dueDate.setDate(dueDate.getDate() + 15);
+      doc.text(`Tax Invoice #: ${order._id}`, col2X, y);
+      y += 12;
+      doc.text(`Invoice Date: ${invDate.toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric' })}`, col2X, y);
+      y += 12;
+      doc.text(`Due Date: ${dueDate.toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric' })}`, col2X, y);
+      y += 12;
+      doc.text(`Payment: ${order.paymentType || 'N/A'}`, col2X, y);
+      y = Math.max(y, billToBottom) + 16;
+
+      // ----- Shop details (seller) -----
+      doc.fontSize(10).font('Helvetica-Bold').text('Shop / Seller Details', margin, y);
+      doc.font('Helvetica');
+      y += 14;
+      doc.text(shopName, margin, y);
+      y += 12;
+      if (shopAddress) {
+        doc.text(shopAddress, margin, y, { width: pageW });
+        y += 12;
+      }
+      if (shopContact) {
+        doc.text(`Contact: ${shopContact}`, margin, y);
+        y += 12;
+      }
+      if (shopTRN) {
+        doc.text(`TRN: ${shopTRN}`, margin, y);
+        y += 12;
+      }
+      y += 10;
+
+      // ----- Table: Description | Qty | Unit Price | Subtotal -----
+      const tableTop = y;
+      const colDesc = margin;
+      const colQty = margin + pageW * 0.45;
+      const colUnit = margin + pageW * 0.58;
+      const colSub = margin + pageW * 0.75;
+
+      doc.font('Helvetica-Bold').fontSize(9);
+      doc.rect(margin, tableTop, pageW, 18).fillAndStroke('#f0f0f0', '#333');
+      doc.fillColor('#000').text('Description', colDesc + 4, tableTop + 4, { width: colQty - colDesc - 4 });
+      doc.text('Qty', colQty + 4, tableTop + 4);
+      doc.text('Unit Price', colUnit + 4, tableTop + 4);
+      doc.text('Subtotal', colSub + 4, tableTop + 4);
+      doc.font('Helvetica').fillColor('#000');
+      y = tableTop + 20;
+
+      const items = order.items || [];
+      let subtotal = 0;
+      items.forEach((item) => {
+        const snap = item.snapshot || {};
+        const name = snap.partName || 'Item';
+        const partNo = snap.partNumber || '';
+        const qty = item.quantity || 1;
+        const unitPrice = snap.discountedPrice != null ? snap.discountedPrice : snap.price || 0;
+        const lineTotal = qty * unitPrice;
+        subtotal += lineTotal;
+        const desc = (partNo ? `${name} (${partNo})` : name).substring(0, 35);
+        doc.fontSize(9).text(desc, colDesc + 4, y, { width: colQty - colDesc - 4 });
+        doc.text(String(qty), colQty + 4, y);
+        doc.text(`AED ${Number(unitPrice).toFixed(2)}`, colUnit + 4, y);
+        doc.text(`AED ${Number(lineTotal).toFixed(2)}`, colSub + 4, y);
+        y += 16;
+      });
+
+      y += 8;
+      const deliveryCharge = Number(order.deliveryCharge || 0);
+      const discount = Number(order.discount || 0);
+      const totalPayable = Number(order.totalPayable ?? order.finalPayable ?? 0);
+      const totalBeforeVat = Number(order.subtotal ?? order.totalAmount ?? 0) + deliveryCharge - discount;
+      const vatAmount = Math.max(0, Math.round((totalPayable - totalBeforeVat) * 100) / 100);
+
+      doc.fontSize(10);
+      doc.text(`Subtotal: AED ${Number(order.subtotal ?? order.totalAmount ?? 0).toFixed(2)}`, margin, y);
+      y += 14;
+      if (deliveryCharge > 0) {
+        doc.text(`Delivery: AED ${deliveryCharge.toFixed(2)}`, margin, y);
+        y += 14;
+      }
+      if (order.coupon?.code) {
+        doc.text(`Coupon (${order.coupon.code}): -AED ${discount.toFixed(2)}`, margin, y);
+        y += 14;
+      }
+      if (vatAmount > 0) doc.text(`VAT (5%): AED ${vatAmount.toFixed(2)}`, margin, y);
+      if (vatAmount > 0) y += 14;
+      doc.font('Helvetica-Bold').text(`Total: AED ${totalPayable.toFixed(2)}`, margin, y);
+      doc.font('Helvetica');
+      y += 20;
+
+      // Amount in words
+      const whole = Math.floor(totalPayable);
+      const fils = Math.round((totalPayable - whole) * 100);
+      const words = numberToWords(whole);
+      doc.fontSize(9).text(`${words} AED AND ${String(fils).padStart(2, '0')} FILS`, margin, y, { width: pageW });
+      y += 24;
+
+      // Footer – Premart / company
+      const footerY = doc.page.height - 70;
+      doc.strokeColor('#ccc').lineWidth(0.5).moveTo(margin, footerY).lineTo(margin + pageW, footerY).stroke();
+      doc.fontSize(9).fillColor('#555');
+      doc.font('Helvetica-Bold').text('PREMART', margin, footerY + 10);
+      doc.font('Helvetica');
+      const premartAddr = process.env.PREMART_INVOICE_ADDRESS || 'Premart';
+      const premartTRN = process.env.PREMART_TRN || '';
+      doc.text(premartAddr, margin, footerY + 24, { width: pageW });
+      if (premartTRN) doc.text(`TRN: ${premartTRN}`, margin, footerY + 38);
+      doc.fillColor('#000');
+
+      doc.end();
+    } catch (err) {
+      reject(err);
+    }
+  });
+}
+
+// Generate Invoice PDF (download response). Protected; same ownership as getOrderById.
+exports.generateInvoice = async (req, res) => {
   try {
     const { orderId } = req.params;
-    const order = await Order.findById(orderId)
-      .populate('userId')
-      .populate('shopId')
-      .lean();
-
+    const order = await Order.findById(orderId).populate('shopId').populate('userId', '_id').lean();
     if (!order) return res.status(404).json({ message: 'Order not found', success: false });
 
-    const doc = new PDFDocument({ size: 'A4', margin: 50 });
-    let buffers = [];
-    doc.on('data', buffers.push.bind(buffers));
-    doc.on('end', () => {
-      let pdfData = Buffer.concat(buffers);
-      res.setHeader('Content-Disposition', `attachment; filename=Invoice_${order._id}.pdf`);
-      res.contentType('application/pdf');
-      res.send(pdfData);
-    });
-
-    // PDF Content
-    doc.fontSize(20).text('INVOICE', { align: 'center' });
-    doc.moveDown();
-
-    doc.fontSize(12).text(`Invoice ID: ${order._id}`);
-    doc.text(`Date: ${new Date(order.createdAt).toLocaleDateString()}`);
-    doc.text(`Payment Type: ${order.paymentType}`);
-    doc.moveDown();
-
-    doc.text(`Customer: ${order.deliveryAddress.name}`);
-    doc.text(`Contact: ${order.deliveryAddress.contact}`);
-    doc.text(`Address: ${order.deliveryAddress.address}`);
-    doc.moveDown();
-
-    doc.text(`Shop: ${order.shopId?.shopeDetails?.shopName || 'N/A'}`);
-    doc.text(`Shop Contact: ${order.shopId?.shopeDetails?.shopContact || 'N/A'}`);
-    doc.moveDown();
-
-    doc.fontSize(14).text('Products:', { underline: true });
-    order.products.forEach((product, idx) => {
-      product.subCategories?.forEach(cat => {
-        cat.parts?.forEach(part => {
-          doc.text(
-            `${idx + 1}. ${part.partName} (${part.partNumber}) - Qty: ${part.quantity || 1} - Price: AED ${part.discountedPrice || part.price}`
-          );
-        });
-      });
-    });
-
-    doc.moveDown();
-    doc.fontSize(12).text(`Subtotal: AED ${order.totalAmount}`);
-    if (order.appliedCoupon) {
-      doc.text(`Coupon Applied: ${order.appliedCoupon.code}`);
-      doc.text(`Discount: AED ${(parseFloat(order.totalAmount) - parseFloat(order.finalPayable)).toFixed(2)}`);
+    const role = req.user?.role;
+    const requestUserId = (req.user?.id ?? req.user?._id)?.toString();
+    const requestShopId = req.user?.shopId?.toString();
+    const orderUserId = order.userId?._id?.toString() || order.userId?.toString();
+    const orderShopId = order.shopId?._id?.toString() || order.shopId?.toString();
+    if (role === 'CUSTOMER' && orderUserId !== requestUserId) {
+      return res.status(403).json({ success: false, message: 'You do not have access to this order' });
     }
-    doc.text(`Total Payable: AED ${order.finalPayable}`);
+    if (role === 'SHOP_ADMIN' && orderShopId !== requestShopId) {
+      return res.status(403).json({ success: false, message: 'You do not have access to this order' });
+    }
 
-    doc.end();
+    const pdfData = await getInvoicePdfBuffer(order);
+    res.setHeader('Content-Disposition', `attachment; filename=Invoice_${order._id}.pdf`);
+    res.contentType('application/pdf');
+    res.send(pdfData);
   } catch (err) {
     console.error('Invoice generation failed:', err);
     res.status(500).json({ message: 'Failed to generate invoice', success: false, data: err.message });
   }
-}
+};
+
+/**
+ * Send invoice PDF to customer email. Protected; customer can only request their own order.
+ */
+exports.sendInvoiceByEmail = async (req, res) => {
+  try {
+    const { orderId } = req.params;
+    const order = await Order.findById(orderId).populate('shopId').populate('userId', 'email name').lean();
+    if (!order) return res.status(404).json({ message: 'Order not found', success: false });
+
+    if (req.user?.role === 'CUSTOMER') {
+      const orderUserId = order.userId?._id?.toString() || order.userId?.toString();
+      const requestUserId = (req.user?.id ?? req.user?._id)?.toString();
+      if (orderUserId !== requestUserId) {
+        return res.status(403).json({ success: false, message: 'You do not have access to this order' });
+      }
+    }
+
+    const email = order.userId?.email || order.deliveryAddress?.contact;
+    if (!email || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
+      return res.status(400).json({ success: false, message: 'No valid email for this order' });
+    }
+
+    const pdfBuffer = await getInvoicePdfBuffer(order);
+    const name = order.userId?.name || order.deliveryAddress?.name || 'Customer';
+    const result = await sendOrderInvoiceEmail(email, name, String(order._id), pdfBuffer);
+    if (!result.sent) {
+      return res.status(503).json({ success: false, message: result.error || 'Failed to send email' });
+    }
+    return res.status(200).json({ success: true, message: 'Invoice sent to your email' });
+  } catch (err) {
+    console.error('Send invoice by email failed:', err);
+    res.status(500).json({ success: false, message: err.message });
+  }
+};
 
 
 
