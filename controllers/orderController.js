@@ -20,7 +20,8 @@ const Offer = require('../models/Offers');
 const GOOGLE_API_KEY = process.env.GOOGLE_MAPS_API_KEY;
 const { getSuperAdminSettings } = require('../helper/settingsHelper');
 
-
+const { notifyNewOrder, notifyOrderStatusChange } = require('./bellNotifications');
+const { sendOrderStatusEmail } = require('../services/emailService');
 
 
 const getLatLngFromAddress = async (addressString) => {
@@ -242,6 +243,7 @@ exports.createOrder = async (req, res) => {
         userId,
         shopId,
         masterOrderId: masterOrder._id,
+         agencyId: null, 
         items: shopProducts.map(p => {
           const firstConfig = p.part.compatibleVehicleConfigs?.[0];
           return {
@@ -281,30 +283,38 @@ exports.createOrder = async (req, res) => {
       await Shop.findByIdAndUpdate(shopId, { $push: { orders: { orderId: createdOrder._id } } });
 
       try {
-        const socketModule = require('../sockets/socket');
-        const orderData = {
-          _id: createdOrder._id,
-          customerName: createdOrder.deliveryAddress?.name || 'Customer',
-          customerPhone: createdOrder.deliveryAddress?.contact || '-',
-          orderStatus: createdOrder.status,
-          productName: createdOrder.items[0]?.snapshot?.partName || 'Product',
-          productImage: createdOrder.items[0]?.snapshot?.image || null,
-          itemCount: createdOrder.items.length,
-          quantity: createdOrder.items.reduce((sum, item) => sum + item.quantity, 0),
-          totalAmount: createdOrder.subtotal,
-          finalPayable: createdOrder.totalPayable,
-          paymentMethod: createdOrder.paymentType,
-          paymentStatus: createdOrder.paymentStatus,
-          createdAt: createdOrder.createdAt,
-          deliveryAddress: createdOrder.deliveryAddress,
-          isNew: true
-        };
+  const socketModule = require('../sockets/socket');
+  const orderData = {
+    _id: createdOrder._id,
+    customerName: createdOrder.deliveryAddress?.name || 'Customer',
+    customerPhone: createdOrder.deliveryAddress?.contact || '-',
+    orderStatus: createdOrder.status,
+    productName: createdOrder.items[0]?.snapshot?.partName || 'Product',
+    productImage: createdOrder.items[0]?.snapshot?.image || null,
+    itemCount: createdOrder.items.length,
+    quantity: createdOrder.items.reduce((sum, item) => sum + item.quantity, 0),
+    totalAmount: createdOrder.subtotal,
+    finalPayable: createdOrder.totalPayable,
+    paymentMethod: createdOrder.paymentType,
+    paymentStatus: createdOrder.paymentStatus,
+    createdAt: createdOrder.createdAt,
+    deliveryAddress: createdOrder.deliveryAddress,
+    isNew: true
+  };
 
-        socketModule.emitToShop(shopId, 'new_order', orderData);
-        socketModule.emitToSuperAdmins('new_order', { ...orderData, shopId, shopName: shop?.shopeDetails?.shopName || 'Unknown' });
-      } catch (socketError) {
-        console.error('Socket error:', socketError.message);
-      }
+  socketModule.emitToShop(shopId, 'new_order', orderData);
+  socketModule.emitToSuperAdmins('new_order', { 
+    ...orderData, 
+    shopId, 
+    shopName: shop?.shopeDetails?.shopName || 'Unknown' 
+  });
+
+  // ✅ ADD THIS: Send notification
+  await notifyNewOrder(createdOrder, shop);
+  
+} catch (socketError) {
+  console.error('Socket/Notification error:', socketError.message);
+}
 
       perShopResults.push(createdOrder);
     }
@@ -331,58 +341,6 @@ exports.createOrder = async (req, res) => {
     res.status(500).json({ message: 'Failed to place order', success: false, error: err.message });
   }
 };
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
 
 
 
@@ -1445,7 +1403,7 @@ exports.viewOrdersByShopAdmin = async (req, res) => {
             select: 'partName images'
           }
         })
-        .sort({ createdAt: -1 })
+        .sort({ createdAt: 1 })
         .lean(),
       Order.countDocuments(filter)
     ]);

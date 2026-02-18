@@ -50,6 +50,7 @@ const transmissionRoutes = require('./routes/transmissionRoutes');
 const superAdminSettingsRoutes = require('./routes/superAdminSettingsRoutes');
 const productRatingRoutes = require('./routes/productRatingRoutes');
 const appConfigRoutes = require('./routes/appConfigRoutes');
+const bellNotification = require('./routes/bellNotificationRoutes');
 
 
 
@@ -135,6 +136,7 @@ app.use('/api/super-admin', superAdminSettingsRoutes);
 app.use('/api/rating', productRatingRoutes);
 app.use('/api/app-config', appConfigRoutes);
 app.use('/api/places', placesRoutes);
+app.use('/api/bell-notifications', bellNotification);
 
 
 

@@ -42,6 +42,9 @@ router.post('/verify-otp', rbacAuth.verifyOtp);
 router.post('/send-otp', rbacAuth.sendOtp);
 router.get('/getUsers',rbacAuth.getAllCustomers
 );
+
+router.put('/shop/verify/:shopId', rbacAuth.toggleShopVerification);
+router.put('/agency/verify/:agencyId', rbacAuth.toggleAgencyVerification);
 router.patch('/visibility/:userId', rbacAuth.toggleAccountVisibility);
 router.post('/logoutDeliveryBoy', rbacAuth.logoutDeliveryBoy);
 

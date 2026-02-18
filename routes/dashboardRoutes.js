@@ -6,12 +6,15 @@ const {
   getShopDashboardByShopId,
   getSuperAdminDashboard, 
   getWeeklySales,
-  getOrderStatusDistribution 
+  getOrderStatusDistribution ,
+  getAgencyDashboardByAgencyId, 
 } = require('../controllers/dashboardController');
 
 // Dashboard routes
 router.get('/shopAdmin/analytics/:shopId', getShopDashboardByShopId);
 router.get('/superAdmin/analytics', getSuperAdminDashboard);
+router.get('/agency/analytics/:agencyId', getAgencyDashboardByAgencyId);  // ✅ ADD THIS ROUTE
+
 
 // Report routes (used by graphs)
 router.get('/sales/weekly', getWeeklySales);

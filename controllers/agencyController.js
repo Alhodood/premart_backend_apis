@@ -231,7 +231,7 @@ exports.searchAgencies = async (req, res) => {
 exports.getAllAgencies = async (req, res) => {
   try {
     const { DeliveryAgency } = require('../models/DeliveryAgency');
-
+    
     // ── Query params with safe defaults ──────────────────────────────────
     const page  = Math.max(1, parseInt(req.query.page)  || 1);
     const limit = Math.min(100, Math.max(1, parseInt(req.query.limit) || 20));
@@ -250,38 +250,30 @@ exports.getAllAgencies = async (req, res) => {
     // ── Shape response ────────────────────────────────────────────────────
     const simplifiedAgencies = agencies.map(agency => ({
       _id:   agency._id,
-
       // Basic
       agencyName:    agency.agencyDetails?.agencyName,
       agencyAddress: agency.agencyDetails?.agencyAddress,
       agencyMail:    agency.agencyDetails?.agencyMail,
       agencyContact: agency.agencyDetails?.agencyContact,
-
       // License
       agencyLicenseNumber: agency.agencyDetails?.agencyLicenseNumber,
       agencyLicenseExpiry: agency.agencyDetails?.agencyLicenseExpiry,
       licenseAuthority:    agency.agencyDetails?.licenseAuthority,
       agencyLicenseImage:  agency.agencyDetails?.agencyLicenseImage,
-
       // Identity
       emiratesId:      agency.agencyDetails?.emiratesId,
       emiratesIdImage: agency.agencyDetails?.emiratesIdImage,
       trn:             agency.agencyDetails?.trn,
-
       // Location
       city:     agency.agencyDetails?.city,
       emirates: agency.agencyDetails?.emirates,
-
       // Profile
       profileImage: agency.agencyDetails?.profileImage,
-
       // Support
       supportMail:   agency.agencyDetails?.supportMail,
       supportNumber: agency.agencyDetails?.supportNumber,
-
       // Payout
       payoutType: agency.agencyDetails?.payoutType,
-
       // Bank details (nested + flattened for table convenience)
       agencyBankDetails: agency.agencyDetails?.agencyBankDetails,
       bankName:          agency.agencyDetails?.agencyBankDetails?.bankName,
@@ -289,7 +281,8 @@ exports.getAllAgencies = async (req, res) => {
       ibanNumber:        agency.agencyDetails?.agencyBankDetails?.ibanNumber,
       branch:            agency.agencyDetails?.agencyBankDetails?.branch,
       swiftCode:         agency.agencyDetails?.agencyBankDetails?.swiftCode,
-
+      // ✅ VERIFICATION STATUS (ADD THIS)
+      isVerified: agency.isVerified || false,
       // Timestamps
       createdAt: agency.createdAt,
       updatedAt: agency.updatedAt,
@@ -304,7 +297,6 @@ exports.getAllAgencies = async (req, res) => {
       totalPages: Math.ceil(total / limit),
       data: simplifiedAgencies,
     });
-
   } catch (error) {
     console.error('❌ Get All Agencies Error:', error);
     return res.status(500).json({
@@ -573,6 +565,72 @@ exports.resetAgencySettings = async (req, res) => {
       message: 'Failed to reset settings',
       success: false,
       error: error.message
+    });
+  }
+};
+
+exports.getAgencyByDeliveryBoy = async (req, res) => {
+  try {
+    const { deliveryBoyId } = req.params;
+ const DeliveryBoy = require('../models/DeliveryBoy');
+    // 1. Find delivery boy → get agencyId
+    const boy = await DeliveryBoy.findById(deliveryBoyId)
+      .select('agencyId')
+      .lean();
+
+    if (!boy) {
+      return res.status(404).json({
+        success: false,
+        message: 'Delivery boy not found',
+      });
+    }
+
+    if (!boy.agencyId) {
+      return res.status(404).json({
+        success: false,
+        message: 'No agency assigned to this delivery boy',
+      });
+    }
+
+    // 2. Fetch agency — only contact-safe fields (no password, no bank details)
+    const agency = await DeliveryAgency.findById(boy.agencyId)
+      .select(
+        'agencyDetails.agencyName ' +
+        'agencyDetails.agencyContact ' +
+        'agencyDetails.agencyMail ' +
+        'agencyDetails.agencyAddress ' +
+        'agencyDetails.supportNumber ' +
+        'agencyDetails.supportMail ' +
+        'agencyDetails.profileImage'
+      )
+      .lean();
+
+    if (!agency) {
+      return res.status(404).json({
+        success: false,
+        message: 'Agency not found',
+      });
+    }
+
+    const d = agency.agencyDetails;
+
+    return res.status(200).json({
+      success: true,
+      message: 'Agency contact fetched successfully',
+      data: {
+        agencyName:    d.agencyName    || '',
+        agencyContact: d.agencyContact || d.supportNumber || '',
+        agencyMail:    d.agencyMail    || d.supportMail   || '',
+        agencyAddress: d.agencyAddress || '',
+        profileImage:  d.profileImage  || '',
+      },
+    });
+  } catch (err) {
+    console.error('❌ getAgencyByDeliveryBoy Error:', err);
+    return res.status(500).json({
+      success: false,
+      message: 'Failed to fetch agency contact',
+      error: err.message,
     });
   }
 };

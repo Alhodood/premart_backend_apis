@@ -113,59 +113,43 @@ exports.getAllShops = async (req, res) => {
     const formattedShops = shops.map(shop => {
       return {
         _id: shop._id,
-        
         // ─── BASIC INFORMATION ───
         shopName: shop.shopeDetails?.shopName,
         shopAddress: shop.shopeDetails?.shopAddress,
-       
         shopMail: shop.shopeDetails?.shopMail,
         shopContact: shop.shopeDetails?.shopContact,
-        
         // ─── LICENSE INFORMATION ───
         shopLicenseNumber: shop.shopeDetails?.shopLicenseNumber,
         shopLicenseExpiry: shop.shopeDetails?.shopLicenseExpiry,
         shopLicenseImage: shop.shopeDetails?.shopLicenseImage,
-        
         // ─── EMIRATES ID ───
         EmiratesId: shop.shopeDetails?.EmiratesId,
         EmiratesIdImage: shop.shopeDetails?.EmiratesIdImage,
-        
         // ─── TAX INFORMATION ───
         taxRegistrationNumber: shop.shopeDetails?.taxRegistrationNumber,
-        
         // ─── BANK DETAILS (FLATTENED) ───
         bankName: shop.shopeDetails?.shopBankDetails?.bankName,
         accountNumber: shop.shopeDetails?.shopBankDetails?.accountNumber,
         ibanNuber: shop.shopeDetails?.shopBankDetails?.ibanNuber,
         branch: shop.shopeDetails?.shopBankDetails?.branch,
         swiftCode: shop.shopeDetails?.shopBankDetails?.swiftCode,
-        
         // ─── SUPPORT INFORMATION ───
         supportMail: shop.shopeDetails?.supportMail,
         supportNumber: shop.shopeDetails?.supportNumber,
-        
         // ─── TERMS & CONDITIONS ───
         termsAndCondition: shop.shopeDetails?.termsAndCondition,
-        
         // ─── STATISTICS ───
         orderCount: shop.orders?.length || 0,
         productCount: shop.products?.length || 0,
-         shopLocation: shop.shopeDetails?.shopLocation,
+        shopLocation: shop.shopeDetails?.shopLocation,
+        // ✅ VERIFICATION STATUS (ADD THIS)
+        isVerified: shop.isVerified || false,
         // ─── TIMESTAMPS ───
         createdAt: shop.createdAt,
         updatedAt: shop.updatedAt,
-        
-        // ─── NESTED BANK DETAILS (for easy access) ───
-        // shopBankDetails: {
-        //   bankName: shop.shopeDetails?.shopBankDetails?.bankName,
-        //   accountNumber: shop.shopeDetails?.shopBankDetails?.accountNumber,
-        //   ibanNuber: shop.shopeDetails?.shopBankDetails?.ibanNuber,
-        //   branch: shop.shopeDetails?.shopBankDetails?.branch,
-        //   swiftCode: shop.shopeDetails?.shopBankDetails?.swiftCode,
-        // }
       };
     });
-    
+
     res.status(200).json({ 
       success: true, 
       data: formattedShops, 

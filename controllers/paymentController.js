@@ -3,7 +3,7 @@ const Payment = require('../models/Payment');
 const Order = require('../models/Order');
 const MasterOrder = require('../models/MasterOrder');
 const { v4: uuidv4 } = require('uuid');
-
+const { notifyPayment } = require('./bellNotifications');
 
 exports.createPayment = async (req, res) => {
   try {
@@ -175,6 +175,16 @@ exports.createPayment = async (req, res) => {
     console.log(`   Transaction ID: ${payment.transactionId}`);
     console.log(`   Amount: ${payment.amount}`);
     console.log(`   Method: ${payment.paymentMethod}`);
+
+try {
+  const firstOrder = await Order.findById(masterOrder.orderIds[0]);
+  if (firstOrder) {
+    await notifyPayment(payment, firstOrder);
+    console.log('✅ Payment notification sent');
+  }
+} catch (notifErr) {
+  console.warn('⚠️ Payment notification failed:', notifErr.message);
+}
 
     // ✅ 7. Get all orders from master order
     const orders = await Order.find({
