@@ -59,6 +59,11 @@ const orderSchema = new mongoose.Schema(
     userId: { type: mongoose.Schema.Types.ObjectId, ref: 'User', required: true },
     shopId: { type: mongoose.Schema.Types.ObjectId, ref: 'Shop', required: true },
     masterOrderId: { type: mongoose.Schema.Types.ObjectId, ref: 'MasterOrder' },
+    agencyId: { 
+      type: mongoose.Schema.Types.ObjectId, 
+      ref: 'DeliveryAgency',
+      default: null 
+    },
 
     // Items
     items: [orderItemSchema],
@@ -84,11 +89,13 @@ const orderSchema = new mongoose.Schema(
     paymentType: { type: String, enum: ['COD', 'CARD', 'WALLET'], required: true },
     paymentStatus: { type: String, default: 'Pending' },
     transactionId: String,
+     paymentMethod: String,
 
     // Delivery
     assignedDeliveryBoy: { type: mongoose.Schema.Types.ObjectId, ref: 'DeliveryBoy' },
     deliveryDistance: { type: Number, default: 0 },
     deliveryEarning: { type: Number, default: 0 },
+    deliveredAt: { type: Date },
 
     // Status
     status: { type: String, default: 'Pending' },
@@ -108,5 +115,9 @@ const orderSchema = new mongoose.Schema(
   },
   { timestamps: true }
 );
+
+orderSchema.index({ agencyId: 1, createdAt: -1 });
+orderSchema.index({ agencyId: 1, status: 1 });
+orderSchema.index({ agencyId: 1, paymentStatus: 1 });
 
 module.exports = mongoose.model('Order', orderSchema);

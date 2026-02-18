@@ -1,10 +1,11 @@
-// sockets/socket.js
+// sockets/socket.js - ENHANCED with Notification Rooms
 const DeliveryBoy = require('../models/DeliveryBoy');
 
 let io;
 const connectedUsers = {}; // Delivery boys
 const connectedShops = {}; // Shop admins
 const connectedAdmins = {}; // Super admins
+const connectedAgencies = {}; // Agencies
 
 module.exports = {
   init: (server) => {
@@ -27,20 +28,20 @@ module.exports = {
       console.log('🟢 Client connected:', socket.id);
       console.log('🔍 Handshake query:', socket.handshake.query);
 
-      // Extract connection parameters
       const userType = socket.handshake.query.userType || 'delivery_boy';
       const deliveryBoyId = socket.handshake.query.userId;
       const shopId = socket.handshake.query.shopId;
       const adminId = socket.handshake.query.adminId;
+      const agencyId = socket.handshake.query.agencyId;
 
       // ✅ DELIVERY BOY CONNECTION
       if (userType === 'delivery_boy' && deliveryBoyId) {
         socket.join(deliveryBoyId);
+        socket.join('deliveryBoy'); // Role room
         connectedUsers[deliveryBoyId] = socket.id;
         
         console.log('✅ Delivery Boy registered:', deliveryBoyId);
-        console.log('📋 Connected delivery boys:', Object.keys(connectedUsers).length);
-
+        
         socket.emit('connection_confirmed', {
           userType: 'delivery_boy',
           userId: deliveryBoyId,
@@ -51,6 +52,7 @@ module.exports = {
       // ✅ SHOP ADMIN CONNECTION
       else if (userType === 'shop_admin' && shopId) {
         socket.join(`shop_${shopId}`);
+        socket.join('shopAdmin'); // ✅ CRITICAL: Join role room for notifications
         connectedShops[shopId] = socket.id;
         
         console.log('🏪 Shop Admin registered:', shopId);
@@ -66,6 +68,7 @@ module.exports = {
       // ✅ SUPER ADMIN CONNECTION
       else if (userType === 'super_admin' && adminId) {
         socket.join('super_admins');
+        socket.join('superAdmin'); // ✅ CRITICAL: Join role room for notifications
         connectedAdmins[adminId] = socket.id;
         
         console.log('👑 Super Admin registered:', adminId);
@@ -78,9 +81,25 @@ module.exports = {
         });
       }
 
+      // ✅ AGENCY CONNECTION
+      else if (userType === 'agency' && agencyId) {
+        socket.join(`agency_${agencyId}`);
+        socket.join('agency'); // ✅ CRITICAL: Join role room for notifications
+        connectedAgencies[agencyId] = socket.id;
+        
+        console.log('🚛 Agency registered:', agencyId);
+        console.log('📋 Connected agencies:', Object.keys(connectedAgencies).length);
+
+        socket.emit('connection_confirmed', {
+          userType: 'agency',
+          agencyId: agencyId,
+          socketId: socket.id
+        });
+      }
+
       // ❌ INVALID CONNECTION
       else {
-        console.log('⚠️ Invalid connection parameters:', { userType, deliveryBoyId, shopId, adminId });
+        console.log('⚠️ Invalid connection parameters:', { userType, deliveryBoyId, shopId, adminId, agencyId });
         socket.emit('connection_error', {
           error: 'Invalid connection parameters'
         });
@@ -90,7 +109,6 @@ module.exports = {
       socket.on('live_location', async (data) => {
         try {
           const { deliveryBoyId, latitude, longitude } = data;
-
           if (!deliveryBoyId || latitude == null || longitude == null) return;
 
           await DeliveryBoy.findByIdAndUpdate(
@@ -101,14 +119,12 @@ module.exports = {
 
           console.log(`📍 Location updated for ${deliveryBoyId}: ${latitude}, ${longitude}`);
 
-          // Emit to super admins for tracking
           io.to('super_admins').emit('delivery_boy_location_update', {
             deliveryBoyId,
             latitude,
             longitude,
             timestamp: new Date()
           });
-
         } catch (err) {
           console.error('Live location error:', err.message);
         }
@@ -128,7 +144,6 @@ module.exports = {
       socket.on('disconnect', (reason) => {
         console.log('🔴 Client disconnected:', socket.id, 'Reason:', reason);
 
-        // Remove from delivery boys
         for (const id in connectedUsers) {
           if (connectedUsers[id] === socket.id) {
             delete connectedUsers[id];
@@ -137,7 +152,6 @@ module.exports = {
           }
         }
 
-        // Remove from shops
         for (const id in connectedShops) {
           if (connectedShops[id] === socket.id) {
             delete connectedShops[id];
@@ -146,7 +160,6 @@ module.exports = {
           }
         }
 
-        // Remove from admins
         for (const id in connectedAdmins) {
           if (connectedAdmins[id] === socket.id) {
             delete connectedAdmins[id];
@@ -154,10 +167,18 @@ module.exports = {
             break;
           }
         }
+
+        for (const id in connectedAgencies) {
+          if (connectedAgencies[id] === socket.id) {
+            delete connectedAgencies[id];
+            console.log('❌ Agency disconnected:', id);
+            break;
+          }
+        }
       });
     });
 
-    console.log('✅ Socket.IO server initialized');
+    console.log('✅ Socket.IO server initialized with notification support');
     return io;
   },
 
@@ -169,9 +190,11 @@ module.exports = {
   getConnectedUsers: () => connectedUsers,
   getConnectedShops: () => connectedShops,
   getConnectedAdmins: () => connectedAdmins,
+  getConnectedAgencies: () => connectedAgencies,
 
   isUserConnected: (userId) => connectedUsers.hasOwnProperty(userId),
   isShopConnected: (shopId) => connectedShops.hasOwnProperty(shopId),
+  isAgencyConnected: (agencyId) => connectedAgencies.hasOwnProperty(agencyId),
 
   // Helper functions
   emitToShop: (shopId, event, data) => {
@@ -184,6 +207,19 @@ module.exports = {
     if (!io) throw new Error('Socket.IO not initialized');
     io.to('super_admins').emit(event, data);
     console.log(`📤 Emitted '${event}' to super admins`);
+  },
+
+  emitToAgency: (agencyId, event, data) => {
+    if (!io) throw new Error('Socket.IO not initialized');
+    io.to(`agency_${agencyId}`).emit(event, data);
+    console.log(`📤 Emitted '${event}' to agency ${agencyId}`);
+  },
+
+  // ✅ NEW: Emit to role rooms (for notifications)
+  emitToRole: (role, event, data) => {
+    if (!io) throw new Error('Socket.IO not initialized');
+    io.to(role).emit(event, data);
+    console.log(`📤 Emitted '${event}' to role '${role}'`);
   },
 
   broadcast: (event, data) => {

@@ -45,6 +45,28 @@ router.get('/stock/low/by-shop', reportController.getShopLowStockParts);
 router.get('/stock/out-of-stock/by-shop', reportController.getShopOutOfStockParts);
 router.get('/orders/pending/by-shop', reportController.getShopPendingOrders);
 
+// ========================================
+// AGENCY REPORTS (ADD TO reportRoutes.js)
+// ========================================
+
+// Financial Performance Report
+router.get(
+  '/agency/financial',
+  reportController.getAgencyFinancialReport
+);
+
+// Delivery Boy Performance Report
+router.get(
+  '/agency/delivery-boy-performance',
+  reportController.getDeliveryBoyPerformanceReport
+);
+
+// Order Success & Completion Rate Report
+router.get(
+  '/agency/order-success',
+  reportController.getAgencyOrderSuccessReport
+);
+
 router.get(
   '/orders/pending/by-shop',
  

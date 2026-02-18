@@ -17,6 +17,7 @@ router.get('/agenciesPayments', agencyController.getAgenciesWithPayments);
 router.get('/settings/:agencyId', agencyController.getAgencySettings);
 router.put('/settings/:agencyId', agencyController.updateAgencySettings);
 router.post('/settings/:agencyId/reset', agencyController.resetAgencySettings);
+router.get('/by-delivery-boy/:deliveryBoyId', agencyController.getAgencyByDeliveryBoy);
 
 
 module.exports = router;

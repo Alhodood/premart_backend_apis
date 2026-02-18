@@ -26,6 +26,8 @@ const shopDetailsSchema = new mongoose.Schema({
     supportMail: { type: String },
     supportNumber: { type: String },
     password: { type: String },
+ resetPasswordOTP:     { type: String, default: null },
+  resetPasswordExpires: { type: Date,   default: null },
     shopBankDetails: bankDetailsSchema
 
 
@@ -40,7 +42,8 @@ const shopSchema = new mongoose.Schema({
             orderId: { type: mongoose.Schema.Types.ObjectId, ref: 'Order' },
 
         }
-    ]
+    ],
+    isVerified: { type: Boolean, default: false },
 },{ timestamps: true });
 
 

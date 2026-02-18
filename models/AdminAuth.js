@@ -1,4 +1,4 @@
-// models/AdminAuth.js - COMPLETE UPDATED VERSION
+// models/AdminAuth.js
 const mongoose = require('mongoose');
 const bcrypt = require('bcrypt');
 const { ROLES } = require('../constants/roles');
@@ -16,7 +16,17 @@ const SettingsSchema = new mongoose.Schema({
   deliveryCharge: { type: Number, default: 30 },
   freeDeliveryThreshold: { type: Number, default: 500 },
   perKmRate: { type: Number, default: 2 },
-  maxActiveOrdersPerDeliveryBoy: { type: Number, default: 5 }
+  maxActiveOrdersPerDeliveryBoy: { type: Number, default: 5 },
+  // ✅ Full address with buildingName
+  address: {
+    formattedAddress: { type: String, default: '' },
+    buildingName: { type: String, default: '' },   // ✅ ADDED
+    lat: { type: Number, default: null },
+    lng: { type: Number, default: null },
+    placeId: { type: String, default: '' },
+    city: { type: String, default: '' },
+    country: { type: String, default: 'UAE' },
+  }
 }, { _id: false });
 
 const SuperAdminSchema = new mongoose.Schema({
@@ -40,6 +50,8 @@ const ShopAdminSchema = new mongoose.Schema({
   dob: { type: String },
   role: { type: String, enum: Object.values(ROLES), default: ROLES.SHOP_ADMIN },
   shopId: { type: mongoose.Schema.Types.ObjectId, ref: 'Shop' },
+  resetPasswordOTP: { type: String },
+  resetPasswordExpires: { type: Date },
   location: { type: String },
   emiratesIdImage: { type: String },
   companyLicenseImage: { type: String }

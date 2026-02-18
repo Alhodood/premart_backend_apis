@@ -282,7 +282,7 @@ exports.getAllDeliveryBoys = async (req, res) => {
       city: boy.city || null,
       latitude: boy.latitude ?? 0,
       longitude: boy.longitude ?? 0,
-      availability: boy.availability ?? true,
+      //availability: boy.availability ?? true,
       
       // ✅ Agency data - flattened
       agencyId: boy.agencyId?._id || null,
@@ -917,6 +917,11 @@ exports.deliveryBoyAcceptOrReject = async (req, res) => {
       // ✅ ACCEPT ORDER
       order.status = "Accepted by Delivery Boy";
       order.assignedDeliveryBoy = deliveryBoyId;
+       // ✅✅✅ ADD THIS: Set agencyId from delivery boy's agency
+  if (deliveryBoy.agencyId) {
+    order.agencyId = deliveryBoy.agencyId;
+    console.log(`🏢 Agency ID set to: ${deliveryBoy.agencyId}`);
+  }
       
       // ✅ Add to status history
       if (!Array.isArray(order.statusHistory)) {
@@ -1118,6 +1123,9 @@ exports.deliveryBoyUpdateOrderStatus = async (req, res) => {
     // ════════════════════════════════════════════════════════════
     if (updatedOrder.status === 'Delivered') {
       console.log('📦 Order delivered, processing payments...');
+ // ✅✅✅ ADD THIS: Set deliveredAt timestamp
+  updatedOrder.deliveredAt = new Date();
+  console.log(`📅 Delivered at: ${updatedOrder.deliveredAt}`);
 
       // ✅ UPDATE: Payment status to "Paid"
       updatedOrder.paymentStatus = 'Paid';
@@ -1223,19 +1231,26 @@ exports.deliveryBoyUpdateOrderStatus = async (req, res) => {
     await updatedOrder.save();
 
     // Socket.IO Notification
-    try {
-      const io = getIO();
-      io.emit('order_status_changed', {
-        orderId: updatedOrder._id,
-        status: updatedOrder.status,
-        paymentStatus: updatedOrder.paymentStatus,
-        shopId: updatedOrder.shopId,
-        deliveryBoyId: updatedOrder.assignedDeliveryBoy,
-        updatedAt: updatedOrder.updatedAt,
-      });
-    } catch (socketErr) {
-      console.warn("Socket.IO not initialized yet:", socketErr.message);
-    }
+   try {
+  const Shop = require('../models/Shop');
+  const shop = await Shop.findById(updatedOrder.shopId);
+  
+  // ✅ ADD THIS: Send notifications
+  await notifyOrderStatusChange(updatedOrder, newStatus, shop);
+  
+  // Socket.IO notification (existing code continues...)
+  const io = getIO();
+  io.emit('order_status_changed', {
+    orderId: updatedOrder._id,
+    status: updatedOrder.status,
+    paymentStatus: updatedOrder.paymentStatus,
+    shopId: updatedOrder.shopId,
+    deliveryBoyId: updatedOrder.assignedDeliveryBoy,
+    updatedAt: updatedOrder.updatedAt,
+  });
+} catch (err) {
+  console.warn("Notification/Socket error:", err.message);
+}
 
     return res.status(200).json({
       message: 'Order status updated successfully',
@@ -1305,7 +1320,6 @@ exports.deliveryBoyUpdateOrderStatus = async (req, res) => {
 exports.getDeliveryBoysByAgency = async (req, res) => {
   try {
     const { agencyId } = req.params;
-
     if (!agencyId) {
       return res.status(400).json({
         message: 'Agency ID is required',
@@ -1315,7 +1329,7 @@ exports.getDeliveryBoysByAgency = async (req, res) => {
     }
 
     const deliveryBoys = await DeliveryBoy.find({ agencyId })
-      .select('-password -countryCode -__v')
+      .select('-password -countryCode -__v -availability')  // ✅ exclude availability
       .lean();  // ✅ convert to plain object
 
     const formatted = deliveryBoys.map(({ dob, ...rest }) => ({
@@ -1329,7 +1343,6 @@ exports.getDeliveryBoysByAgency = async (req, res) => {
       count: formatted.length,
       data: formatted
     });
-
   } catch (error) {
     console.error('Get Delivery Boys Error:', error);
     return res.status(500).json({
@@ -1740,8 +1753,7 @@ exports.getDeliveryOrderHistory = async (req, res) => {
       totalEarnings: orders
         .filter(o => o.status === 'Delivered')
         .reduce((sum, o) => sum + (o.deliveryEarning || 0), 0),
-      totalDistance: orders
-        .reduce((sum, o) => sum + (o.deliveryDistance || 0), 0)
+      totalDistance: parseFloat(orders.reduce((sum, o) => sum + (o.deliveryDistance || 0), 0).toFixed(1))
     };
 
     // 4. Group orders by date with rich data
@@ -1805,7 +1817,7 @@ exports.getDeliveryOrderHistory = async (req, res) => {
         statusColor,
         statusIcon,
         earning: parseFloat((order.deliveryEarning || 0).toFixed(2)),
-        distance: parseFloat((order.deliveryDistance || 0).toFixed(2)),
+        distance: parseFloat((order.deliveryDistance || 0).toFixed(1)),
         paymentType: order.paymentType || 'N/A',
         totalAmount: order.totalPayable || 0,
         shop: shop ? {

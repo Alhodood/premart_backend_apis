@@ -1621,3 +1621,602 @@ exports.getShopSalesById = async (req, res) => {
   }
 };
 
+
+// ========================================
+// AGENCY FINANCIAL PERFORMANCE REPORT
+// ========================================
+
+/**
+ * Agency Financial Performance Report
+ * GET /api/report/agency/financial?agencyId=xxx&period=month
+ * 
+ * Comprehensive financial overview including:
+ * - Total earnings breakdown
+ * - Payout status (pending/paid)
+ * - Revenue trends
+ * - Payment method distribution
+ */
+exports.getAgencyFinancialReport = async (req, res) => {
+  try {
+    const { agencyId, period = 'month' } = req.query;
+
+    if (!agencyId) {
+      return res.status(400).json({ 
+        success: false, 
+        message: 'Agency ID is required' 
+      });
+    }
+
+    // Determine date range based on period
+    let startDate, endDate;
+    const now = moment();
+
+    switch (period) {
+      case 'today':
+        startDate = moment().startOf('day').toDate();
+        endDate = moment().endOf('day').toDate();
+        break;
+      case 'week':
+        startDate = moment().startOf('week').toDate();
+        endDate = moment().endOf('week').toDate();
+        break;
+      case 'month':
+      default:
+        startDate = moment().startOf('month').toDate();
+        endDate = moment().endOf('month').toDate();
+        break;
+      case 'year':
+        startDate = moment().startOf('year').toDate();
+        endDate = moment().endOf('year').toDate();
+        break;
+      case 'all':
+        startDate = new Date(0); // Beginning of time
+        endDate = new Date();
+        break;
+    }
+
+    // Get all delivered orders handled by this agency
+    const orders = await Order.find({
+      agencyId: new mongoose.Types.ObjectId(agencyId),
+      status: 'Delivered',
+      createdAt: { $gte: startDate, $lte: endDate }
+    })
+      .populate('assignedDeliveryBoy', 'name email')
+      .populate('shopId', 'shopeDetails.shopName')
+      .lean();
+
+    // Calculate total earnings (sum of deliveryEarning from all orders)
+    const totalOrders = orders.length;
+    const totalEarnings = orders.reduce((sum, order) => sum + (order.deliveryEarning || 0), 0);
+    const totalDeliveryCharges = orders.reduce((sum, order) => sum + (order.deliveryCharge || 0), 0);
+    const totalDistance = orders.reduce((sum, order) => sum + (order.deliveryDistance || 0), 0);
+
+    // Average metrics
+    const avgEarningPerOrder = totalOrders > 0 ? totalEarnings / totalOrders : 0;
+    const avgDeliveryCharge = totalOrders > 0 ? totalDeliveryCharges / totalOrders : 0;
+    const avgDistance = totalOrders > 0 ? totalDistance / totalOrders : 0;
+
+    // Get payout records for this period
+    const payouts = await AgencyPayout.find({
+      agencyId: new mongoose.Types.ObjectId(agencyId),
+      from: { $gte: startDate },
+      to: { $lte: endDate }
+    }).lean();
+
+    const paidPayouts = payouts.filter(p => p.status === 'Paid');
+    const pendingPayouts = payouts.filter(p => p.status === 'Pending');
+
+    const totalPaid = paidPayouts.reduce((sum, p) => sum + (p.totalEarnings || 0), 0);
+    const totalPending = pendingPayouts.reduce((sum, p) => sum + (p.totalEarnings || 0), 0);
+
+    // Daily breakdown for the period
+    const dailyBreakdown = {};
+    orders.forEach(order => {
+      const day = moment(order.createdAt).format('YYYY-MM-DD');
+      if (!dailyBreakdown[day]) {
+        dailyBreakdown[day] = {
+          date: day,
+          orders: 0,
+          earnings: 0,
+          distance: 0
+        };
+      }
+      dailyBreakdown[day].orders += 1;
+      dailyBreakdown[day].earnings += order.deliveryEarning || 0;
+      dailyBreakdown[day].distance += order.deliveryDistance || 0;
+    });
+
+    // Delivery boy earnings breakdown
+    const deliveryBoyBreakdown = {};
+    orders.forEach(order => {
+      if (order.assignedDeliveryBoy) {
+        const boyId = order.assignedDeliveryBoy._id.toString();
+        if (!deliveryBoyBreakdown[boyId]) {
+          deliveryBoyBreakdown[boyId] = {
+            deliveryBoyId: boyId,
+            name: order.assignedDeliveryBoy.name,
+            orders: 0,
+            earnings: 0,
+            distance: 0
+          };
+        }
+        deliveryBoyBreakdown[boyId].orders += 1;
+        deliveryBoyBreakdown[boyId].earnings += order.deliveryEarning || 0;
+        deliveryBoyBreakdown[boyId].distance += order.deliveryDistance || 0;
+      }
+    });
+
+    // Top earning delivery boys
+    const topDeliveryBoys = Object.values(deliveryBoyBreakdown)
+      .sort((a, b) => b.earnings - a.earnings)
+      .slice(0, 10);
+
+    // Payment method distribution (from customers)
+    const paymentMethodStats = orders.reduce((acc, order) => {
+      const method = order.paymentType || 'COD';
+      acc[method] = (acc[method] || 0) + 1;
+      return acc;
+    }, {});
+
+    res.status(200).json({
+      success: true,
+      period,
+      dateRange: {
+        from: startDate,
+        to: endDate
+      },
+      summary: {
+        totalOrders,
+        totalEarnings: Math.round(totalEarnings * 100) / 100,
+        totalDeliveryCharges: Math.round(totalDeliveryCharges * 100) / 100,
+        totalDistance: Math.round(totalDistance * 100) / 100,
+        avgEarningPerOrder: Math.round(avgEarningPerOrder * 100) / 100,
+        avgDeliveryCharge: Math.round(avgDeliveryCharge * 100) / 100,
+        avgDistance: Math.round(avgDistance * 100) / 100
+      },
+      payouts: {
+        totalPaid: Math.round(totalPaid * 100) / 100,
+        totalPending: Math.round(totalPending * 100) / 100,
+        paidCount: paidPayouts.length,
+        pendingCount: pendingPayouts.length
+      },
+      dailyBreakdown: Object.values(dailyBreakdown).map(d => ({
+        ...d,
+        earnings: Math.round(d.earnings * 100) / 100,
+        distance: Math.round(d.distance * 100) / 100
+      })),
+      topDeliveryBoys: topDeliveryBoys.map(boy => ({
+        ...boy,
+        earnings: Math.round(boy.earnings * 100) / 100,
+        distance: Math.round(boy.distance * 100) / 100,
+        avgEarningPerOrder: boy.orders > 0 ? Math.round((boy.earnings / boy.orders) * 100) / 100 : 0
+      })),
+      paymentMethodDistribution: paymentMethodStats
+    });
+
+  } catch (error) {
+    console.error('Agency Financial Report Error:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Failed to generate financial report',
+      error: error.message
+    });
+  }
+};
+
+// ========================================
+// DELIVERY BOY PERFORMANCE REPORT
+// ========================================
+
+/**
+ * Delivery Boy Performance Report
+ * GET /api/report/agency/delivery-boy-performance?agencyId=xxx&period=month
+ * 
+ * Detailed performance metrics for all delivery boys including:
+ * - Delivery count & success rate
+ * - Average delivery time
+ * - Customer ratings (if available)
+ * - Efficiency metrics (distance vs time)
+ * - Active vs idle time
+ */
+exports.getDeliveryBoyPerformanceReport = async (req, res) => {
+  try {
+    const { agencyId, period = 'month' } = req.query;
+
+    if (!agencyId) {
+      return res.status(400).json({ 
+        success: false, 
+        message: 'Agency ID is required' 
+      });
+    }
+
+    // Determine date range
+    let startDate, endDate;
+    switch (period) {
+      case 'today':
+        startDate = moment().startOf('day').toDate();
+        endDate = moment().endOf('day').toDate();
+        break;
+      case 'week':
+        startDate = moment().startOf('week').toDate();
+        endDate = moment().endOf('week').toDate();
+        break;
+      case 'month':
+      default:
+        startDate = moment().startOf('month').toDate();
+        endDate = moment().endOf('month').toDate();
+        break;
+    }
+
+    // Get all delivery boys for this agency
+    const deliveryBoys = await mongoose.model('DeliveryBoy').find({
+      agencyId: new mongoose.Types.ObjectId(agencyId)
+    }).lean();
+
+    if (!deliveryBoys.length) {
+      return res.status(200).json({
+        success: true,
+        message: 'No delivery boys found for this agency',
+        data: []
+      });
+    }
+
+    const deliveryBoyIds = deliveryBoys.map(db => db._id);
+
+    // Get all orders assigned to these delivery boys in the period
+    const orders = await Order.find({
+      assignedDeliveryBoy: { $in: deliveryBoyIds },
+      createdAt: { $gte: startDate, $lte: endDate }
+    }).lean();
+
+    // Calculate performance metrics for each delivery boy
+    const performanceData = deliveryBoys.map(boy => {
+      const boyOrders = orders.filter(o => 
+        o.assignedDeliveryBoy?.toString() === boy._id.toString()
+      );
+
+      const totalOrders = boyOrders.length;
+      const deliveredOrders = boyOrders.filter(o => o.status === 'Delivered').length;
+      const cancelledOrders = boyOrders.filter(o => o.status === 'Cancelled').length;
+      const pendingOrders = boyOrders.filter(o => 
+        !['Delivered', 'Cancelled'].includes(o.status)
+      ).length;
+
+      const totalEarnings = boyOrders
+        .filter(o => o.status === 'Delivered')
+        .reduce((sum, o) => sum + (o.deliveryEarning || 0), 0);
+
+      const totalDistance = boyOrders
+        .filter(o => o.status === 'Delivered')
+        .reduce((sum, o) => sum + (o.deliveryDistance || 0), 0);
+
+      // Calculate delivery times (if deliveredAt exists)
+      const deliveryTimes = boyOrders
+        .filter(o => o.status === 'Delivered' && o.deliveredAt && o.createdAt)
+        .map(o => {
+          const start = new Date(o.createdAt);
+          const end = new Date(o.deliveredAt);
+          return (end - start) / (1000 * 60); // minutes
+        });
+
+      const avgDeliveryTime = deliveryTimes.length > 0
+        ? deliveryTimes.reduce((sum, t) => sum + t, 0) / deliveryTimes.length
+        : 0;
+
+      const successRate = totalOrders > 0 
+        ? (deliveredOrders / totalOrders) * 100 
+        : 0;
+
+      const avgEarningPerDelivery = deliveredOrders > 0
+        ? totalEarnings / deliveredOrders
+        : 0;
+
+      const avgDistancePerDelivery = deliveredOrders > 0
+        ? totalDistance / deliveredOrders
+        : 0;
+
+      // Efficiency score: deliveries per km (higher is better)
+      const efficiencyScore = totalDistance > 0
+        ? deliveredOrders / totalDistance
+        : 0;
+
+      return {
+        deliveryBoyId: boy._id,
+        name: boy.name,
+        email: boy.email,
+        phone: boy.phone,
+        isOnline: boy.isOnline || false,
+        metrics: {
+          totalOrders,
+          deliveredOrders,
+          cancelledOrders,
+          pendingOrders,
+          successRate: Math.round(successRate * 100) / 100,
+          totalEarnings: Math.round(totalEarnings * 100) / 100,
+          totalDistance: Math.round(totalDistance * 100) / 100,
+          avgDeliveryTime: Math.round(avgDeliveryTime * 100) / 100, // minutes
+          avgEarningPerDelivery: Math.round(avgEarningPerDelivery * 100) / 100,
+          avgDistancePerDelivery: Math.round(avgDistancePerDelivery * 100) / 100,
+          efficiencyScore: Math.round(efficiencyScore * 1000) / 1000
+        },
+        performance: {
+          rating: successRate >= 90 ? 'Excellent' : 
+                  successRate >= 75 ? 'Good' : 
+                  successRate >= 50 ? 'Average' : 'Poor',
+          strengths: [],
+          improvements: []
+        }
+      };
+    });
+
+    // Add strengths/improvements based on metrics
+    performanceData.forEach(boy => {
+      const m = boy.metrics;
+      
+      if (m.successRate >= 90) boy.performance.strengths.push('High success rate');
+      if (m.avgDeliveryTime < 30) boy.performance.strengths.push('Fast delivery times');
+      if (m.efficiencyScore > 0.5) boy.performance.strengths.push('Efficient route planning');
+      
+      if (m.successRate < 75) boy.performance.improvements.push('Improve completion rate');
+      if (m.avgDeliveryTime > 45) boy.performance.improvements.push('Reduce delivery time');
+      if (m.cancelledOrders > m.deliveredOrders * 0.2) boy.performance.improvements.push('Reduce cancellations');
+    });
+
+    // Sort by total earnings (top performers first)
+    performanceData.sort((a, b) => b.metrics.totalEarnings - a.metrics.totalEarnings);
+
+    // Calculate agency-wide stats
+    const agencyStats = {
+      totalDeliveryBoys: deliveryBoys.length,
+      activeDeliveryBoys: deliveryBoys.filter(b => b.isOnline).length,
+      totalOrders: performanceData.reduce((sum, b) => sum + b.metrics.totalOrders, 0),
+      totalDelivered: performanceData.reduce((sum, b) => sum + b.metrics.deliveredOrders, 0),
+      avgSuccessRate: performanceData.length > 0
+        ? performanceData.reduce((sum, b) => sum + b.metrics.successRate, 0) / performanceData.length
+        : 0
+    };
+
+    res.status(200).json({
+      success: true,
+      period,
+      dateRange: { from: startDate, to: endDate },
+      agencyStats: {
+        ...agencyStats,
+        avgSuccessRate: Math.round(agencyStats.avgSuccessRate * 100) / 100
+      },
+      deliveryBoys: performanceData
+    });
+
+  } catch (error) {
+    console.error('Delivery Boy Performance Report Error:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Failed to generate performance report',
+      error: error.message
+    });
+  }
+};
+
+// ========================================
+// ORDER COMPLETION & SUCCESS RATE REPORT
+// ========================================
+
+/**
+ * Order Completion & Success Rate Report
+ * GET /api/report/agency/order-success?agencyId=xxx&period=month
+ * 
+ * Quality metrics including:
+ * - Overall completion rate
+ * - Status distribution
+ * - Cancellation reasons analysis
+ * - Average order lifecycle time
+ * - Peak delivery hours
+ * - Shop-wise performance
+ */
+exports.getAgencyOrderSuccessReport = async (req, res) => {
+  try {
+    const { agencyId, period = 'month' } = req.query;
+
+    if (!agencyId) {
+      return res.status(400).json({ 
+        success: false, 
+        message: 'Agency ID is required' 
+      });
+    }
+
+    // Determine date range
+    let startDate, endDate;
+    switch (period) {
+      case 'today':
+        startDate = moment().startOf('day').toDate();
+        endDate = moment().endOf('day').toDate();
+        break;
+      case 'week':
+        startDate = moment().startOf('week').toDate();
+        endDate = moment().endOf('week').toDate();
+        break;
+      case 'month':
+      default:
+        startDate = moment().startOf('month').toDate();
+        endDate = moment().endOf('month').toDate();
+        break;
+    }
+
+    // Get all orders for this agency in the period
+    const orders = await Order.find({
+      agencyId: new mongoose.Types.ObjectId(agencyId),
+      createdAt: { $gte: startDate, $lte: endDate }
+    })
+      .populate('shopId', 'shopeDetails.shopName')
+      .populate('assignedDeliveryBoy', 'name')
+      .lean();
+
+    const totalOrders = orders.length;
+
+    // Status distribution
+    const statusDistribution = orders.reduce((acc, order) => {
+      const status = order.status || 'Unknown';
+      acc[status] = (acc[status] || 0) + 1;
+      return acc;
+    }, {});
+
+    const delivered = statusDistribution['Delivered'] || 0;
+    const cancelled = statusDistribution['Cancelled'] || 0;
+    const pending = Object.keys(statusDistribution)
+      .filter(s => !['Delivered', 'Cancelled'].includes(s))
+      .reduce((sum, s) => sum + statusDistribution[s], 0);
+
+    const successRate = totalOrders > 0 ? (delivered / totalOrders) * 100 : 0;
+    const cancellationRate = totalOrders > 0 ? (cancelled / totalOrders) * 100 : 0;
+
+    // Cancellation reasons analysis
+    const cancelledOrders = orders.filter(o => o.status === 'Cancelled');
+    const cancellationReasons = cancelledOrders.reduce((acc, order) => {
+      const reason = order.cancellation?.reason || 'Not specified';
+      const cancelledBy = order.cancellation?.cancelledBy || 'unknown';
+      const key = `${cancelledBy}: ${reason}`;
+      
+      if (!acc[key]) {
+        acc[key] = {
+          reason,
+          cancelledBy,
+          count: 0,
+          percentage: 0
+        };
+      }
+      acc[key].count += 1;
+      return acc;
+    }, {});
+
+    // Calculate percentages
+    Object.values(cancellationReasons).forEach(r => {
+      r.percentage = cancelled > 0 ? Math.round((r.count / cancelled) * 10000) / 100 : 0;
+    });
+
+    // Average order lifecycle time (created → delivered)
+    const deliveredOrders = orders.filter(o => o.status === 'Delivered' && o.deliveredAt);
+    const lifecycleTimes = deliveredOrders.map(o => {
+      const start = new Date(o.createdAt);
+      const end = new Date(o.deliveredAt);
+      return (end - start) / (1000 * 60); // minutes
+    });
+
+    const avgLifecycleTime = lifecycleTimes.length > 0
+      ? lifecycleTimes.reduce((sum, t) => sum + t, 0) / lifecycleTimes.length
+      : 0;
+
+    // Peak delivery hours analysis
+    const hourlyDistribution = {};
+    orders.forEach(order => {
+      const hour = moment(order.createdAt).hour();
+      hourlyDistribution[hour] = (hourlyDistribution[hour] || 0) + 1;
+    });
+
+    const peakHours = Object.entries(hourlyDistribution)
+      .sort(([, a], [, b]) => b - a)
+      .slice(0, 5)
+      .map(([hour, count]) => ({
+        hour: parseInt(hour),
+        timeSlot: `${hour}:00 - ${parseInt(hour) + 1}:00`,
+        orders: count
+      }));
+
+    // Shop-wise performance
+    const shopPerformance = {};
+    orders.forEach(order => {
+      if (order.shopId) {
+        const shopId = order.shopId._id.toString();
+        const shopName = order.shopId.shopeDetails?.shopName || 'Unknown Shop';
+        
+        if (!shopPerformance[shopId]) {
+          shopPerformance[shopId] = {
+            shopId,
+            shopName,
+            totalOrders: 0,
+            delivered: 0,
+            cancelled: 0,
+            successRate: 0
+          };
+        }
+        
+        shopPerformance[shopId].totalOrders += 1;
+        if (order.status === 'Delivered') shopPerformance[shopId].delivered += 1;
+        if (order.status === 'Cancelled') shopPerformance[shopId].cancelled += 1;
+      }
+    });
+
+    // Calculate shop success rates
+    Object.values(shopPerformance).forEach(shop => {
+      shop.successRate = shop.totalOrders > 0
+        ? Math.round((shop.delivered / shop.totalOrders) * 10000) / 100
+        : 0;
+    });
+
+    const topPerformingShops = Object.values(shopPerformance)
+      .sort((a, b) => b.successRate - a.successRate)
+      .slice(0, 10);
+
+    // Time-based trends (daily)
+    const dailyTrends = {};
+    orders.forEach(order => {
+      const day = moment(order.createdAt).format('YYYY-MM-DD');
+      if (!dailyTrends[day]) {
+        dailyTrends[day] = {
+          date: day,
+          total: 0,
+          delivered: 0,
+          cancelled: 0,
+          successRate: 0
+        };
+      }
+      dailyTrends[day].total += 1;
+      if (order.status === 'Delivered') dailyTrends[day].delivered += 1;
+      if (order.status === 'Cancelled') dailyTrends[day].cancelled += 1;
+    });
+
+    // Calculate daily success rates
+    Object.values(dailyTrends).forEach(day => {
+      day.successRate = day.total > 0
+        ? Math.round((day.delivered / day.total) * 10000) / 100
+        : 0;
+    });
+
+    res.status(200).json({
+      success: true,
+      period,
+      dateRange: { from: startDate, to: endDate },
+      summary: {
+        totalOrders,
+        delivered,
+        cancelled,
+        pending,
+        successRate: Math.round(successRate * 100) / 100,
+        cancellationRate: Math.round(cancellationRate * 100) / 100,
+        avgLifecycleTime: Math.round(avgLifecycleTime * 100) / 100, // minutes
+        qualityGrade: successRate >= 95 ? 'A+' :
+                      successRate >= 90 ? 'A' :
+                      successRate >= 85 ? 'B+' :
+                      successRate >= 80 ? 'B' :
+                      successRate >= 75 ? 'C' : 'D'
+      },
+      statusDistribution,
+      cancellationAnalysis: {
+        totalCancelled: cancelled,
+        reasons: Object.values(cancellationReasons).sort((a, b) => b.count - a.count)
+      },
+      peakHours,
+      topPerformingShops,
+      dailyTrends: Object.values(dailyTrends).sort((a, b) => 
+        new Date(a.date) - new Date(b.date)
+      )
+    });
+
+  } catch (error) {
+    console.error('Agency Order Success Report Error:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Failed to generate order success report',
+      error: error.message
+    });
+  }
+};
