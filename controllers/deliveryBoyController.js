@@ -802,12 +802,14 @@ exports.getOngoingOrdersForDeliveryBoy = async (req, res) => {
 
         return {
           ...order._doc,
-          shopDetails: shop ? {
-            shopName: shop.shopeDetails?.shopName || 'Unknown Shop',
-            shopAddress: shop.shopeDetails?.shopAddress || '',
-            shopContact: shop.shopeDetails?.shopContact || '',
-            shopLocation: shop.shopeDetails?.shopLocation || ''
-          } : null,
+         shopDetails: shop ? {
+  shopeDetails: {  // wrap in shopeDetails to match Flutter
+    shopName: shop.shopeDetails?.shopName || 'Unknown Shop',
+    shopAddress: shop.shopeDetails?.shopAddress || '',
+    shopContact: shop.shopeDetails?.shopContact || '',
+    shopLocation: shop.shopeDetails?.shopLocation || '',
+  }
+} : null,
           pickupDistance,
           pickupTime,
           dropDistance,

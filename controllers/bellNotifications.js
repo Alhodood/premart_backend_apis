@@ -332,7 +332,7 @@ exports.notifyOrderStatusChange = async (order, newStatus, shop) => {
  */
 exports.notifyPayment = async (payment, order) => {
   try {
-    const Shop = require('../models/Shop');
+   const { Shop } = require('../models/Shop');
     const shop = await Shop.findById(order.shopId);
     const shopName = shop?.shopeDetails?.shopName || 'Unknown Shop';
 
@@ -424,7 +424,7 @@ exports.notifyRegistrationRequest = async (entityType, entityId, entityName) =>
 
 const createAndEmitNotification = async ({ title, message, type, role, targetId = null }) => {
   try {
-    const notification = await BellNotification.create({
+    const notification = await SuperNotification.create({
       title, message, type,
       role,       // ✅ which role this belongs to
       targetId,   // optional: specific shop/agency/order ID
