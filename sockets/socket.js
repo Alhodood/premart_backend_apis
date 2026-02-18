@@ -6,6 +6,7 @@ const connectedUsers = {}; // Delivery boys
 const connectedShops = {}; // Shop admins
 const connectedAdmins = {}; // Super admins
 const connectedAgencies = {}; // Agencies
+const connectedCustomers = {}; // Customers (for in-app + order events)
 
 module.exports = {
   init: (server) => {
@@ -97,6 +98,19 @@ module.exports = {
         });
       }
 
+      // ✅ CUSTOMER CONNECTION (for in-app notifications + order events)
+      else if (userType === 'customer' && deliveryBoyId) {
+        const uid = deliveryBoyId.toString();
+        socket.join(uid);
+        connectedCustomers[uid] = socket.id;
+        console.log('👤 Customer registered:', uid);
+        socket.emit('connection_confirmed', {
+          userType: 'customer',
+          userId: uid,
+          socketId: socket.id
+        });
+      }
+
       // ❌ INVALID CONNECTION
       else {
         console.log('⚠️ Invalid connection parameters:', { userType, deliveryBoyId, shopId, adminId, agencyId });
@@ -175,6 +189,14 @@ module.exports = {
             break;
           }
         }
+
+        for (const id in connectedCustomers) {
+          if (connectedCustomers[id] === socket.id) {
+            delete connectedCustomers[id];
+            console.log('❌ Customer disconnected:', id);
+            break;
+          }
+        }
       });
     });
 
@@ -191,6 +213,7 @@ module.exports = {
   getConnectedShops: () => connectedShops,
   getConnectedAdmins: () => connectedAdmins,
   getConnectedAgencies: () => connectedAgencies,
+  getConnectedCustomers: () => connectedCustomers,
 
   isUserConnected: (userId) => connectedUsers.hasOwnProperty(userId),
   isShopConnected: (shopId) => connectedShops.hasOwnProperty(shopId),
@@ -215,7 +238,7 @@ module.exports = {
     console.log(`📤 Emitted '${event}' to agency ${agencyId}`);
   },
 
-  // ✅ NEW: Emit to role rooms (for notifications)
+  // ✅ Emit to role rooms (for notifications)
   emitToRole: (role, event, data) => {
     if (!io) throw new Error('Socket.IO not initialized');
     io.to(role).emit(event, data);
@@ -226,5 +249,14 @@ module.exports = {
     if (!io) throw new Error('Socket.IO not initialized');
     io.emit(event, data);
     console.log(`📢 Broadcasted '${event}' to all clients`);
+  },
+
+  /** Emit to a specific user (customer or delivery boy by userId). For in-app real-time notifications. */
+  emitToUser: (userId, event, data) => {
+    if (!io) return;
+    const uid = userId && userId.toString();
+    if (uid) {
+      io.to(uid).emit(event, data);
+    }
   }
 };

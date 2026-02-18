@@ -1,6 +1,10 @@
 const Notification = require('../models/superNotification');
 const socketService = require('../sockets/socket');
+const { sendPushToUser, sendPushToToken } = require('../helper/fcmPushHelper');
+const { notifyUser } = require('../helper/notificationHelper');
 
+const DEFAULT_TITLE = 'Notification';
+const NOTIFICATION_TYPE_INFO = 'info';
 
 
 
@@ -30,43 +34,48 @@ exports.createNotification = async (req, res) => {
 
     await notification.save();
 
-    console.log("🟡 Notification saved:", notification._id);
-
-    const io = socketService.getIO();
-    const connectedUsers = socketService.getConnectedUsers();
-
-    console.log("🟡 Active users:", connectedUsers);
-
     if (!isScheduled) {
+      const titleText = title || DEFAULT_TITLE;
+      const messageText = message || '';
+      const data = { notificationId: String(notification._id) };
 
-      // Targeted
+      // Targeted users: UserNotification + socket + push via notifyUser (same as orderController)
       if (recipientIds.length > 0) {
-        recipientIds.forEach(uid => {
-          console.log("🟢 Emit to:", uid);
-
-          io.to(uid.toString()).emit("new_notification", {
-            id: notification._id,
-            title,
-            message,
-            image,
-            createdAt: notification.createdAt,
-          });
-        });
+        for (const uid of recipientIds) {
+          const uidStr = normalizeUserId(uid);
+          if (!uidStr) continue;
+          await notifyUser(uidStr, titleText, messageText, data, NOTIFICATION_TYPE_INFO)
+            .catch((e) => console.warn('SuperNotification notify user failed:', uidStr, e.message));
+        }
       }
-
-      // Role broadcast
+      // Delivery boys: socket + push via activeDeviceToken (no UserNotification)
       else if (role === 'deliveryBoy') {
-        Object.keys(connectedUsers).forEach(uid => {
-          console.log("🟢 Broadcast to:", uid);
+        const DeliveryBoy = require('../models/DeliveryBoy');
+        const io = socketService.getIO();
+        const payload = buildSocketPayload(notification, title, message, image);
+        const deliveryBoys = await DeliveryBoy.find({}).select('_id activeDeviceToken').lean();
 
-          io.to(uid).emit("new_notification", {
-            id: notification._id,
-            title,
-            message,
-            image,
-            createdAt: notification.createdAt,
-          });
-        });
+        for (const { _id, activeDeviceToken } of deliveryBoys) {
+          const uidStr = _id.toString();
+          io.to(uidStr).emit('new_notification', payload);
+          if (activeDeviceToken) {
+            await sendPushToToken(activeDeviceToken, titleText, messageText, data).catch(() => {});
+          } else {
+            await sendPushToUser(uidStr, titleText, messageText, data).catch(() => {});
+          }
+        }
+      }
+      // Broadcast to customers / all: UserNotification + socket + push via notifyUser
+      else if (role === 'customer' || role === 'all') {
+        const DeviceToken = require('../models/DeviceToken');
+        const userIds = await DeviceToken.distinct('user_id', { user_id: { $ne: null } });
+
+        for (const uid of userIds) {
+          const uidStr = normalizeUserId(uid);
+          if (!uidStr) continue;
+          await notifyUser(uidStr, titleText, messageText, data, NOTIFICATION_TYPE_INFO)
+            .catch((e) => console.warn('SuperNotification notify user failed:', uidStr, e.message));
+        }
       }
     }
 
@@ -75,9 +84,8 @@ exports.createNotification = async (req, res) => {
       message: 'Notification created',
       data: notification
     });
-
   } catch (err) {
-    console.error("❌ Create notification failed:", err);
+    console.error('Create notification failed:', err);
     return res.status(500).json({
       success: false,
       message: 'Failed to create notification',
@@ -85,6 +93,21 @@ exports.createNotification = async (req, res) => {
     });
   }
 };
+
+function normalizeUserId(uid) {
+  if (uid == null) return null;
+  return typeof uid.toString === 'function' ? uid.toString() : String(uid);
+}
+
+function buildSocketPayload(notification, title, message, image) {
+  return {
+    id: notification._id,
+    title: title || DEFAULT_TITLE,
+    message: message || '',
+    image: image || '',
+    createdAt: notification.createdAt?.toISOString?.() || new Date().toISOString()
+  };
+}
 
 
 exports.getAllNotifications = async (req, res) => {
