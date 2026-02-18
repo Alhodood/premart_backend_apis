@@ -249,7 +249,11 @@ exports.autoAssignDeliveryBoyWithin5kmHelper = async (orderId) => {
         
         try {
           io.to(deliveryBoyId).emit('new_order_assigned', emissionData);
-          
+          const { sendPushOnly } = require('../helper/notificationHelper');
+          sendPushOnly(deliveryBoyId, 'New order assigned', 'You have been assigned a new order.', {
+            route: 'order_assigned',
+            order_id: order._id.toString()
+          }).catch(() => {});
           if (isUserConnected(deliveryBoyId)) {
             successfulEmissions++;
             console.log(`   ✅ Notification sent successfully`);

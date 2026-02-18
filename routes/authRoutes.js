@@ -36,6 +36,9 @@ const superAdminSettingsController = require('../controllers/superAdminSettingsC
 // ==========================
 // PUBLIC AUTH (RBAC)
 // ==========================
+// Email verification flow: 1) send-verification → 2) verify → account created
+router.post('/register/send-verification', rbacAuth.sendRegistrationVerification);
+router.post('/register/verify', rbacAuth.verifyEmailAndRegister);
 router.post('/register', rbacAuth.register);
 router.post('/login', rbacAuth.login);
 router.post('/verify-otp', rbacAuth.verifyOtp);
