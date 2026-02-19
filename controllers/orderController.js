@@ -558,6 +558,23 @@ exports.getOrderById = async (req, res) => {
       coupon: order.coupon
     };
 
+    // Print all details of order and its status
+    console.log('--- GET ORDER ---');
+    console.log('orderId:', orderId);
+    console.log('orderStatus:', formattedOrder.orderStatus);
+    console.log('statusHistory:', JSON.stringify(formattedOrder.statusHistory, null, 2));
+    console.log('paymentStatus:', formattedOrder.paymentStatus);
+    console.log('paymentMethod:', formattedOrder.paymentMethod);
+    console.log('totalAmount:', formattedOrder.totalAmount);
+    console.log('finalPayable:', formattedOrder.finalPayable);
+    console.log('customerName:', formattedOrder.customerName);
+    console.log('customerPhone:', formattedOrder.customerPhone);
+    console.log('deliveryAddress:', JSON.stringify(formattedOrder.deliveryAddress, null, 2));
+    console.log('assignedDeliveryBoy:', JSON.stringify(formattedOrder.assignedDeliveryBoy, null, 2));
+    console.log('items count:', formattedOrder.items?.length);
+    console.log('full order data:', JSON.stringify(formattedOrder, null, 2));
+    console.log('--- END GET ORDER ---');
+
     res.json({
       success: true,
       data: formattedOrder

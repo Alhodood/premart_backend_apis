@@ -38,6 +38,9 @@ exports.register = async (req, res) => {
       });
     }
 
+    console.log('registering FCM TOKEN', { device_id, device_token });
+
+
     const userId = req.user?.id || req.user?._id || null;
 
     const updated = await DeviceToken.findOneAndUpdate(

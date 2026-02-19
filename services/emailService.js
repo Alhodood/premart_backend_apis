@@ -1,12 +1,23 @@
 // services/emailService.js - Enhanced with all order status templates
 const { Resend } = require('resend');
-const resend = new Resend(process.env.RESEND_API_KEY);
+
+const RESEND_API_KEY = process.env.RESEND_API_KEY;
+const resend = RESEND_API_KEY ? new Resend(RESEND_API_KEY) : null;
 
 const EMAIL_FROM = process.env.EMAIL_FROM || 'noreply@autopartsnow.uk';
 const APP_NAME = 'PreMart';
 
+const ensureResend = () => {
+  if (!resend) {
+    console.warn('⚠️ Resend API key (RESEND_API_KEY) not set — email sending skipped.');
+    return false;
+  }
+  return true;
+};
+
 // [Previous sendOTPEmail function remains the same...]
 const sendOTPEmail = async (toEmail, otp, appName = APP_NAME) => {
+  if (!ensureResend()) return false;
   try {
     const { data, error } = await resend.emails.send({
       from: EMAIL_FROM,
@@ -40,6 +51,7 @@ const sendOTPEmail = async (toEmail, otp, appName = APP_NAME) => {
 
 // Order status email function
 const sendOrderStatusEmail = async (toEmail, orderId, status, orderDetails) => {
+  if (!ensureResend()) return false;
   try {
     const statusConfig = {
       'Pending': { icon: '📦', color: '#6366F1', title: 'Order Confirmed!', message: 'We\'ve received your order' },
@@ -105,6 +117,7 @@ const sendOrderStatusEmail = async (toEmail, orderId, status, orderDetails) => {
 };
 
 const sendShopVerificationEmail = async (toEmail, shopName, isVerified) => {
+  if (!ensureResend()) return false;
   try {
     const { data, error } = await resend.emails.send({
       from: EMAIL_FROM,
@@ -139,6 +152,7 @@ const sendShopVerificationEmail = async (toEmail, shopName, isVerified) => {
 };
 
 const sendAgencyVerificationEmail = async (toEmail, agencyName, isVerified) => {
+  if (!ensureResend()) return false;
   try {
     const { data, error } = await resend.emails.send({
       from: EMAIL_FROM,
