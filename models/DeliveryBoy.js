@@ -91,6 +91,8 @@ lastLoginAt: {
   type: Date,
   default: null
 },
+    resetPasswordOTP:     { type: String, default: null },
+    resetPasswordExpires: { type: Date,   default: null },
   },
   { timestamps: true }
 );
