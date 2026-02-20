@@ -584,8 +584,6 @@ exports.viewAssignedOrders = async (req, res) => {
   }
 };
 
-// controllers/deliveryBoyController.js
-
 exports.getNearbyAssignedOrders = async (req, res) => {
   try {
     const deliveryBoyId = req.params.deliveryBoyId;
@@ -605,7 +603,7 @@ exports.getNearbyAssignedOrders = async (req, res) => {
     const RANGE_KM = 20;
 
     // ✅ Fetch agency emirates for this delivery boy
-    let agencyEmirates = []; // empty = no restriction
+    let agencyEmirates = [];
     if (deliveryBoy.agencyId) {
       const agency = await DeliveryAgency.findById(deliveryBoy.agencyId)
         .select('agencyDetails.emirates')
@@ -618,8 +616,9 @@ exports.getNearbyAssignedOrders = async (req, res) => {
       );
     }
 
-    // ✅ Fetch orders with ALL active delivery statuses
+    // ✅ FIXED: Include "Pending" so unassigned orders show even when all boys are offline
     const activeStatuses = [
+      'Pending',                    // ← NEW: no delivery boy assigned yet
       'Delivery Boy Assigned',
       'Accepted by Delivery Boy',
       'Reached Pickup',
@@ -633,7 +632,7 @@ exports.getNearbyAssignedOrders = async (req, res) => {
       status: { $in: activeStatuses }
     });
 
-    console.log(`📦 Found ${assignedOrders.length} orders with active delivery statuses`);
+    console.log(`📦 Found ${assignedOrders.length} orders (including Pending)`);
 
     const formattedNearbyOrders = [];
 
@@ -641,7 +640,6 @@ exports.getNearbyAssignedOrders = async (req, res) => {
     const Shop = mongoose.model('Shop');
     const geolib = require('geolib');
 
-    // ✅ Import emirate detection from autoAssignHelper
     const { getEmirateFromCoordinates } = require('../helper/autoAssignHelper');
 
     for (const order of assignedOrders) {
@@ -663,9 +661,8 @@ exports.getNearbyAssignedOrders = async (req, res) => {
 
         const [shopLat, shopLng] = coords;
 
-        // ✅ EMIRATES FILTER: skip orders whose shop is outside agency's coverage
+        // ✅ Emirates filter
         if (agencyEmirates.length > 0) {
-          // Prefer DB value, fall back to coordinate-based detection
           const shopEmirate =
             shop.shopeDetails?.emirates ||
             getEmirateFromCoordinates(shopLat, shopLng);
@@ -682,14 +679,13 @@ exports.getNearbyAssignedOrders = async (req, res) => {
           }
         }
 
-        // Calculate pickup distance
+        // ✅ Calculate pickup distance from delivery boy to shop
         const pickupDistance =
           geolib.getDistance(
             { latitude: boyLat, longitude: boyLng },
             { latitude: shopLat, longitude: shopLng }
           ) / 1000;
 
-        // ✅ Filter by distance
         if (pickupDistance > RANGE_KM) {
           console.log(
             `⚠️ Skipping order ${order._id} - too far (${pickupDistance.toFixed(2)} km)`
@@ -714,12 +710,13 @@ exports.getNearbyAssignedOrders = async (req, res) => {
         }
 
         const shopDetails = {
-          shopName:     shop?.shopeDetails?.shopName    || '',
-          shopAddress:  shop?.shopeDetails?.shopAddress || '',
-          shopContact:  shop?.shopeDetails?.shopContact || '',
+          shopName:     shop?.shopeDetails?.shopName     || '',
+          shopAddress:  shop?.shopeDetails?.shopAddress  || '',
+          shopContact:  shop?.shopeDetails?.shopContact  || '',
           shopLocation: shop?.shopeDetails?.shopLocation || '',
         };
 
+        // ✅ For Pending orders, deliveryBoyId will be null — that's correct
         const deliveryDetails = {
           deliveryBoyId:    order.assignedDeliveryBoy || null,
           orderStatus:      order.status,
@@ -761,14 +758,14 @@ exports.getNearbyAssignedOrders = async (req, res) => {
     console.log(`📊 Returning ${formattedNearbyOrders.length} nearby orders`);
 
     return res.status(200).json({
-      message: 'Nearby assigned orders fetched successfully',
+      message: 'Nearby orders fetched successfully',
       success: true,
       data: formattedNearbyOrders,
     });
   } catch (error) {
     console.error('Get Nearby Assigned Orders Error:', error);
     return res.status(500).json({
-      message: 'Failed to fetch nearby assigned orders',
+      message: 'Failed to fetch nearby orders',
       success: false,
       data: error.message,
     });
