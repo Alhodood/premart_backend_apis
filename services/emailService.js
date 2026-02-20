@@ -1,11 +1,14 @@
 // services/emailService.js
 const { Resend } = require('resend');
-const resend = new Resend(process.env.RESEND_API_KEY);
+
+const RESEND_API_KEY = process.env.RESEND_API_KEY;
+const resend = RESEND_API_KEY ? new Resend(RESEND_API_KEY) : null;
 
 const EMAIL_FROM = process.env.EMAIL_FROM || 'noreply@autopartsnow.uk';
 const APP_NAME = 'PreMart';
 
 const sendOTPEmail = async (toEmail, otp, appName = APP_NAME) => {
+  if (!ensureResend()) return false;
   try {
     const { data, error } = await resend.emails.send({
       from: EMAIL_FROM,
@@ -38,6 +41,7 @@ const sendOTPEmail = async (toEmail, otp, appName = APP_NAME) => {
 };
 
 const sendOrderStatusEmail = async (toEmail, orderId, status, orderDetails) => {
+  if (!ensureResend()) return false;
   try {
     const statusConfig = {
       'Pending': { icon: '📦', color: '#6366F1', title: 'Order Confirmed!', message: 'We\'ve received your order' },
@@ -103,6 +107,7 @@ const sendOrderStatusEmail = async (toEmail, orderId, status, orderDetails) => {
 };
 
 const sendShopVerificationEmail = async (toEmail, shopName, isVerified) => {
+  if (!ensureResend()) return false;
   try {
     const { data, error } = await resend.emails.send({
       from: EMAIL_FROM,
@@ -211,6 +216,7 @@ const sendDeliveryBoyWelcomeEmail = async (toEmail, name, phone) => {  // ← ad
 };
 
 const sendAgencyVerificationEmail = async (toEmail, agencyName, isVerified) => {
+  if (!ensureResend()) return false;
   try {
     const { data, error } = await resend.emails.send({
       from: EMAIL_FROM,

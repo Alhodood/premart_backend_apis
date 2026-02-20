@@ -37,6 +37,8 @@ const UserSchema = new mongoose.Schema({
 },
  address: [customerAddressDetailsSchema],
   card:[cardDetailsSchema],
+  resetPasswordOTP:     { type: String, default: null },
+  resetPasswordExpires: { type: Date,   default: null },
 }, { timestamps: true });
 
 UserSchema.pre('save', async function (next) {

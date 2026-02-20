@@ -54,13 +54,15 @@ function initFirebase() {
 
 /**
  * Get all FCM tokens for a user (multiple devices).
+ * Deduplicated so the same token is never returned twice (avoids duplicate notifications on iOS).
  * @param {string} userId - User ObjectId string
  * @returns {Promise<string[]>}
  */
 async function getFcmTokensForUser(userId) {
   const DeviceToken = require('../models/DeviceToken');
   const docs = await DeviceToken.find({ user_id: userId }).lean();
-  return docs.map((d) => d.device_token).filter(Boolean);
+  const tokens = docs.map((d) => d.device_token).filter(Boolean);
+  return [...new Set(tokens)];
 }
 
 /**
@@ -98,13 +100,23 @@ async function sendPushToToken(token, title, body, data) {
   initFirebase();
   if (!messaging) return;
   const dataStr = stringifyData(data || {});
+  const notifTitle = title || 'Notification';
+  const notifBody = body || '';
   try {
     await messaging.send({
       token,
-      notification: { title: title || 'Notification', body: body || '' },
+      notification: { title: notifTitle, body: notifBody },
       data: dataStr,
       android: { priority: 'high' },
-      apns: { payload: { aps: { sound: 'default' } } },
+      apns: {
+        payload: {
+          aps: {
+            alert: { title: notifTitle, body: notifBody },
+            sound: 'default',
+            badge: 1,
+          },
+        },
+      },
     });
     console.log('FCM push sent to token');
   } catch (err) {
@@ -131,14 +143,24 @@ async function sendPushToUser(userId, title, body, data) {
     return;
   }
   const dataStr = stringifyData(data || {});
+  const notifTitle = title || 'Notification';
+  const notifBody = body || '';
   for (const token of tokens) {
     try {
       await messaging.send({
         token,
-        notification: { title: title || 'Notification', body: body || '' },
+        notification: { title: notifTitle, body: notifBody },
         data: dataStr,
         android: { priority: 'high' },
-        apns: { payload: { aps: { sound: 'default' } } },
+        apns: {
+          payload: {
+            aps: {
+              alert: { title: notifTitle, body: notifBody },
+              sound: 'default',
+              badge: 1,
+            },
+          },
+        },
       });
       console.log(`FCM push sent to user ${userId} (${tokens.length} device(s))`);
     } catch (err) {

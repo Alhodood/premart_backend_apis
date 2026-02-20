@@ -471,14 +471,14 @@ exports.login = async (req, res) => {
       if (user) console.log('Agency ID:', user._id.toString());
 
       if (!user) {
-        return res.status(401).json({ success: false, message: 'Invalid credentials' });
+        return res.status(401).json({ success: false, message: 'No account found with this email address. Please check and try again.' });
       }
 
       const match = await user.comparePassword(password);
       console.log('Password match:', match ? 'YES' : 'NO');
 
       if (!match) {
-        return res.status(401).json({ success: false, message: 'Invalid credentials' });
+        return res.status(401).json({ success: false, message: 'The password you entered is incorrect. Please try again.' });
       }
 
       if (!user.isVerified) {
@@ -529,12 +529,12 @@ exports.login = async (req, res) => {
     }
 
     if (!user || !user.comparePassword) {
-      return res.status(401).json({ success: false, message: 'Invalid credentials' });
+      return res.status(401).json({ success: false, message: 'No account found with this email address. Please check and try again.' });
     }
 
     const match = await user.comparePassword(password);
     if (!match) {
-      return res.status(401).json({ success: false, message: 'Invalid credentials' });
+      return res.status(401).json({ success: false, message: 'The password you entered is incorrect. Please try again.' });
     }
 
     // Customer account visibility check
@@ -1270,8 +1270,9 @@ exports.forgotPassword = async (req, res) => {
       return res.status(400).json({ success: false, message: 'Email and role are required' });
     }
 
-    if (!['SHOP_ADMIN', 'AGENCY'].includes(role)) {
-      return res.status(400).json({ success: false, message: 'Password reset is only available for Shop and Agency accounts' });
+    const allowedRoles = ['CUSTOMER', 'DELIVERY_BOY', 'SHOP_ADMIN', 'AGENCY'];
+    if (!allowedRoles.includes(role)) {
+      return res.status(400).json({ success: false, message: 'Invalid role. Password reset is available for Customer, Delivery Boy, Shop, and Agency accounts.' });
     }
 
     const Model = roleModelMap[role];
@@ -1343,8 +1344,9 @@ exports.resetPassword = async (req, res) => {
     if (newPassword.length < 6) {
       return res.status(400).json({ success: false, message: 'Password must be at least 6 characters long' });
     }
-    if (!['SHOP_ADMIN', 'AGENCY'].includes(role)) {
-      return res.status(400).json({ success: false, message: 'Password reset is only available for Shop and Agency accounts' });
+    const allowedRoles = ['CUSTOMER', 'DELIVERY_BOY', 'SHOP_ADMIN', 'AGENCY'];
+    if (!allowedRoles.includes(role)) {
+      return res.status(400).json({ success: false, message: 'Invalid role. Password reset is available for Customer, Delivery Boy, Shop, and Agency accounts.' });
     }
 
     const Model = roleModelMap[role];

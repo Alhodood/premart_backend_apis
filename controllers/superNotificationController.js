@@ -65,7 +65,8 @@ exports.createNotification = async (req, res) => {
           }
         }
       }
-      // Broadcast to customers / all: UserNotification + socket + push via notifyUser
+      // Broadcast to customers / all: UserNotification + socket + push via notifyUser (linked users)
+      // + push to devices that registered but have no user_id (guest/unregistered)
       else if (role === 'customer' || role === 'all') {
         const DeviceToken = require('../models/DeviceToken');
         const userIds = await DeviceToken.distinct('user_id', { user_id: { $ne: null } });
@@ -75,6 +76,16 @@ exports.createNotification = async (req, res) => {
           if (!uidStr) continue;
           await notifyUser(uidStr, titleText, messageText, data, NOTIFICATION_TYPE_INFO)
             .catch((e) => console.warn('SuperNotification notify user failed:', uidStr, e.message));
+        }
+
+        // Also send push to devices that registered (have token) but are not linked to a user (user_id null)
+        const guestTokens = await DeviceToken.find({ user_id: null }).select('device_token').lean();
+        for (const { device_token } of guestTokens) {
+          if (device_token) {
+            await sendPushToToken(device_token, titleText, messageText, data).catch((e) =>
+              console.warn('SuperNotification push to guest device failed:', e.message)
+            );
+          }
         }
       }
     }
