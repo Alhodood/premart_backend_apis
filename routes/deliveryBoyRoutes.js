@@ -60,4 +60,6 @@ router.get('/ongoing/:deliveryBoyId', deliveryBoyController.getOngoingOrdersForD
 
 router.get('/getById/:deliveryBoyId', deliveryBoyController.getDeliveryBoyById);
 
+router.get('/:deliveryBoyId/report', deliveryBoyController.getDeliveryBoyReport);
+
 module.exports = router;

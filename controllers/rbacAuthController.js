@@ -9,6 +9,7 @@ const DeliveryBoy = require('../models/DeliveryBoy');
 const crypto = require('crypto');
 const { sendGreetings, sendPasswordResetOtp, sendRegisterOtp } = require('../helper/mailHelper');
 const EmailVerification = require('../models/EmailVerification');
+const { sendOTPEmail,sendDeliveryBoyWelcomeEmail } = require('../services/emailService');
 const OTP_EXPIRY_MINUTES = 15;
 
 // ✅ FIX: Import ShopAdmin from Admin.js, NOT Shop.js
@@ -105,6 +106,16 @@ exports.register = async (req, res) => {
       });
 
       console.log('✅ Delivery boy created:', newUser._id);
+
+       if (newUser.email) {
+    sendDeliveryBoyWelcomeEmail(newUser.email, newUser.name, newUser.phone)
+  .then(sent => {
+    if (sent) console.log('✅ Welcome email sent to delivery boy:', newUser.email);
+    else console.warn('⚠️ Welcome email failed for:', newUser.email);
+  })
+  .catch(e => console.warn('⚠️ Welcome email error:', e.message));
+
+  }
     }
 
     // Shop Admin registration
@@ -180,12 +191,12 @@ exports.sendRegistrationVerification = async (req, res) => {
       });
     }
 
-    if (!role || ![ROLES.CUSTOMER, ROLES.DELIVERY_BOY, ROLES.SHOP_ADMIN].includes(role)) {
-      return res.status(400).json({
-        success: false,
-        message: 'Valid role (CUSTOMER, DELIVERY_BOY, SHOP_ADMIN) is required'
-      });
-    }
+    if (!role || ![ROLES.CUSTOMER, ROLES.DELIVERY_BOY, ROLES.SHOP_ADMIN, ROLES.AGENCY].includes(role)) {
+  return res.status(400).json({
+    success: false,
+    message: 'Valid role (CUSTOMER, DELIVERY_BOY, SHOP_ADMIN, AGENCY) is required'
+  });
+}
 
     if (role === ROLES.DELIVERY_BOY) {
       if (latitude === undefined || longitude === undefined) {
@@ -232,15 +243,13 @@ exports.sendRegistrationVerification = async (req, res) => {
       { upsert: true, new: true }
     );
 
-    const mailResult = await sendRegisterOtp(email.trim(), otp, name || 'User');
-    if (!mailResult.sent) {
-      console.warn('Verification email failed:', mailResult.error);
-      return res.status(500).json({
-        success: false,
-        message: 'Failed to send verification email',
-        error: mailResult.error
-      });
-    }
+   const sent = await sendOTPEmail(email.trim(), otp);
+if (!sent) {
+  return res.status(500).json({
+    success: false,
+    message: 'Failed to send verification email'
+  });
+}
 
     return res.status(200).json({
       success: true,
@@ -984,48 +993,234 @@ exports.registerAgency = async (req, res) => {
 
 exports.registerShopAdmin = async (req, res) => {
   try {
-    const { name, email, phone, password, location, emiratesId } = req.body;
+    const {
+      // ═══════════════════════════════════════════════════════════════════
+      // BASIC INFORMATION
+      // ═══════════════════════════════════════════════════════════════════
+      name,
+      email,
+      phone,
+      password,
+      supportMail,
+      supportNumber,
+
+      // ═══════════════════════════════════════════════════════════════════
+      // LEGAL & LICENSING
+      // ═══════════════════════════════════════════════════════════════════
+      shopLicenseNumber,
+      shopLicenseExpiry,
+      EmiratesId,
+      taxRegistrationNumber,
+
+      // ═══════════════════════════════════════════════════════════════════
+      // LOCATION
+      // ═══════════════════════════════════════════════════════════════════
+      location,        // "lat,lng" string
+      shopAddress,     // Full address from Google Maps
+      city,            // Emirates name or city
+      emirates,        // Detected emirate
+
+      // ═══════════════════════════════════════════════════════════════════
+      // BANK DETAILS
+      // ═══════════════════════════════════════════════════════════════════
+      bankName,
+      accountNumber,
+      ibanNumber,
+      branch,
+      swiftCode,
+
+      // ═══════════════════════════════════════════════════════════════════
+      // DOCUMENTS (S3 URLs)
+      // ═══════════════════════════════════════════════════════════════════
+      shopLicenseImage,   // S3 URL for trade license
+      EmiratesIdImage,    // S3 URL for Emirates ID
+
+      // ═══════════════════════════════════════════════════════════════════
+      // FIREBASE
+      // ═══════════════════════════════════════════════════════════════════
+      firebaseUid,
+      emailVerified
+    } = req.body;
+
+    console.log('═══════════════════════════════════════════════════════════');
+    console.log('🏪 SHOP REGISTRATION REQUEST');
+    console.log('═══════════════════════════════════════════════════════════');
+    console.log('Email:', email);
+    console.log('Shop Name:', name);
+    console.log('Phone:', phone);
+    console.log('Emirates:', emirates);
+    console.log('License:', shopLicenseNumber);
+    console.log('TRN:', taxRegistrationNumber);
+    console.log('Bank:', bankName);
+    console.log('IBAN:', ibanNumber);
+    console.log('═══════════════════════════════════════════════════════════');
+
+    // ═══════════════════════════════════════════════════════════════════
+    // VALIDATION
+    // ═══════════════════════════════════════════════════════════════════
 
     if (!name || !email || !phone || !password) {
-      return res.status(400).json({ success: false, message: 'Name, email, phone, and password are required' });
+      return res.status(400).json({
+        success: false,
+        message: 'Name, email, phone, and password are required'
+      });
     }
+
+    if (!supportMail || !supportNumber) {
+      return res.status(400).json({
+        success: false,
+        message: 'Support email and phone are required'
+      });
+    }
+
+    if (!shopLicenseNumber || !shopLicenseExpiry) {
+      return res.status(400).json({
+        success: false,
+        message: 'Trade license number and expiry date are required'
+      });
+    }
+
+    // if (!EmiratesId) {
+    //   return res.status(400).json({
+    //     success: false,
+    //     message: 'Emirates ID is required'
+    //   });
+    // }
+
+    if (!taxRegistrationNumber) {
+      return res.status(400).json({
+        success: false,
+        message: 'Tax Registration Number (TRN) is required'
+      });
+    }
+
+    if (!location || !shopAddress) {
+      return res.status(400).json({
+        success: false,
+        message: 'Shop location and address are required'
+      });
+    }
+
+    // if (!bankName || !accountNumber || !ibanNumber) {
+    //   return res.status(400).json({
+    //     success: false,
+    //     message: 'Bank details (name, account number, IBAN) are required'
+    //   });
+    // }
+
+    if (!shopLicenseImage || !EmiratesIdImage) {
+      return res.status(400).json({
+        success: false,
+        message: 'Trade license and Emirates ID images are required'
+      });
+    }
+
     if (password.length < 6) {
-      return res.status(400).json({ success: false, message: 'Password must be at least 6 characters long' });
+      return res.status(400).json({
+        success: false,
+        message: 'Password must be at least 6 characters long'
+      });
     }
+
+    // ═══════════════════════════════════════════════════════════════════
+    // CHECK EXISTING
+    // ═══════════════════════════════════════════════════════════════════
 
     const existingAdmin = await ShopAdmin.findOne({ email });
 
     if (existingAdmin) {
-      return res.status(400).json({ success: false, message: 'Shop admin with this email already exists' });
+      console.log('❌ Shop already exists with email:', email);
+      return res.status(400).json({
+        success: false,
+        message: 'Shop with this email already exists'
+      });
     }
+
+    // ═══════════════════════════════════════════════════════════════════
+    // CREATE SHOP
+    // ═══════════════════════════════════════════════════════════════════
+
+    console.log('✅ Creating shop document...');
 
     const shop = await Shop.create({
       shopeDetails: {
+        // Basic
         shopName: name,
         shopMail: email,
         shopContact: phone,
-        shopLocation: location || '25.1372,55.2316',
-        EmiratesId: emiratesId || ''
+        supportMail: supportMail || email,
+        supportNumber: supportNumber || phone,
+        password, // Will be hashed by pre-save hook if exists
+
+        // Legal & Licensing
+        shopLicenseNumber,
+        shopLicenseExpiry,
+        EmiratesId,
+        taxRegistrationNumber,
+
+        // Location
+        shopLocation: location, // "lat,lng"
+        shopAddress,            // Full address
+        city: emirates || city || 'Dubai',
+        emirates: emirates || 'Dubai',
+
+        // Documents
+        shopLicenseImage,
+        EmiratesIdImage,
+
+        // Bank Details (nested object)
+        shopBankDetails: {
+         bankName: bankName || '',
+  accountNumber: accountNumber || '',
+  ibanNumber: ibanNumber || '',  // ← remove the `|| ibanNuber` fallback
+  branch: branch || '',
+  swiftCode: swiftCode || ''
+        }
       },
-      isVerified: false // ✅ Start as unverified
+      isVerified: false, // Start as unverified
+      products: [],
+      orders: []
     });
 
+    console.log('✅ Shop created:', shop._id);
+
+    // ═══════════════════════════════════════════════════════════════════
+    // CREATE SHOP ADMIN
+    // ═══════════════════════════════════════════════════════════════════
+
+    console.log('✅ Creating shop admin...');
+
     const admin = await ShopAdmin.create({
-      name, email, phone, password,
+      name,
+      email,
+      phone,
+      password,
       countryCode: '+971',
       role: ROLES.SHOP_ADMIN,
       shopId: shop._id
     });
 
-    // ✅ NOTIFICATION: Notify super admin about new shop registration
+    console.log('✅ Shop admin created:', admin._id);
+
+    // ═══════════════════════════════════════════════════════════════════
+    // NOTIFY SUPER ADMIN
+    // ═══════════════════════════════════════════════════════════════════
+
     try {
-      await notifyRegistrationRequest('Shop', shop._id, shop.shopeDetails?.shopName || 'New Shop');
+      await notifyRegistrationRequest('Shop', shop._id, name);
       console.log('✅ Super admin notified about new shop registration');
     } catch (notifErr) {
       console.warn('⚠️ Registration notification failed:', notifErr.message);
     }
 
+    // ═══════════════════════════════════════════════════════════════════
+    // GENERATE TOKEN
+    // ═══════════════════════════════════════════════════════════════════
+
     const token = generateToken({ id: admin._id, role: ROLES.SHOP_ADMIN });
+
+    console.log('✅ Shop registration completed successfully');
+    console.log('═══════════════════════════════════════════════════════════');
 
     return res.status(201).json({
       success: true,
@@ -1035,15 +1230,32 @@ exports.registerShopAdmin = async (req, res) => {
         shopId: shop._id,
         role: ROLES.SHOP_ADMIN,
         token,
-        isVerified: false
+        isVerified: false,
+        shopDetails: {
+          shopName: shop.shopeDetails.shopName,
+          shopMail: shop.shopeDetails.shopMail,
+          shopContact: shop.shopeDetails.shopContact,
+          emirates: shop.shopeDetails.emirates,
+          shopLicenseNumber: shop.shopeDetails.shopLicenseNumber
+        }
       }
     });
+
   } catch (err) {
-    console.error('❌ Shop Registration Error:', err);
-    return res.status(500).json({ success: false, message: 'Shop registration failed', error: err.message });
+    console.error('═══════════════════════════════════════════════════════════');
+    console.error('❌ SHOP REGISTRATION ERROR');
+    console.error('═══════════════════════════════════════════════════════════');
+    console.error('Error:', err.message);
+    console.error('Stack:', err.stack);
+    console.error('═══════════════════════════════════════════════════════════');
+
+    return res.status(500).json({
+      success: false,
+      message: 'Shop registration failed',
+      error: err.message
+    });
   }
 };
-
 // ─────────────────────────────────────────────────────────────────────────────
 // PASSWORD RESET
 // ─────────────────────────────────────────────────────────────────────────────
@@ -1095,16 +1307,16 @@ exports.forgotPassword = async (req, res) => {
     user.resetPasswordExpires = otpExpiry;
     await user.save();
 
-    const userName = user.name || user.agencyDetails?.name;
-    const mailResult = await sendPasswordResetOtp(email, resetOTP, userName);
-    if (!mailResult.sent) {
-      console.warn('Password reset email failed:', mailResult.error);
-      return res.status(503).json({
-        success: false,
-        message: 'Could not send OTP email. Please check your email or try again later.',
-        data: { email }
-      });
-    }
+   
+    const emailSent = await sendOTPEmail(email, resetOTP, 'PreMart');
+if (!emailSent) {
+  console.warn('Password reset email failed via Resend');
+  return res.status(503).json({
+    success: false,
+    message: 'Could not send OTP email. Please try again later.',
+    data: { email }
+  });
+}
 
     console.log('✅ OTP email sent to:', email);
     return res.status(200).json({
@@ -1301,5 +1513,177 @@ exports.toggleAgencyVerification = async (req, res) => {
   } catch (err) {
     console.error('❌ Toggle Agency Verification Error:', err);
     return res.status(500).json({ success: false, message: 'Failed to update agency verification status', error: err.message });
+  }
+};
+
+exports.rejectShop = async (req, res) => {
+  try {
+    const { shopId } = req.params;
+    const { rejectionReason } = req.body;
+
+    console.log('═══════════════════════════════════════════════════════');
+    console.log('🚫 REJECT SHOP REQUEST');
+    console.log('Shop ID:', shopId);
+    console.log('Rejection Reason:', rejectionReason);
+    console.log('═══════════════════════════════════════════════════════');
+
+    const mongoose = require('mongoose');
+    if (!mongoose.Types.ObjectId.isValid(shopId)) {
+      return res.status(400).json({ 
+        success: false, 
+        message: 'Invalid shop ID' 
+      });
+    }
+
+    const shop = await Shop.findById(shopId);
+    if (!shop) {
+      return res.status(404).json({ 
+        success: false, 
+        message: 'Shop not found' 
+      });
+    }
+
+    console.log('✅ Shop found:', shop.shopeDetails?.shopName);
+
+    // ✅ FIX: Update nested fields inside shopeDetails
+    shop.isVerified = false;
+    shop.shopeDetails.rejectionReason = rejectionReason || 'No reason provided';
+    shop.shopeDetails.rejectedAt = new Date();
+    
+    await shop.save();
+
+    console.log('✅ Shop updated:');
+    console.log('   - isVerified:', shop.isVerified);
+    console.log('   - rejectionReason:', shop.shopeDetails.rejectionReason);
+    console.log('   - rejectedAt:', shop.shopeDetails.rejectedAt);
+
+    // Send rejection email
+    const shopEmail = shop.shopeDetails?.shopMail;
+    const shopName = shop.shopeDetails?.shopName;
+
+    if (shopEmail) {
+      const { sendShopRejectionEmail } = require('../services/emailService');
+      sendShopRejectionEmail(shopEmail, shopName, rejectionReason)
+        .then(sent => {
+          if (sent) console.log('✅ Shop rejection email sent to:', shopEmail);
+          else console.warn('⚠️ Shop rejection email failed');
+        })
+        .catch(e => console.warn('⚠️ Rejection email error:', e.message));
+    }
+
+    console.log('═══════════════════════════════════════════════════════');
+
+    return res.status(200).json({
+      success: true,
+      message: `Shop rejected successfully${rejectionReason ? ' with reason provided' : ''}`,
+      data: { 
+        shopId: shop._id, 
+        shopName: shop.shopeDetails?.shopName, 
+        isVerified: shop.isVerified,
+        rejectionReason: shop.shopeDetails.rejectionReason,
+        rejectedAt: shop.shopeDetails.rejectedAt
+      }
+    });
+  } catch (err) {
+    console.error('═══════════════════════════════════════════════════════');
+    console.error('❌ REJECT SHOP ERROR');
+    console.error('Error:', err.message);
+    console.error('Stack:', err.stack);
+    console.error('═══════════════════════════════════════════════════════');
+    
+    return res.status(500).json({ 
+      success: false, 
+      message: 'Failed to reject shop', 
+      error: err.message 
+    });
+  }
+};
+
+// ─────────────────────────────────────────────────────────────────────────────
+// REJECT AGENCY (FIXED)
+// ─────────────────────────────────────────────────────────────────────────────
+
+exports.rejectAgency = async (req, res) => {
+  try {
+    const { agencyId } = req.params;
+    const { rejectionReason } = req.body;
+
+    console.log('═══════════════════════════════════════════════════════');
+    console.log('🚫 REJECT AGENCY REQUEST');
+    console.log('Agency ID:', agencyId);
+    console.log('Rejection Reason:', rejectionReason);
+    console.log('═══════════════════════════════════════════════════════');
+
+    const mongoose = require('mongoose');
+    if (!mongoose.Types.ObjectId.isValid(agencyId)) {
+      return res.status(400).json({ 
+        success: false, 
+        message: 'Invalid agency ID' 
+      });
+    }
+
+    const { DeliveryAgency } = require('../models/DeliveryAgency');
+    const agency = await DeliveryAgency.findById(agencyId);
+
+    if (!agency) {
+      return res.status(404).json({ 
+        success: false, 
+        message: 'Agency not found' 
+      });
+    }
+
+    console.log('✅ Agency found:', agency.agencyDetails?.agencyName);
+
+    // ✅ FIX: Update nested fields inside agencyDetails
+    agency.isVerified = false;
+    agency.agencyDetails.rejectionReason = rejectionReason || 'No reason provided';
+    agency.agencyDetails.rejectedAt = new Date();
+    
+    await agency.save();
+
+    console.log('✅ Agency updated:');
+    console.log('   - isVerified:', agency.isVerified);
+    console.log('   - rejectionReason:', agency.agencyDetails.rejectionReason);
+    console.log('   - rejectedAt:', agency.agencyDetails.rejectedAt);
+
+    // Send rejection email
+    const agencyEmail = agency.agencyDetails?.agencyMail || agency.agencyDetails?.email;
+    const agencyName = agency.agencyDetails?.agencyName;
+
+    if (agencyEmail) {
+      const { sendAgencyRejectionEmail } = require('../services/emailService');
+      sendAgencyRejectionEmail(agencyEmail, agencyName, rejectionReason)
+        .then(sent => {
+          if (sent) console.log('✅ Agency rejection email sent to:', agencyEmail);
+          else console.warn('⚠️ Agency rejection email failed');
+        })
+        .catch(e => console.warn('⚠️ Rejection email error:', e.message));
+    }
+
+    console.log('═══════════════════════════════════════════════════════');
+
+    return res.status(200).json({
+      success: true,
+      message: `Agency rejected successfully${rejectionReason ? ' with reason provided' : ''}`,
+      data: {
+        agencyId: agency._id,
+        agencyName: agency.agencyDetails?.agencyName,
+        isVerified: agency.isVerified,
+        rejectionReason: agency.agencyDetails.rejectionReason,
+        rejectedAt: agency.agencyDetails.rejectedAt
+      }
+    });
+  } catch (err) {
+    console.error('═══════════════════════════════════════════════════════');
+    console.error('❌ REJECT AGENCY ERROR');
+    console.error('Error:', err.message);
+    console.error('Stack:', err.stack);
+    console.error('═══════════════════════════════════════════════════════');
+    
+    return res.status(500).json({ 
+      success: false, 
+      message: 'Failed to reject agency', 
+      error: err.message 
+    });
   }
 };

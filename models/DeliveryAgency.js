@@ -38,6 +38,14 @@ const agencyDetailsSchema = new mongoose.Schema({
   termsAndCondition:   { type: String },
   supportMail:         { type: String },
   supportNumber:       { type: String },
+  rejectionReason: {
+  type: String,
+  default: null
+},
+rejectedAt: {
+  type: Date,
+  default: null
+},
   role: {
     type:    String,
     enum:    Object.values(ROLES),

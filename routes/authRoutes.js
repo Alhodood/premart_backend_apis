@@ -45,6 +45,9 @@ router.post('/verify-otp', rbacAuth.verifyOtp);
 router.post('/send-otp', rbacAuth.sendOtp);
 router.get('/getUsers',rbacAuth.getAllCustomers
 );
+router.put('/shops/reject/:shopId', rbacAuth.rejectShop);
+router.put('/agencies/reject/:agencyId', rbacAuth.rejectAgency);
+
 
 router.put('/shop/verify/:shopId', rbacAuth.toggleShopVerification);
 router.put('/agency/verify/:agencyId', rbacAuth.toggleAgencyVerification);

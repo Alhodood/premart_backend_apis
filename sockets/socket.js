@@ -1,17 +1,21 @@
-// sockets/socket.js - ENHANCED with Notification Rooms
+// sockets/socket.js - FIXED: Session token validation prevents cross-role notification leaks
 const DeliveryBoy = require('../models/DeliveryBoy');
+const jwt = require('jsonwebtoken');
 
 let io;
-const connectedUsers = {}; // Delivery boys
-const connectedShops = {}; // Shop admins
-const connectedAdmins = {}; // Super admins
-const connectedAgencies = {}; // Agencies
-const connectedCustomers = {}; // Customers (for in-app + order events)
+const connectedUsers    = {}; // deliveryBoyId → socketId
+const connectedShops    = {}; // shopId        → socketId
+const connectedAdmins   = {}; // adminId       → socketId
+const connectedAgencies = {}; // agencyId      → socketId
+const connectedCustomers = {};
+
+// ✅ Tracks which role/id each socket belongs to — O(1) cleanup on disconnect
+const socketRoles = {}; // socketId → { room, id, map }
 
 module.exports = {
   init: (server) => {
     const socketIo = require('socket.io');
-    
+
     io = socketIo(server, {
       cors: {
         origin: '*',
@@ -25,101 +29,127 @@ module.exports = {
 
     console.log('🔌 Initializing Socket.IO server...');
 
-    io.on('connection', (socket) => {
+    io.on('connection', async (socket) => {
       console.log('🟢 Client connected:', socket.id);
       console.log('🔍 Handshake query:', socket.handshake.query);
 
-      const userType = socket.handshake.query.userType || 'delivery_boy';
-      const deliveryBoyId = socket.handshake.query.userId;
-      const shopId = socket.handshake.query.shopId;
-      const adminId = socket.handshake.query.adminId;
-      const agencyId = socket.handshake.query.agencyId;
+      const { userType, userId, shopId, adminId, agencyId, token } = socket.handshake.query;
 
-      // ✅ DELIVERY BOY CONNECTION
-      if (userType === 'delivery_boy' && deliveryBoyId) {
-        socket.join(deliveryBoyId);
-        socket.join('deliveryBoy'); // Role room
-        connectedUsers[deliveryBoyId] = socket.id;
-        
-        console.log('✅ Delivery Boy registered:', deliveryBoyId);
-        
+      // ─── ✅ FIX 1: Validate JWT — TOKEN IS REQUIRED ────────────────────────
+      // Without this, any client can pass any userType and join any room.
+      // After logout + cache clear, no token exists → connection is rejected.
+      if (!token) {
+        console.warn('⛔ No token provided — rejecting connection:', socket.id);
+        socket.emit('connection_error', { error: 'Authentication token required' });
+        socket.disconnect(true);
+        return;
+      }
+
+      try {
+        const decoded = jwt.verify(token, process.env.JWT_SECRET);
+        socket.decodedUser = decoded;
+        console.log(`✅ JWT valid | role: ${decoded.role} | socket: ${socket.id}`);
+      } catch (err) {
+        console.warn('⚠️ Invalid/expired JWT — disconnecting socket:', socket.id);
+        socket.emit('connection_error', { error: 'Invalid or expired session token' });
+        socket.disconnect(true);
+        return;
+      }
+
+      // ─── ✅ FIX 2: Evict stale socket for same identity ────────────────────
+      // On page refresh, the old socket lingers on server for ping timeout duration.
+      // During that window, BOTH old and new sockets are in the role room —
+      // so the old one would receive notifications for the new session too.
+      // Fix: explicitly disconnect the stale socket when a new one registers.
+      const evictStale = (map, id, roleName) => {
+        if (map[id] && map[id] !== socket.id) {
+          const staleSocket = io.sockets.sockets.get(map[id]);
+          if (staleSocket) {
+            console.log(`🔄 Evicting stale ${roleName} socket for ${id}: ${map[id]}`);
+            staleSocket.disconnect(true);
+          }
+          // Always clear the stale entry
+          delete map[id];
+        }
+      };
+
+      // ─── DELIVERY BOY ──────────────────────────────────────────────────────
+      if (userType === 'delivery_boy' && userId) {
+        evictStale(connectedUsers, userId, 'deliveryBoy');
+        socket.join(userId);
+        socket.join('deliveryBoy');
+        connectedUsers[userId] = socket.id;
+        socketRoles[socket.id] = { room: 'deliveryBoy', id: userId, map: 'users' };
+        console.log('✅ Delivery Boy registered:', userId);
         socket.emit('connection_confirmed', {
-          userType: 'delivery_boy',
-          userId: deliveryBoyId,
-          socketId: socket.id
+          userType: 'delivery_boy', userId, socketId: socket.id
         });
       }
 
-      // ✅ SHOP ADMIN CONNECTION
+      // ─── SHOP ADMIN ────────────────────────────────────────────────────────
       else if (userType === 'shop_admin' && shopId) {
+        evictStale(connectedShops, shopId, 'shopAdmin');
         socket.join(`shop_${shopId}`);
-        socket.join('shopAdmin'); // ✅ CRITICAL: Join role room for notifications
+        socket.join('shopAdmin');
         connectedShops[shopId] = socket.id;
-        
+        socketRoles[socket.id] = { room: 'shopAdmin', id: shopId, map: 'shops' };
         console.log('🏪 Shop Admin registered:', shopId);
         console.log('📋 Connected shops:', Object.keys(connectedShops).length);
-
         socket.emit('connection_confirmed', {
-          userType: 'shop_admin',
-          shopId: shopId,
-          socketId: socket.id
+          userType: 'shop_admin', shopId, socketId: socket.id
         });
       }
 
-      // ✅ SUPER ADMIN CONNECTION
+      // ─── SUPER ADMIN ───────────────────────────────────────────────────────
       else if (userType === 'super_admin' && adminId) {
+        evictStale(connectedAdmins, adminId, 'superAdmin');
         socket.join('super_admins');
-        socket.join('superAdmin'); // ✅ CRITICAL: Join role room for notifications
+        socket.join('superAdmin');
         connectedAdmins[adminId] = socket.id;
-        
+        socketRoles[socket.id] = { room: 'superAdmin', id: adminId, map: 'admins' };
         console.log('👑 Super Admin registered:', adminId);
         console.log('📋 Connected admins:', Object.keys(connectedAdmins).length);
-
         socket.emit('connection_confirmed', {
-          userType: 'super_admin',
-          adminId: adminId,
-          socketId: socket.id
+          userType: 'super_admin', adminId, socketId: socket.id
         });
       }
 
-      // ✅ AGENCY CONNECTION
+      // ─── AGENCY ────────────────────────────────────────────────────────────
       else if (userType === 'agency' && agencyId) {
+        evictStale(connectedAgencies, agencyId, 'agency');
         socket.join(`agency_${agencyId}`);
-        socket.join('agency'); // ✅ CRITICAL: Join role room for notifications
+        socket.join('agency');
         connectedAgencies[agencyId] = socket.id;
-        
+        socketRoles[socket.id] = { room: 'agency', id: agencyId, map: 'agencies' };
         console.log('🚛 Agency registered:', agencyId);
         console.log('📋 Connected agencies:', Object.keys(connectedAgencies).length);
-
         socket.emit('connection_confirmed', {
-          userType: 'agency',
-          agencyId: agencyId,
-          socketId: socket.id
+          userType: 'agency', agencyId, socketId: socket.id
         });
       }
 
-      // ✅ CUSTOMER CONNECTION (for in-app notifications + order events)
-      else if (userType === 'customer' && deliveryBoyId) {
-        const uid = deliveryBoyId.toString();
+      // ─── CUSTOMER ──────────────────────────────────────────────────────────
+      else if (userType === 'customer' && userId) {
+        const uid = userId.toString();
+        evictStale(connectedCustomers, uid, 'customer');
         socket.join(uid);
         connectedCustomers[uid] = socket.id;
+        socketRoles[socket.id] = { room: null, id: uid, map: 'customers' };
         console.log('👤 Customer registered:', uid);
         socket.emit('connection_confirmed', {
-          userType: 'customer',
-          userId: uid,
-          socketId: socket.id
+          userType: 'customer', userId: uid, socketId: socket.id
         });
       }
 
-      // ❌ INVALID CONNECTION
+      // ─── INVALID ───────────────────────────────────────────────────────────
       else {
-        console.log('⚠️ Invalid connection parameters:', { userType, deliveryBoyId, shopId, adminId, agencyId });
-        socket.emit('connection_error', {
-          error: 'Invalid connection parameters'
-        });
+        console.warn('⚠️ Invalid connection params:', { userType, userId, shopId, adminId, agencyId });
+        socket.emit('connection_error', { error: 'Invalid connection parameters' });
+        socket.disconnect(true);
+        return;
       }
 
-      // ✅ LIVE LOCATION (Delivery Boy)
+      // ─── LIVE LOCATION ─────────────────────────────────────────────────────
       socket.on('live_location', async (data) => {
         try {
           const { deliveryBoyId, latitude, longitude } = data;
@@ -134,73 +164,74 @@ module.exports = {
           console.log(`📍 Location updated for ${deliveryBoyId}: ${latitude}, ${longitude}`);
 
           io.to('super_admins').emit('delivery_boy_location_update', {
-            deliveryBoyId,
-            latitude,
-            longitude,
-            timestamp: new Date()
+            deliveryBoyId, latitude, longitude, timestamp: new Date()
           });
         } catch (err) {
           console.error('Live location error:', err.message);
         }
       });
 
-      // ✅ TEST CONNECTION
+      // ─── TEST ──────────────────────────────────────────────────────────────
       socket.on('test_connection', (data) => {
         console.log('🧪 Test connection received:', data);
         socket.emit('test_connection_response', {
-          received: data,
-          socketId: socket.id,
-          timestamp: new Date()
+          received: data, socketId: socket.id, timestamp: new Date()
         });
       });
 
-      // ✅ DISCONNECT
+      // ─── ✅ FIX 3: Disconnect cleanup using socketRoles map (O(1)) ─────────
+      // Previously iterated all 4 maps on every disconnect — O(n) per map.
+      // Now we track which map/room the socket belongs to on connect and clean directly.
+      // CRITICAL: Only delete from map if this socket is still the CURRENT one —
+      // prevents a freshly-evicted stale socket from removing the new socket's entry.
       socket.on('disconnect', (reason) => {
-        console.log('🔴 Client disconnected:', socket.id, 'Reason:', reason);
+        console.log('🔴 Client disconnected:', socket.id, '| Reason:', reason);
 
-        for (const id in connectedUsers) {
-          if (connectedUsers[id] === socket.id) {
-            delete connectedUsers[id];
-            console.log('❌ Delivery Boy disconnected:', id);
+        const roleInfo = socketRoles[socket.id];
+        if (!roleInfo) return; // Already cleaned up (e.g. evicted)
+
+        const { room, id, map } = roleInfo;
+
+        switch (map) {
+          case 'users':
+            if (connectedUsers[id] === socket.id) {
+              delete connectedUsers[id];
+              console.log('❌ Delivery Boy disconnected:', id);
+            }
             break;
-          }
+          case 'shops':
+            if (connectedShops[id] === socket.id) {
+              delete connectedShops[id];
+              console.log('❌ Shop Admin disconnected:', id);
+            }
+            break;
+          case 'admins':
+            if (connectedAdmins[id] === socket.id) {
+              delete connectedAdmins[id];
+              console.log('❌ Super Admin disconnected:', id);
+            }
+            break;
+          case 'agencies':
+            if (connectedAgencies[id] === socket.id) {
+              delete connectedAgencies[id];
+              console.log('❌ Agency disconnected:', id);
+            }
+            break;
+          case 'customers':
+            if (connectedCustomers[id] === socket.id) {
+              delete connectedCustomers[id];
+              console.log('❌ Customer disconnected:', id);
+            }
+            break;
         }
 
-        for (const id in connectedShops) {
-          if (connectedShops[id] === socket.id) {
-            delete connectedShops[id];
-            console.log('❌ Shop Admin disconnected:', id);
-            break;
-          }
-        }
-
-        for (const id in connectedAdmins) {
-          if (connectedAdmins[id] === socket.id) {
-            delete connectedAdmins[id];
-            console.log('❌ Super Admin disconnected:', id);
-            break;
-          }
-        }
-
-        for (const id in connectedAgencies) {
-          if (connectedAgencies[id] === socket.id) {
-            delete connectedAgencies[id];
-            console.log('❌ Agency disconnected:', id);
-            break;
-          }
-        }
-
-        for (const id in connectedCustomers) {
-          if (connectedCustomers[id] === socket.id) {
-            delete connectedCustomers[id];
-            console.log('❌ Customer disconnected:', id);
-            break;
-          }
-        }
+        // ✅ Explicitly leave role room so no more notifications reach this socket
+        if (room) socket.leave(room);
+        delete socketRoles[socket.id];
       });
     });
 
-    console.log('✅ Socket.IO server initialized with notification support');
+    console.log('✅ Socket.IO initialized with JWT validation + stale eviction');
     return io;
   },
 
@@ -209,54 +240,49 @@ module.exports = {
     return io;
   },
 
-  getConnectedUsers: () => connectedUsers,
-  getConnectedShops: () => connectedShops,
-  getConnectedAdmins: () => connectedAdmins,
-  getConnectedAgencies: () => connectedAgencies,
+  getConnectedUsers:     () => connectedUsers,
+  getConnectedShops:     () => connectedShops,
+  getConnectedAdmins:    () => connectedAdmins,
+  getConnectedAgencies:  () => connectedAgencies,
   getConnectedCustomers: () => connectedCustomers,
 
-  isUserConnected: (userId) => connectedUsers.hasOwnProperty(userId),
-  isShopConnected: (shopId) => connectedShops.hasOwnProperty(shopId),
-  isAgencyConnected: (agencyId) => connectedAgencies.hasOwnProperty(agencyId),
+  isUserConnected:   (userId)   => Object.prototype.hasOwnProperty.call(connectedUsers,    userId),
+  isShopConnected:   (shopId)   => Object.prototype.hasOwnProperty.call(connectedShops,    shopId),
+  isAgencyConnected: (agencyId) => Object.prototype.hasOwnProperty.call(connectedAgencies, agencyId),
 
-  // Helper functions
   emitToShop: (shopId, event, data) => {
     if (!io) throw new Error('Socket.IO not initialized');
     io.to(`shop_${shopId}`).emit(event, data);
-    console.log(`📤 Emitted '${event}' to shop ${shopId}`);
+    console.log(`📤 '${event}' → shop ${shopId}`);
   },
 
   emitToSuperAdmins: (event, data) => {
     if (!io) throw new Error('Socket.IO not initialized');
     io.to('super_admins').emit(event, data);
-    console.log(`📤 Emitted '${event}' to super admins`);
+    console.log(`📤 '${event}' → super_admins`);
   },
 
   emitToAgency: (agencyId, event, data) => {
     if (!io) throw new Error('Socket.IO not initialized');
     io.to(`agency_${agencyId}`).emit(event, data);
-    console.log(`📤 Emitted '${event}' to agency ${agencyId}`);
+    console.log(`📤 '${event}' → agency ${agencyId}`);
   },
 
-  // ✅ Emit to role rooms (for notifications)
   emitToRole: (role, event, data) => {
     if (!io) throw new Error('Socket.IO not initialized');
     io.to(role).emit(event, data);
-    console.log(`📤 Emitted '${event}' to role '${role}'`);
+    console.log(`📤 '${event}' → role '${role}'`);
   },
 
   broadcast: (event, data) => {
     if (!io) throw new Error('Socket.IO not initialized');
     io.emit(event, data);
-    console.log(`📢 Broadcasted '${event}' to all clients`);
+    console.log(`📢 Broadcast '${event}' to all clients`);
   },
 
-  /** Emit to a specific user (customer or delivery boy by userId). For in-app real-time notifications. */
   emitToUser: (userId, event, data) => {
     if (!io) return;
     const uid = userId && userId.toString();
-    if (uid) {
-      io.to(uid).emit(event, data);
-    }
+    if (uid) io.to(uid).emit(event, data);
   }
 };
