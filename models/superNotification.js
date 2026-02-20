@@ -23,6 +23,7 @@ const superNotificationSchema = new mongoose.Schema({
   isScheduled: { type: Boolean, default: false },
   scheduledAt: { type: Date },
   sentAt: { type: Date },
+  targetId: { type: mongoose.Schema.Types.ObjectId, default: null },
   createdBy: { type: mongoose.Schema.Types.ObjectId, ref: 'User' }
 }, { timestamps: true });
 

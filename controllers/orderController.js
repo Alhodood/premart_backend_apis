@@ -24,7 +24,7 @@ const { getSuperAdminSettings } = require('../helper/settingsHelper');
 const { notifyUser, sendPushOnly } = require('../helper/notificationHelper');
 const { sendOrderPlaced, sendOrderStatusUpdate, sendOrderCancelled, sendOrderInvoiceEmail } = require('../helper/mailHelper');
 
-const { notifyNewOrder, notifyOrderStatusChange } = require('./bellNotifications');
+const { notifyNewOrder } = require('./bellNotifications');
 const { sendOrderStatusEmail } = require('../services/emailService');
 
 
@@ -767,7 +767,8 @@ exports.getAllOrders = async (req, res) => {
         totalAmount: order.subtotal || order.totalAmount || 0,
         finalPayable: order.totalPayable || order.finalPayable || 0,
         discount: order.discount || 0,
-        deliveryChargeAmount: order.deliveryCharge || 0,
+        deliveryCharge: order.deliveryCharge || 0,           // ← Matches database field
+deliveryChargeAmount: order.deliveryCharge || 0,     // ← Keep for backwards compatibility
         couponDiscount: order.coupon?.discountAmount || 0,
 
         items: order.items?.map(item => {
@@ -1532,9 +1533,17 @@ exports.viewOrdersByShopAdmin = async (req, res) => {
         quantity: order.items?.reduce((sum, item) => sum + (item.quantity || 1), 0) || 1,
         createdAt: order.createdAt,
         
-        // Financial
+        // ✅ FIXED: Financial Details - Added ALL missing fields
         totalAmount: order.subtotal || order.totalAmount || 0,
         finalPayable: order.totalPayable || order.finalPayable || 0,
+        discount: order.discount || 0,
+        
+        // ✅ CRITICAL FIX: Added delivery charge fields (both for compatibility)
+        deliveryCharge: order.deliveryCharge || 0,
+        deliveryChargeAmount: order.deliveryCharge || 0,
+        
+        // ✅ ADDED: Coupon discount
+        couponDiscount: order.coupon?.discountAmount || 0,
         
         // Delivery
         deliveryAddress: order.deliveryAddress,
@@ -1551,12 +1560,13 @@ exports.viewOrdersByShopAdmin = async (req, res) => {
         paymentMethod: order.paymentType || order.paymentMethod || 'Cash',
         paymentStatus: order.paymentStatus || 'Pending',
 
+        // Cancellation details (if cancelled)
         ...(order.status === 'Cancelled' && order.cancellation ? {
-    cancelReason: order.cancellation.reason || '-',
-    cancelledBy: order.cancellation.cancelledBy || '-',
-    cancelledAt: order.cancellation.cancelledAt || null,
-    cancelAdditionalComments: order.cancellation.additionalComments || '',
-  } : {}),
+          cancelReason: order.cancellation.reason || '-',
+          cancelledBy: order.cancellation.cancelledBy || '-',
+          cancelledAt: order.cancellation.cancelledAt || null,
+          cancelAdditionalComments: order.cancellation.additionalComments || '',
+        } : {}),
         
         // All items (full details for this shop admin view)
         // items: order.items?.map(item => ({

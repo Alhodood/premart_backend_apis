@@ -11,7 +11,9 @@ const { DeliveryAgency } = require('../models/DeliveryAgency');
 const AgencyPayout = require('../models/AgencyPayout');
 const ShopPayout = require('../models/ShopPayout');
 
-const { getSuperAdminSettings } = require('../helper/settingsHelper');  // ✅ ADD at top
+const { getSuperAdminSettings } = require('../helper/settingsHelper');  
+// ✅ ADD at top
+const { notifyShopPayout, notifyAgencyPayment } = require('./bellNotifications');
 
 
 
@@ -295,6 +297,7 @@ exports.markAgencyPayoutAsPaid = async (req, res) => {
     if (notes) payout.notes = notes;
 
     await payout.save();
+    await notifyAgencyPayment(payout, payout.agencyId);
 
     return res.status(200).json({
       message: 'Agency payout marked as paid successfully',
@@ -473,7 +476,7 @@ exports.markShopPayoutAsPaid = async (req, res) => {
     if (notes) payout.notes = notes;
 
     await payout.save();
-
+await notifyShopPayout(payout, payout.shopId);
     return res.status(200).json({
       message: 'Shop payout marked as paid successfully',
       success: true,

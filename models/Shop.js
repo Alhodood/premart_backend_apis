@@ -28,6 +28,14 @@ const shopDetailsSchema = new mongoose.Schema({
     password: { type: String },
  resetPasswordOTP:     { type: String, default: null },
   resetPasswordExpires: { type: Date,   default: null },
+  rejectionReason: {
+  type: String,
+  default: null
+},
+rejectedAt: {
+  type: Date,
+  default: null
+},
     shopBankDetails: bankDetailsSchema
 
 

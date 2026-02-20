@@ -393,20 +393,32 @@ exports.getWeeklySales = async (req, res) => {
 exports.getOrderStatusDistribution = async (req, res) => {
   try {
     const orderStatuses = await Order.aggregate([
-      { $group: { _id: '$status', count: { $sum: 1 } } },
+      {
+        $group: {
+          _id: '$status',
+          count: { $sum: 1 },
+          totalAmount: {
+            $sum: {
+              $cond: [
+                { $eq: [{ $type: '$totalPayable' }, 'string'] },
+                { $toDouble: '$totalPayable' },
+                { $ifNull: ['$totalPayable', 0] },
+              ],
+            },
+          },
+        },
+      },
       { $sort: { count: -1 } },
     ]);
+
+    const total = orderStatuses.reduce((sum, item) => sum + item.count, 0);
 
     const formattedData = orderStatuses.map((item) => ({
       status: item._id || 'Unknown',
       count: item.count,
-      percentage: 0,
+      totalAmount: Math.round(item.totalAmount),         // ✅ ADD THIS
+      percentage: total > 0 ? Math.round((item.count / total) * 100) : 0,
     }));
-
-    const total = formattedData.reduce((sum, item) => sum + item.count, 0);
-    formattedData.forEach((item) => {
-      item.percentage = total > 0 ? Math.round((item.count / total) * 100) : 0;
-    });
 
     res.status(200).json({
       message: 'Order status distribution fetched successfully',

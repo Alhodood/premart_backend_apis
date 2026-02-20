@@ -485,3 +485,5 @@ exports.autoAssignDeliveryBoyWithin5kmHelper = async (orderId) => {
     throw error;
   }
 };
+
+exports.getEmirateFromCoordinates = getEmirateFromCoordinates;
