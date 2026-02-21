@@ -1,5 +1,3 @@
-
-
 const bcrypt = require('bcrypt');
 const jwt = require('jsonwebtoken');
 const mongoose = require('mongoose');
@@ -24,13 +22,10 @@ const {
   notifyAgencyPayment
 } = require('./bellNotifications');
 
-
-
-// Calculate distance between 2 geo points (Haversine)
-
+const logger = require('../config/logger'); // ← Winston logger
 
 const twilio = require('twilio');
-const SuperAdminSettings = require('../models/SuperAdminSettings'); // ✅ Add this import
+const SuperAdminSettings = require('../models/SuperAdminSettings');
 
 
 
@@ -39,11 +34,10 @@ exports.updateDeliveryBoy = async (req, res) => {
     const deliveryBoyId = req.params.deliveryBoyId;
     const updateData = { ...req.body };
 
-    console.log('🔄 Update Delivery Boy Request');
-    console.log('📋 Delivery Boy ID:', deliveryBoyId);
-    console.log('📦 Update Data:', JSON.stringify(updateData, null, 2));
+    logger.info('🔄 Update Delivery Boy Request');
+    logger.info(`📋 Delivery Boy ID: ${deliveryBoyId}`);
+    logger.info(`📦 Update Data: ${JSON.stringify(updateData, null, 2)}`);
 
-    // Validate delivery boy ID
     if (!deliveryBoyId || !mongoose.Types.ObjectId.isValid(deliveryBoyId)) {
       return res.status(400).json({
         message: 'Invalid delivery boy ID',
@@ -52,7 +46,6 @@ exports.updateDeliveryBoy = async (req, res) => {
       });
     }
 
-    // Check if delivery boy exists
     const existingDeliveryBoy = await DeliveryBoy.findById(deliveryBoyId);
     if (!existingDeliveryBoy) {
       return res.status(404).json({
@@ -62,9 +55,8 @@ exports.updateDeliveryBoy = async (req, res) => {
       });
     }
 
-    console.log('✅ Found existing delivery boy:', existingDeliveryBoy.name);
+    logger.info(`✅ Found existing delivery boy: ${existingDeliveryBoy.name}`);
 
-    // ✅ Remove empty/null/undefined values from updateData
     Object.keys(updateData).forEach(key => {
       const value = updateData[key];
       if (value === '' || value === null || value === undefined || value === 'null' || value === 'Null') {
@@ -72,9 +64,8 @@ exports.updateDeliveryBoy = async (req, res) => {
       }
     });
 
-    console.log('📝 Cleaned update data:', JSON.stringify(updateData, null, 2));
+    logger.info(`📝 Cleaned update data: ${JSON.stringify(updateData, null, 2)}`);
 
-    // ✅ Handle profileImage properly
     if (updateData.profileImage !== undefined) {
       if (updateData.profileImage === null || 
           updateData.profileImage === 'null' || 
@@ -84,7 +75,6 @@ exports.updateDeliveryBoy = async (req, res) => {
       }
     }
 
-    // ✅ Handle licenseImage properly
     if (updateData.licenseImage !== undefined) {
       if (updateData.licenseImage === null || 
           updateData.licenseImage === 'null' || 
@@ -94,12 +84,10 @@ exports.updateDeliveryBoy = async (req, res) => {
       }
     }
 
-    // ✅ Ensure assignedOrders is always an array
     if (updateData.assignedOrders === undefined || updateData.assignedOrders === null) {
       updateData.assignedOrders = existingDeliveryBoy.assignedOrders || [];
     }
 
-    // ✅ IMPROVED: Check for duplicate email with better error message
     if (updateData.email && updateData.email !== existingDeliveryBoy.email) {
       const emailExists = await DeliveryBoy.findOne({
         email: updateData.email,
@@ -107,7 +95,7 @@ exports.updateDeliveryBoy = async (req, res) => {
       });
       
       if (emailExists) {
-        console.log('❌ Email already exists:', updateData.email);
+        logger.warn(`❌ Email already exists: ${updateData.email}`);
         return res.status(409).json({
           message: `Email already exists: This email address (${updateData.email}) is already registered to another delivery agent.`,
           success: false,
@@ -119,7 +107,6 @@ exports.updateDeliveryBoy = async (req, res) => {
       }
     }
 
-    // ✅ IMPROVED: Check for duplicate phone with better error message
     if (updateData.phone && updateData.phone !== existingDeliveryBoy.phone) {
       const phoneExists = await DeliveryBoy.findOne({
         phone: updateData.phone,
@@ -127,7 +114,7 @@ exports.updateDeliveryBoy = async (req, res) => {
       });
       
       if (phoneExists) {
-        console.log('❌ Phone already exists:', updateData.phone);
+        logger.warn(`❌ Phone already exists: ${updateData.phone}`);
         return res.status(409).json({
           message: `Phone already exists: This phone number (${updateData.phone}) is already registered to another delivery agent.`,
           success: false,
@@ -139,7 +126,6 @@ exports.updateDeliveryBoy = async (req, res) => {
       }
     }
 
-    // ✅ IMPROVED: Check for duplicate Emirates ID with better error message
     if (updateData.emiratesId && updateData.emiratesId !== existingDeliveryBoy.emiratesId) {
       const emiratesIdExists = await DeliveryBoy.findOne({
         emiratesId: updateData.emiratesId,
@@ -147,7 +133,7 @@ exports.updateDeliveryBoy = async (req, res) => {
       });
       
       if (emiratesIdExists) {
-        console.log('❌ Emirates ID already exists:', updateData.emiratesId);
+        logger.warn(`❌ Emirates ID already exists: ${updateData.emiratesId}`);
         return res.status(409).json({
           message: `Emirates ID already exists: This Emirates ID (${updateData.emiratesId}) is already registered to another delivery agent.`,
           success: false,
@@ -159,15 +145,14 @@ exports.updateDeliveryBoy = async (req, res) => {
       }
     }
 
-    console.log('📝 Final update data:', JSON.stringify(updateData, null, 2));
+    logger.info(`📝 Final update data: ${JSON.stringify(updateData, null, 2)}`);
 
-    // Update the delivery boy
     const updatedDeliveryBoy = await DeliveryBoy.findByIdAndUpdate(
       deliveryBoyId,
       { $set: updateData },
       { 
         new: true,
-        runValidators: false // Disable validators for partial updates
+        runValidators: false
       }
     ).populate('agencyId', 'agencyName agencyEmail agencyPhone');
 
@@ -179,7 +164,7 @@ exports.updateDeliveryBoy = async (req, res) => {
       });
     }
 
-    console.log('✅ Delivery boy updated successfully:', updatedDeliveryBoy._id);
+    logger.info(`✅ Delivery boy updated successfully: ${updatedDeliveryBoy._id}`);
 
     return res.status(200).json({
       message: 'Delivery Boy updated successfully',
@@ -188,10 +173,8 @@ exports.updateDeliveryBoy = async (req, res) => {
     });
 
   } catch (error) {
-    console.error('❌ Update Delivery Boy Error:', error);
-    console.error('Error stack:', error.stack);
+    logger.error('❌ Update Delivery Boy Error:', error);
     
-    // ✅ IMPROVED: Handle MongoDB duplicate key errors with specific messages
     if (error.code === 11000) {
       const field = Object.keys(error.keyPattern)[0];
       const value = error.keyValue[field];
@@ -212,7 +195,7 @@ exports.updateDeliveryBoy = async (req, res) => {
         userMessage = `${field} already exists`;
       }
       
-      console.log('❌ Duplicate key error:', { field, value, errorCode });
+      logger.warn(`❌ Duplicate key error: ${JSON.stringify({ field, value, errorCode })}`);
       
       return res.status(409).json({
         message: userMessage,
@@ -241,9 +224,9 @@ exports.getAllDeliveryBoys = async (req, res) => {
       countryCode: 1,
       dob: 1,
       licenseNo: 1,
-      accountVerify: 1,  // Still fetch but don't return
+      accountVerify: 1,
       isOnline: 1,
-      assignedOrders: 1,  // Still fetch but don't return count
+      assignedOrders: 1,
       profileImage: 1,
       licenseImage: 1,
       role: 1,
@@ -265,23 +248,15 @@ exports.getAllDeliveryBoys = async (req, res) => {
     })
     .lean();
 
-    // ✅ Format response - REMOVED accountVerify and assignedOrdersCount
     const formatted = deliveryBoys.map(boy => ({
       _id: boy._id,
-      
       name: boy.name || null,
       email: boy.email || null,
       agencyName: boy.agencyId?.agencyDetails?.agencyName || null,
       phone: boy.phone || null,
       DOB: boy.dob || null,
       licenseNo: boy.licenseNo || null,
-      
-      // ✅ REMOVED: accountVerify (was showing "false") ❌
-      // ✅ REMOVED: assignedOrdersCount (was showing "[]" or count) ❌
-      
-      // ✅ Status field instead of isOnline
       status: boy.isOnline ? 'Online' : 'Offline',
-      
       profileImage: boy.profileImage || null,
       licenseImage: boy.licenseImage || null,
       role: boy.role || "DELIVERY_BOY",
@@ -292,12 +267,9 @@ exports.getAllDeliveryBoys = async (req, res) => {
       city: boy.city || null,
       latitude: boy.latitude ?? 0,
       longitude: boy.longitude ?? 0,
-      
-      // Agency data
       agencyId: boy.agencyId?._id || null,
       agencyContact: boy.agencyId?.agencyDetails?.agencyContact || null,
       agencyFullAddress: boy.agencyId?.agencyDetails?.agencyAddress || null,
-      
       createdAt: boy.createdAt || null,
       updatedAt: boy.updatedAt || null,
     }));
@@ -309,7 +281,7 @@ exports.getAllDeliveryBoys = async (req, res) => {
       data: formatted
     });
   } catch (err) {
-    console.error("❌ Error fetching delivery boys:", err);
+    logger.error('❌ Error fetching delivery boys:', err);
     res.status(500).json({ 
       success: false, 
       message: "Failed to fetch delivery boys",
@@ -318,44 +290,43 @@ exports.getAllDeliveryBoys = async (req, res) => {
   }
 };
 
-  exports.deleteDeliveryBoy = async (req, res) => {
-    try {
-      const deliveryBoyId = req.params.deliveryBoyId;
-  
-      const deleted = await DeliveryBoy.findByIdAndDelete(deliveryBoyId);
-  
-      if (!deleted) {
-        return res.status(404).json({
-          message: 'Delivery Boy not found',
-          success: false,
-          data: []
-        });
-      }
-  
-      return res.status(200).json({
-        message: 'Delivery Boy deleted successfully',
-        success: true,
+exports.deleteDeliveryBoy = async (req, res) => {
+  try {
+    const deliveryBoyId = req.params.deliveryBoyId;
+
+    const deleted = await DeliveryBoy.findByIdAndDelete(deliveryBoyId);
+
+    if (!deleted) {
+      return res.status(404).json({
+        message: 'Delivery Boy not found',
+        success: false,
         data: []
       });
-  
-    } catch (error) {
-      console.error('Delete Delivery Boy Error:', error);
-      res.status(500).json({
-        message: 'Failed to delete delivery boy',
-        success: false,
-        data: error.message
-      });
     }
-  };
+
+    return res.status(200).json({
+      message: 'Delivery Boy deleted successfully',
+      success: true,
+      data: []
+    });
+
+  } catch (error) {
+    logger.error('Delete Delivery Boy Error:', error);
+    res.status(500).json({
+      message: 'Failed to delete delivery boy',
+      success: false,
+      data: error.message
+    });
+  }
+};
 
 exports.getDeliveryBoyById = async (req, res) => {
   try {
     const { deliveryBoyId } = req.params;
 
-    console.log('🔍 Get Delivery Boy Request');
-    console.log('📋 Delivery Boy ID:', deliveryBoyId);
+    logger.info('🔍 Get Delivery Boy Request');
+    logger.info(`📋 Delivery Boy ID: ${deliveryBoyId}`);
 
-    // Validate delivery boy ID
     if (!deliveryBoyId || !mongoose.Types.ObjectId.isValid(deliveryBoyId)) {
       return res.status(400).json({
         success: false,
@@ -380,7 +351,7 @@ exports.getDeliveryBoyById = async (req, res) => {
       });
     }
 
-    console.log('✅ Delivery boy found:', deliveryBoy.name);
+    logger.info(`✅ Delivery boy found: ${deliveryBoy.name}`);
 
     res.status(200).json({
       success: true,
@@ -389,7 +360,7 @@ exports.getDeliveryBoyById = async (req, res) => {
     });
 
   } catch (error) {
-    console.error("❌ Get delivery boy error:", error);
+    logger.error('❌ Get delivery boy error:', error);
     res.status(500).json({
       success: false,
       message: "Server error",
@@ -398,57 +369,53 @@ exports.getDeliveryBoyById = async (req, res) => {
   }
 };
 
+exports.updateLiveLocation = async (req, res) => {
+  try {
+    const deliveryBoyId = req.params.deliveryBoyId;
+    const { latitude, longitude } = req.body;
 
-  exports.updateLiveLocation = async (req, res) => {
-    try {
-      const deliveryBoyId = req.params.deliveryBoyId;
-      const { latitude, longitude } = req.body;
-  
-      if (!deliveryBoyId || latitude === undefined || longitude === undefined) {
-        return res.status(400).json({
-          message: 'DeliveryBoyId, Latitude and Longitude are required',
-          success: false,
-          data: []
-        });
-      }
-  
-      const updatedDeliveryBoy = await DeliveryBoy.findByIdAndUpdate(
-        deliveryBoyId,
-        { latitude, longitude },
-        { new: true }
-      );
-  
-      if (!updatedDeliveryBoy) {
-        return res.status(404).json({
-          message: 'Delivery Boy not found',
-          success: false,
-          data: []
-        });
-      }
-  
-      return res.status(200).json({
-        message: 'Live location updated successfully',
-        success: true,
-        data: updatedDeliveryBoy
-      });
-  
-    } catch (error) {
-      console.error('Update Live Location Error:', error);
-      res.status(500).json({
-        message: 'Failed to update live location',
+    if (!deliveryBoyId || latitude === undefined || longitude === undefined) {
+      return res.status(400).json({
+        message: 'DeliveryBoyId, Latitude and Longitude are required',
         success: false,
-        data: error.message
+        data: []
       });
     }
-  };
 
+    const updatedDeliveryBoy = await DeliveryBoy.findByIdAndUpdate(
+      deliveryBoyId,
+      { latitude, longitude },
+      { new: true }
+    );
 
+    if (!updatedDeliveryBoy) {
+      return res.status(404).json({
+        message: 'Delivery Boy not found',
+        success: false,
+        data: []
+      });
+    }
+
+    return res.status(200).json({
+      message: 'Live location updated successfully',
+      success: true,
+      data: updatedDeliveryBoy
+    });
+
+  } catch (error) {
+    logger.error('Update Live Location Error:', error);
+    res.status(500).json({
+      message: 'Failed to update live location',
+      success: false,
+      data: error.message
+    });
+  }
+};
 
 exports.viewAssignedOrders = async (req, res) => {
   try {
     const deliveryBoyId = req.params.deliveryBoyId;
 
-    // ✅ 1. Validate delivery boy
     const deliveryBoy = await DeliveryBoy.findById(deliveryBoyId);
     if (!deliveryBoy) {
       return res.status(404).json({
@@ -458,7 +425,6 @@ exports.viewAssignedOrders = async (req, res) => {
       });
     }
 
-    // ✅ 2. Must be online
     if (!deliveryBoy.isOnline) {
       return res.status(200).json({
         message: 'You are offline. No assigned orders shown.',
@@ -467,7 +433,6 @@ exports.viewAssignedOrders = async (req, res) => {
       });
     }
 
-    // ✅ 3. Fetch assigned orders (use 'status' not 'orderStatus')
     const allowedStatuses = [
       "Delivery Boy Assigned",  
       "Accepted by Delivery Boy",
@@ -480,10 +445,10 @@ exports.viewAssignedOrders = async (req, res) => {
 
     const assignedOrders = await Order.find({
       assignedDeliveryBoy: new mongoose.Types.ObjectId(deliveryBoyId),
-      status: { $in: allowedStatuses }  // ✅ Changed from orderStatus
+      status: { $in: allowedStatuses }
     }).sort({ createdAt: -1 });
 
-    console.log(`📦 Found assigned orders:`, assignedOrders.length);
+    logger.info(`📦 Found assigned orders: ${assignedOrders.length}`);
 
     const results = [];
 
@@ -528,7 +493,7 @@ exports.viewAssignedOrders = async (req, res) => {
             ? dropElement.duration.text
             : 'N/A';
         } catch (err) {
-          console.error("❌ Google Maps API Error:", err?.response?.data || err.message);
+          logger.error(`❌ Google Maps API Error: ${err?.response?.data || err.message}`);
         }
       }
 
@@ -575,7 +540,7 @@ exports.viewAssignedOrders = async (req, res) => {
     });
 
   } catch (error) {
-    console.error('View Assigned Orders Error:', error);
+    logger.error('View Assigned Orders Error:', error);
     return res.status(500).json({
       message: 'Failed to fetch assigned orders',
       success: false,
@@ -602,23 +567,19 @@ exports.getNearbyAssignedOrders = async (req, res) => {
     const { latitude: boyLat, longitude: boyLng } = deliveryBoy;
     const RANGE_KM = 20;
 
-    // ✅ Fetch agency emirates for this delivery boy
     let agencyEmirates = [];
     if (deliveryBoy.agencyId) {
       const agency = await DeliveryAgency.findById(deliveryBoy.agencyId)
         .select('agencyDetails.emirates')
         .lean();
       agencyEmirates = agency?.agencyDetails?.emirates || [];
-      console.log(
-        `🏢 Agency emirates filter: ${
-          agencyEmirates.length > 0 ? agencyEmirates.join(', ') : 'none (no restriction)'
-        }`
+      logger.info(
+        `🏢 Agency emirates filter: ${agencyEmirates.length > 0 ? agencyEmirates.join(', ') : 'none (no restriction)'}`
       );
     }
 
-    // ✅ FIXED: Include "Pending" so unassigned orders show even when all boys are offline
     const activeStatuses = [
-      'Pending',                    // ← NEW: no delivery boy assigned yet
+      'Pending',
       'Delivery Boy Assigned',
       'Accepted by Delivery Boy',
       'Reached Pickup',
@@ -632,7 +593,7 @@ exports.getNearbyAssignedOrders = async (req, res) => {
       status: { $in: activeStatuses }
     });
 
-    console.log(`📦 Found ${assignedOrders.length} orders (including Pending)`);
+    logger.info(`📦 Found ${assignedOrders.length} orders (including Pending)`);
 
     const formattedNearbyOrders = [];
 
@@ -647,7 +608,7 @@ exports.getNearbyAssignedOrders = async (req, res) => {
         const shop = await Shop.findById(order.shopId);
 
         if (!shop?.shopeDetails?.shopLocation) {
-          console.warn(`⚠️ Skipping order ${order._id} - no shop location`);
+          logger.warn(`⚠️ Skipping order ${order._id} - no shop location`);
           continue;
         }
 
@@ -655,13 +616,12 @@ exports.getNearbyAssignedOrders = async (req, res) => {
         const coords = shopLocation.split(',').map(str => parseFloat(str.trim()));
 
         if (coords.length !== 2 || isNaN(coords[0]) || isNaN(coords[1])) {
-          console.warn(`⚠️ Skipping order ${order._id} - invalid shop coordinates`);
+          logger.warn(`⚠️ Skipping order ${order._id} - invalid shop coordinates`);
           continue;
         }
 
         const [shopLat, shopLng] = coords;
 
-        // ✅ Emirates filter
         if (agencyEmirates.length > 0) {
           const shopEmirate =
             shop.shopeDetails?.emirates ||
@@ -672,14 +632,13 @@ exports.getNearbyAssignedOrders = async (req, res) => {
           );
 
           if (!coversEmirate) {
-            console.log(
+            logger.info(
               `🚫 Skipping order ${order._id} - shop in ${shopEmirate}, agency covers [${agencyEmirates.join(', ')}]`
             );
             continue;
           }
         }
 
-        // ✅ Calculate pickup distance from delivery boy to shop
         const pickupDistance =
           geolib.getDistance(
             { latitude: boyLat, longitude: boyLng },
@@ -687,9 +646,7 @@ exports.getNearbyAssignedOrders = async (req, res) => {
           ) / 1000;
 
         if (pickupDistance > RANGE_KM) {
-          console.log(
-            `⚠️ Skipping order ${order._id} - too far (${pickupDistance.toFixed(2)} km)`
-          );
+          logger.info(`⚠️ Skipping order ${order._id} - too far (${pickupDistance.toFixed(2)} km)`);
           continue;
         }
 
@@ -716,7 +673,6 @@ exports.getNearbyAssignedOrders = async (req, res) => {
           shopLocation: shop?.shopeDetails?.shopLocation || '',
         };
 
-        // ✅ For Pending orders, deliveryBoyId will be null — that's correct
         const deliveryDetails = {
           deliveryBoyId:    order.assignedDeliveryBoy || null,
           orderStatus:      order.status,
@@ -746,16 +702,14 @@ exports.getNearbyAssignedOrders = async (req, res) => {
           updatedAt: order.updatedAt,
         });
 
-        console.log(
-          `✅ Added order ${order._id} (${order.status}) - ${pickupDistance.toFixed(2)} km away`
-        );
+        logger.info(`✅ Added order ${order._id} (${order.status}) - ${pickupDistance.toFixed(2)} km away`);
       } catch (orderError) {
-        console.error(`❌ Error processing order ${order._id}:`, orderError.message);
+        logger.error(`❌ Error processing order ${order._id}: ${orderError.message}`);
         continue;
       }
     }
 
-    console.log(`📊 Returning ${formattedNearbyOrders.length} nearby orders`);
+    logger.info(`📊 Returning ${formattedNearbyOrders.length} nearby orders`);
 
     return res.status(200).json({
       message: 'Nearby orders fetched successfully',
@@ -763,7 +717,7 @@ exports.getNearbyAssignedOrders = async (req, res) => {
       data: formattedNearbyOrders,
     });
   } catch (error) {
-    console.error('Get Nearby Assigned Orders Error:', error);
+    logger.error('Get Nearby Assigned Orders Error:', error);
     return res.status(500).json({
       message: 'Failed to fetch nearby orders',
       success: false,
@@ -771,10 +725,6 @@ exports.getNearbyAssignedOrders = async (req, res) => {
     });
   }
 };
-
-// ============================================
-// FIX: Get Ongoing Orders - Populate Shop Details
-// ============================================
 
 exports.getOngoingOrdersForDeliveryBoy = async (req, res) => {
   try {
@@ -787,22 +737,19 @@ exports.getOngoingOrdersForDeliveryBoy = async (req, res) => {
       });
     }
 
-    console.log(`🔍 Fetching ongoing orders for delivery boy: ${deliveryBoyId}`);
+    logger.info(`🔍 Fetching ongoing orders for delivery boy: ${deliveryBoyId}`);
 
-    // ✅ Find ongoing orders for this delivery boy
     const ongoingOrders = await Order.find({
       assignedDeliveryBoy: deliveryBoyId,
       status: { $nin: ['Delivered', 'Cancelled'] }
     }).sort({ updatedAt: -1 });
 
-    console.log(`📦 Found ${ongoingOrders.length} ongoing orders`);
+    logger.info(`📦 Found ${ongoingOrders.length} ongoing orders`);
 
-    // ✅ Populate shop details for each order
     const ordersWithDetails = await Promise.all(
       ongoingOrders.map(async (order) => {
         const shop = await Shop.findById(order.shopId);
         
-        // Get delivery boy location for distance calculation
         const deliveryBoy = await DeliveryBoy.findById(deliveryBoyId);
         
         let pickupDistance = 'N/A';
@@ -816,7 +763,6 @@ exports.getOngoingOrdersForDeliveryBoy = async (req, res) => {
           const boyLng = deliveryBoy.longitude;
 
           if (!isNaN(shopLat) && !isNaN(shopLng) && boyLat && boyLng) {
-            // Calculate pickup distance (delivery boy to shop)
             const pickupDist = geolib.getDistance(
               { latitude: boyLat, longitude: boyLng },
               { latitude: shopLat, longitude: shopLng }
@@ -825,7 +771,6 @@ exports.getOngoingOrdersForDeliveryBoy = async (req, res) => {
             pickupDistance = `${pickupDist.toFixed(2)} km`;
             pickupTime = `${Math.ceil((pickupDist / 30) * 60)} mins`;
 
-            // Calculate drop distance (shop to customer)
             const customerLat = order.deliveryAddress?.latitude;
             const customerLng = order.deliveryAddress?.longitude;
 
@@ -843,14 +788,14 @@ exports.getOngoingOrdersForDeliveryBoy = async (req, res) => {
 
         return {
           ...order._doc,
-         shopDetails: shop ? {
-  shopeDetails: {  // wrap in shopeDetails to match Flutter
-    shopName: shop.shopeDetails?.shopName || 'Unknown Shop',
-    shopAddress: shop.shopeDetails?.shopAddress || '',
-    shopContact: shop.shopeDetails?.shopContact || '',
-    shopLocation: shop.shopeDetails?.shopLocation || '',
-  }
-} : null,
+          shopDetails: shop ? {
+            shopeDetails: {
+              shopName: shop.shopeDetails?.shopName || 'Unknown Shop',
+              shopAddress: shop.shopeDetails?.shopAddress || '',
+              shopContact: shop.shopeDetails?.shopContact || '',
+              shopLocation: shop.shopeDetails?.shopLocation || '',
+            }
+          } : null,
           pickupDistance,
           pickupTime,
           dropDistance,
@@ -865,7 +810,7 @@ exports.getOngoingOrdersForDeliveryBoy = async (req, res) => {
       data: ordersWithDetails
     });
   } catch (err) {
-    console.error('❌ Get Ongoing Orders Error:', err);
+    logger.error('❌ Get Ongoing Orders Error:', err);
     return res.status(500).json({
       success: false,
       message: 'Server error while fetching ongoing orders',
@@ -873,41 +818,26 @@ exports.getOngoingOrdersForDeliveryBoy = async (req, res) => {
     });
   }
 };
-  
-  // Helper function
-  function calculateDistance(lat1, lon1, lat2, lon2) {
-    const R = 6371;
-    const toRad = (v) => v * Math.PI / 180;
-    const dLat = toRad(lat2 - lat1);
-    const dLon = toRad(lon2 - lon1);
-    const a = Math.sin(dLat / 2) ** 2 +
-              Math.cos(toRad(lat1)) * Math.cos(toRad(lat2)) *
-              Math.sin(dLon / 2) ** 2;
-    const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
-    return R * c;
-  }
 
-
-  // Find this function in your file and replace it completely
-
-// ============================================
-// IMPROVED DELIVERY BOY ACCEPT/REJECT API
-// ============================================
-
-// ============================================
-// IMPROVED DELIVERY BOY ACCEPT/REJECT API
-// ============================================
+function calculateDistance(lat1, lon1, lat2, lon2) {
+  const R = 6371;
+  const toRad = (v) => v * Math.PI / 180;
+  const dLat = toRad(lat2 - lat1);
+  const dLon = toRad(lon2 - lon1);
+  const a = Math.sin(dLat / 2) ** 2 +
+            Math.cos(toRad(lat1)) * Math.cos(toRad(lat2)) *
+            Math.sin(dLon / 2) ** 2;
+  const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+  return R * c;
+}
 
 exports.deliveryBoyAcceptOrReject = async (req, res) => {
   try {
     const orderId = req.params.orderId;
     const { action, deliveryBoyId } = req.body;
 
-    console.log(`📦 Delivery boy ${deliveryBoyId} attempting to ${action} order ${orderId}`);
+    logger.info(`📦 Delivery boy ${deliveryBoyId} attempting to ${action} order ${orderId}`);
 
-    // ========================
-    // 1. VALIDATE INPUTS
-    // ========================
     if (!orderId || !action || !deliveryBoyId) {
       return res.status(400).json({
         message: 'OrderId, action and deliveryBoyId are required',
@@ -916,9 +846,6 @@ exports.deliveryBoyAcceptOrReject = async (req, res) => {
       });
     }
 
-    // ========================
-    // 2. VALIDATE DELIVERY BOY
-    // ========================
     const deliveryBoy = await DeliveryBoy.findById(deliveryBoyId);
     if (!deliveryBoy) {
       return res.status(404).json({
@@ -928,9 +855,6 @@ exports.deliveryBoyAcceptOrReject = async (req, res) => {
       });
     }
 
-    // ========================
-    // 3. VALIDATE ORDER
-    // ========================
     const order = await Order.findById(orderId);
     if (!order) {
       return res.status(404).json({
@@ -940,11 +864,7 @@ exports.deliveryBoyAcceptOrReject = async (req, res) => {
       });
     }
 
-    // ========================
-    // 4. PROCESS ACTION
-    // ========================
     if (action === "accept") {
-      // ✅ FIX 3: Check if already assigned to another delivery boy
       if (order.assignedDeliveryBoy && 
           order.assignedDeliveryBoy.toString() !== deliveryBoyId.toString()) {
         return res.status(409).json({
@@ -957,16 +877,14 @@ exports.deliveryBoyAcceptOrReject = async (req, res) => {
         });
       }
 
-      // ✅ ACCEPT ORDER
       order.status = "Accepted by Delivery Boy";
       order.assignedDeliveryBoy = deliveryBoyId;
-       // ✅✅✅ ADD THIS: Set agencyId from delivery boy's agency
-  if (deliveryBoy.agencyId) {
-    order.agencyId = deliveryBoy.agencyId;
-    console.log(`🏢 Agency ID set to: ${deliveryBoy.agencyId}`);
-  }
+
+      if (deliveryBoy.agencyId) {
+        order.agencyId = deliveryBoy.agencyId;
+        logger.info(`🏢 Agency ID set to: ${deliveryBoy.agencyId}`);
+      }
       
-      // ✅ Add to status history
       if (!Array.isArray(order.statusHistory)) {
         order.statusHistory = [];
       }
@@ -977,7 +895,6 @@ exports.deliveryBoyAcceptOrReject = async (req, res) => {
       
       await order.save();
 
-      // ✅ Update delivery boy's assignedOrders
       if (!Array.isArray(deliveryBoy.assignedOrders)) {
         deliveryBoy.assignedOrders = [];
       }
@@ -992,15 +909,13 @@ exports.deliveryBoyAcceptOrReject = async (req, res) => {
         await deliveryBoy.save();
       }
 
-      console.log(`✅ Order ${orderId} accepted by delivery boy ${deliveryBoyId}`);
-      console.log(`💰 Order earning: ${order.deliveryEarning} AED`);
-      console.log(`📍 Delivery distance: ${order.deliveryDistance} km`);
+      logger.info(`✅ Order ${orderId} accepted by delivery boy ${deliveryBoyId}`);
+      logger.info(`💰 Order earning: ${order.deliveryEarning} AED`);
+      logger.info(`📍 Delivery distance: ${order.deliveryDistance} km`);
 
-      // ✅ FIX 3: Emit Socket.IO events
       try {
         const io = require('../sockets/socket').getIO();
         
-        // 1. Notify shop
         io.emit('order_accepted', {
           orderId: order._id,
           deliveryBoyId: deliveryBoy._id,
@@ -1009,28 +924,24 @@ exports.deliveryBoyAcceptOrReject = async (req, res) => {
           status: order.status
         });
 
-        // 2. Notify accepting delivery boy
         io.to(deliveryBoyId.toString()).emit('order_accepted_confirmation', {
           orderId: order._id,
           message: 'Order accepted successfully',
           deliveryEarning: order.deliveryEarning
         });
 
-        // 3. ✅ FIX 3: Broadcast to ALL delivery boys that this order is taken
-        // This will dismiss the dialog from other delivery boys' screens
         io.emit('order_taken_by_another', {
           orderId: order._id.toString(),
           takenBy: deliveryBoyId.toString(),
           message: 'This order has been accepted by another delivery boy'
         });
 
-        console.log(`📢 Broadcasted order_taken_by_another for order ${orderId}`);
+        logger.info(`📢 Broadcasted order_taken_by_another for order ${orderId}`);
 
       } catch (socketErr) {
-        console.warn('Socket.IO emit failed:', socketErr.message);
+        logger.warn(`Socket.IO emit failed: ${socketErr.message}`);
       }
 
-      // ✅ Return complete order data
       return res.status(200).json({
         message: 'Order accepted successfully',
         success: true,
@@ -1050,11 +961,9 @@ exports.deliveryBoyAcceptOrReject = async (req, res) => {
       });
 
     } else if (action === "reject") {
-      // ✅ REJECT ORDER
       order.assignedDeliveryBoy = null;
       order.status = "Pending for Delivery Assignment";
       
-      // ✅ Add to status history
       if (!Array.isArray(order.statusHistory)) {
         order.statusHistory = [];
       }
@@ -1066,7 +975,6 @@ exports.deliveryBoyAcceptOrReject = async (req, res) => {
       
       await order.save();
 
-      // ✅ Remove from delivery boy's assignedOrders
       if (Array.isArray(deliveryBoy.assignedOrders) && deliveryBoy.assignedOrders.length > 0) {
         const orderIdStr = orderId.toString();
         deliveryBoy.assignedOrders = deliveryBoy.assignedOrders.filter(
@@ -1075,13 +983,11 @@ exports.deliveryBoyAcceptOrReject = async (req, res) => {
         await deliveryBoy.save();
       }
 
-      console.log(`❌ Order ${orderId} rejected by delivery boy ${deliveryBoyId}`);
+      logger.info(`❌ Order ${orderId} rejected by delivery boy ${deliveryBoyId}`);
 
-      // ✅ Emit Socket.IO event
       try {
         const io = require('../sockets/socket').getIO();
         
-        // Notify shop that order needs reassignment
         io.emit('order_rejected', {
           orderId: order._id,
           deliveryBoyId: deliveryBoy._id,
@@ -1089,11 +995,8 @@ exports.deliveryBoyAcceptOrReject = async (req, res) => {
           status: order.status
         });
 
-        // ✅ You could also trigger auto-reassignment here
-        // autoAssignDeliveryBoyWithin5km({ params: { orderId } }, res);
-
       } catch (socketErr) {
-        console.warn('Socket.IO emit failed:', socketErr.message);
+        logger.warn(`Socket.IO emit failed: ${socketErr.message}`);
       }
 
       return res.status(200).json({
@@ -1115,7 +1018,7 @@ exports.deliveryBoyAcceptOrReject = async (req, res) => {
     }
 
   } catch (error) {
-    console.error('❌ DeliveryBoy Accept/Reject Error:', error);
+    logger.error('❌ DeliveryBoy Accept/Reject Error:', error);
     res.status(500).json({
       message: 'Failed to process delivery boy action',
       success: false,
@@ -1123,7 +1026,6 @@ exports.deliveryBoyAcceptOrReject = async (req, res) => {
     });
   }
 };
-
 
 exports.deliveryBoyUpdateOrderStatus = async (req, res) => {
   try {
@@ -1161,35 +1063,26 @@ exports.deliveryBoyUpdateOrderStatus = async (req, res) => {
       year: 'numeric'
     });
 
-    // ════════════════════════════════════════════════════════════
-    // DELIVERED STATUS HANDLING
-    // ════════════════════════════════════════════════════════════
     if (updatedOrder.status === 'Delivered') {
-      console.log('📦 Order delivered, processing payments...');
+      logger.info('📦 Order delivered, processing payments...');
 
-      // ✅ Set deliveredAt timestamp
       updatedOrder.deliveredAt = new Date();
-      console.log(`📅 Delivered at: ${updatedOrder.deliveredAt}`);
+      logger.info(`📅 Delivered at: ${updatedOrder.deliveredAt}`);
 
-      // ✅ Update payment status to "Paid"
       updatedOrder.paymentStatus = 'Paid';
-      console.log('💳 Payment status updated to: Paid');
+      logger.info('💳 Payment status updated to: Paid');
 
-      // ✅ Get commission rates from settings
       const { shopCommission, agencyCommission } = await getCommissionRates();
-      console.log(`💼 Commission Rates — Shop: ${shopCommission}%, Agency: ${agencyCommission}%`);
+      logger.info(`💼 Commission Rates — Shop: ${shopCommission}%, Agency: ${agencyCommission}%`);
 
       const startOfMonth = new Date(new Date().getFullYear(), new Date().getMonth(), 1);
       const endOfMonth   = new Date(new Date().getFullYear(), new Date().getMonth() + 1, 0);
 
-      // ════════════════════════════════════════════════════════════
-      // 1. AGENCY PAYOUT
-      // ════════════════════════════════════════════════════════════
-      const orderEarning         = Number(updatedOrder.deliveryEarning || 0);
+      const orderEarning           = Number(updatedOrder.deliveryEarning || 0);
       const agencyCommissionAmount = (orderEarning * agencyCommission) / 100;
-      const netAgencyEarning     = orderEarning - agencyCommissionAmount;
+      const netAgencyEarning       = orderEarning - agencyCommissionAmount;
 
-      console.log(`💰 Agency — Gross: ${orderEarning} AED | Commission: ${agencyCommissionAmount} AED (${agencyCommission}%) | Net: ${netAgencyEarning} AED`);
+      logger.info(`💰 Agency — Gross: ${orderEarning} AED | Commission: ${agencyCommissionAmount} AED (${agencyCommission}%) | Net: ${netAgencyEarning} AED`);
 
       const deliveryBoy = await DeliveryBoy.findById(updatedOrder.assignedDeliveryBoy).lean();
 
@@ -1209,7 +1102,7 @@ exports.deliveryBoyUpdateOrderStatus = async (req, res) => {
           agencyPayout.deliveryBoyId  = deliveryBoy._id;
           agencyPayout.orderId        = updatedOrder._id;
           await agencyPayout.save();
-          console.log(`✅ Updated PENDING agency payout: ${agencyPayout.totalEarnings} AED`);
+          logger.info(`✅ Updated PENDING agency payout: ${agencyPayout.totalEarnings} AED`);
         } else {
           agencyPayout = await AgencyPayout.create({
             agencyId:      deliveryBoy.agencyId,
@@ -1223,26 +1116,16 @@ exports.deliveryBoyUpdateOrderStatus = async (req, res) => {
             status:        'Pending',
             transactionId: null
           });
-          console.log(`✅ Created NEW PENDING agency payout: ${netAgencyEarning} AED`);
+          logger.info(`✅ Created NEW PENDING agency payout: ${netAgencyEarning} AED`);
         }
-
-        // ✅ Notify agency of payout update
-        // try {
-        //   await notifyAgencyPayment(agencyPayout, deliveryBoy.agencyId);
-        // } catch (notifErr) {
-        //   console.warn('⚠️ Agency payout notification failed:', notifErr.message);
-        // }
       }
 
-      // ════════════════════════════════════════════════════════════
-      // 2. SHOP PAYOUT
-      // ════════════════════════════════════════════════════════════
       const shopId      = updatedOrder.shopId;
       const orderAmount = Number(updatedOrder.totalPayable || 0);
       const commission  = (orderAmount * shopCommission) / 100;
       const netPayable  = orderAmount - commission;
 
-      console.log(`🏪 Shop — Total: ${orderAmount} AED | Commission: ${commission} AED (${shopCommission}%) | Net: ${netPayable} AED`);
+      logger.info(`🏪 Shop — Total: ${orderAmount} AED | Commission: ${commission} AED (${shopCommission}%) | Net: ${netPayable} AED`);
 
       let shopPayout = await ShopPayout.findOne({
         shopId,
@@ -1257,7 +1140,7 @@ exports.deliveryBoyUpdateOrderStatus = async (req, res) => {
         shopPayout.platformCommission += commission;
         shopPayout.netPayable         += netPayable;
         await shopPayout.save();
-        console.log(`✅ Updated PENDING shop payout`);
+        logger.info('✅ Updated PENDING shop payout');
       } else {
         shopPayout = await ShopPayout.create({
           shopId,
@@ -1270,32 +1153,17 @@ exports.deliveryBoyUpdateOrderStatus = async (req, res) => {
           status:             'Pending',
           transactionId:      null
         });
-        console.log(`✅ Created NEW PENDING shop payout: ${netPayable} AED`);
+        logger.info(`✅ Created NEW PENDING shop payout: ${netPayable} AED`);
       }
-
-      // ✅ Notify shop of payout update
-      // try {
-      //   await notifyShopPayout(shopPayout, shopId);
-      // } catch (notifErr) {
-      //   console.warn('⚠️ Shop payout notification failed:', notifErr.message);
-      // }
     }
 
-    // ✅ Save updated order
     await updatedOrder.save();
 
-    // ════════════════════════════════════════════════════════════
-    // NOTIFICATIONS + SOCKET
-    // ════════════════════════════════════════════════════════════
     try {
       const shop = await Shop.findById(updatedOrder.shopId);
 
-      // ✅ Order status notification:
-      // - Always notifies the specific shop
-      // - On Delivered: also notifies agency (delivery boy belongs to) + super admin
       await notifyOrderStatusChange(updatedOrder, newStatus, shop);
 
-      // ✅ Broadcast real-time order status change to all connected clients
       const io = getIO();
       io.emit('order_status_changed', {
         orderId:       updatedOrder._id,
@@ -1306,9 +1174,9 @@ exports.deliveryBoyUpdateOrderStatus = async (req, res) => {
         updatedAt:     updatedOrder.updatedAt,
       });
 
-      console.log(`✅ Socket emitted: order_status_changed → ${newStatus}`);
+      logger.info(`✅ Socket emitted: order_status_changed → ${newStatus}`);
     } catch (err) {
-      console.warn('⚠️ Notification/Socket error:', err.message);
+      logger.warn(`⚠️ Notification/Socket error: ${err.message}`);
     }
 
     return res.status(200).json({
@@ -1318,7 +1186,7 @@ exports.deliveryBoyUpdateOrderStatus = async (req, res) => {
     });
 
   } catch (error) {
-    console.error('❌ DeliveryBoy Update Status Error:', error);
+    logger.error('❌ DeliveryBoy Update Status Error:', error);
     return res.status(500).json({
       message: 'Failed to update order status',
       success: false,
@@ -1327,55 +1195,51 @@ exports.deliveryBoyUpdateOrderStatus = async (req, res) => {
   }
 };
 
-  
-  exports.deliveryBoyRaiseIssue = async (req, res) => {
-    try {
-      const orderId = req.params.orderId;
-      const { issueDescription } = req.body;
-  
-      if (!orderId || !issueDescription) {
-        return res.status(400).json({
-          message: 'OrderId and Issue Description are required',
-          success: false,
-          data: []
-        });
-      }
-  
-      const updatedOrder = await Order.findByIdAndUpdate(
-        orderId,
-        { 
-          deliveryIssue: issueDescription, 
-          orderStatus: "Delivery Issue Reported" 
-        },
-        { new: true }
-      );
-  
-      if (!updatedOrder) {
-        return res.status(404).json({
-          message: 'Order not found',
-          success: false,
-          data: []
-        });
-      }
-  
-      return res.status(200).json({
-        message: 'Issue reported successfully',
-        success: true,
-        data: updatedOrder
-      });
-  
-    } catch (error) {
-      console.error('Raise Delivery Issue Error:', error);
-      res.status(500).json({
-        message: 'Failed to report delivery issue',
+exports.deliveryBoyRaiseIssue = async (req, res) => {
+  try {
+    const orderId = req.params.orderId;
+    const { issueDescription } = req.body;
+
+    if (!orderId || !issueDescription) {
+      return res.status(400).json({
+        message: 'OrderId and Issue Description are required',
         success: false,
-        data: error.message
+        data: []
       });
     }
-  };
 
- 
+    const updatedOrder = await Order.findByIdAndUpdate(
+      orderId,
+      { 
+        deliveryIssue: issueDescription, 
+        orderStatus: "Delivery Issue Reported" 
+      },
+      { new: true }
+    );
 
+    if (!updatedOrder) {
+      return res.status(404).json({
+        message: 'Order not found',
+        success: false,
+        data: []
+      });
+    }
+
+    return res.status(200).json({
+      message: 'Issue reported successfully',
+      success: true,
+      data: updatedOrder
+    });
+
+  } catch (error) {
+    logger.error('Raise Delivery Issue Error:', error);
+    res.status(500).json({
+      message: 'Failed to report delivery issue',
+      success: false,
+      data: error.message
+    });
+  }
+};
 
 exports.getDeliveryBoysByAgency = async (req, res) => {
   try {
@@ -1389,10 +1253,9 @@ exports.getDeliveryBoysByAgency = async (req, res) => {
     }
 
     const deliveryBoys = await DeliveryBoy.find({ agencyId })
-      .select('-password -countryCode -__v -availability -accountVerify -assignedOrders')  // ✅ Exclude these
+      .select('-password -countryCode -__v -availability -accountVerify -assignedOrders')
       .lean();
 
-    // ✅ Format with Status field, no accountVerify or assignedOrdersCount
     const formatted = deliveryBoys.map(({ dob, isOnline, ...rest }) => ({
       ...rest,
       DOB: dob || null,
@@ -1406,7 +1269,7 @@ exports.getDeliveryBoysByAgency = async (req, res) => {
       data: formatted
     });
   } catch (error) {
-    console.error('Get Delivery Boys Error:', error);
+    logger.error('Get Delivery Boys Error:', error);
     return res.status(500).json({
       message: 'Failed to fetch delivery boys',
       success: false,
@@ -1414,7 +1277,6 @@ exports.getDeliveryBoysByAgency = async (req, res) => {
     });
   }
 };
-
 
 exports.getLiveLocationsByAgency = async (req, res) => {
   try {
@@ -1447,7 +1309,6 @@ exports.getLiveLocationsByAgency = async (req, res) => {
   }
 };
 
-
 exports.getAllDeliveryBoysForMap = async (req, res) => {
   try {
     const deliveryBoys = await DeliveryBoy.find({}, {
@@ -1472,9 +1333,6 @@ exports.getAllDeliveryBoysForMap = async (req, res) => {
     });
   }
 };
-
-
-
 
 exports.getNearbyOnlineDeliveryBoys = async (req, res) => {
   try {
@@ -1539,11 +1397,10 @@ exports.toggleAvailability = async (req, res) => {
     const newStatus = !deliveryBoy.isOnline;
 
     deliveryBoy.isOnline = newStatus;
-    deliveryBoy.availability = newStatus;   // 🔥 KEEP IN SYNC
+    deliveryBoy.availability = newStatus;
 
     await deliveryBoy.save();
 
-    // Optional real-time update
     try {
       const io = require('../sockets/socket').getIO();
       io.emit('deliveryBoyStatusChanged', {
@@ -1567,14 +1424,8 @@ exports.toggleAvailability = async (req, res) => {
   }
 };
 
-
-
-
-
-
-// Haversine distance function (in km)
 const getDistanceInKm = (lat1, lon1, lat2, lon2) => {
-  console.log(`Calculating distance between (${lat1}, ${lon1}) and (${lat2}, ${lon2})`);
+  logger.info(`Calculating distance between (${lat1}, ${lon1}) and (${lat2}, ${lon2})`);
   const R = 6371;
   const dLat = (lat2 - lat1) * Math.PI / 180;
   const dLon = (lon2 - lon1) * Math.PI / 180;
@@ -1589,11 +1440,10 @@ const getDistanceInKm = (lat1, lon1, lat2, lon2) => {
   return R * c;
 };
 
-// Get top 6 nearby order areas (custom deliveryAddress structure)
 exports.getNearbyTopOrderAreas = async (req, res) => {
   try {
     const orders = await Order.find({
-      status: "Delivered",  // ✅ Changed from orderStatus
+      status: "Delivered",
       "deliveryAddress.latitude": { $exists: true, $ne: null },
       "deliveryAddress.longitude": { $exists: true, $ne: null }
     });
@@ -1643,7 +1493,7 @@ exports.getNearbyTopOrderAreas = async (req, res) => {
       data: ranked
     });
   } catch (error) {
-    console.error("Nearby Top Areas Error:", error);
+    logger.error('Nearby Top Areas Error:', error);
     return res.status(500).json({
       success: false,
       message: "Failed to fetch nearby top order areas",
@@ -1652,22 +1502,15 @@ exports.getNearbyTopOrderAreas = async (req, res) => {
   }
 };
 
-
-// ============================================
-// ENHANCED EARNINGS API WITH STATISTICS
-// ============================================
-
 exports.getDeliveryEarningsHistory = async (req, res) => {
   try {
     const deliveryBoyId = req.params.deliveryBoyId;
 
-    // ✅ Get all delivered orders
     const deliveredOrders = await Order.find({
       assignedDeliveryBoy: deliveryBoyId,
       status: 'Delivered'
     }).sort({ updatedAt: -1 });
 
-    // ✅ Calculate statistics
     const totalEarnings = deliveredOrders.reduce(
       (sum, order) => sum + (order.deliveryEarning || 0),
       0
@@ -1705,7 +1548,6 @@ exports.getDeliveryEarningsHistory = async (req, res) => {
       0
     );
 
-    // ✅ Group orders by date
     const groupedOrders = {};
 
     deliveredOrders.forEach(order => {
@@ -1738,7 +1580,6 @@ exports.getDeliveryEarningsHistory = async (req, res) => {
       });
     });
 
-    // ✅ Response with statistics
     res.status(200).json({
       message: 'Earning history fetched successfully',
       success: true,
@@ -1757,7 +1598,7 @@ exports.getDeliveryEarningsHistory = async (req, res) => {
       }
     });
   } catch (error) {
-    console.error('❌ Earning History Error:', error);
+    logger.error('❌ Earning History Error:', error);
     res.status(500).json({
       message: 'Failed to fetch earnings',
       success: false,
@@ -1766,16 +1607,10 @@ exports.getDeliveryEarningsHistory = async (req, res) => {
   }
 };
 
-
-// ============================================
-// ENHANCED HISTORY API WITH RICH ORDER DATA
-// ============================================
-
 exports.getDeliveryOrderHistory = async (req, res) => {
   try {
     const deliveryBoyId = req.params.deliveryBoyId;
 
-    // 1. Validate delivery boy
     const deliveryBoy = await DeliveryBoy.findById(deliveryBoyId);
     if (!deliveryBoy) {
       return res.status(404).json({
@@ -1785,7 +1620,6 @@ exports.getDeliveryOrderHistory = async (req, res) => {
       });
     }
 
-    // 2. Fetch all orders assigned to this delivery boy
     const orders = await Order.find({
       assignedDeliveryBoy: deliveryBoyId
     }).sort({ updatedAt: -1 });
@@ -1807,7 +1641,6 @@ exports.getDeliveryOrderHistory = async (req, res) => {
       });
     }
 
-    // 3. Calculate statistics
     const statistics = {
       totalOrders: orders.length,
       delivered: orders.filter(o => o.status === 'Delivered').length,
@@ -1818,11 +1651,9 @@ exports.getDeliveryOrderHistory = async (req, res) => {
       totalDistance: parseFloat(orders.reduce((sum, o) => sum + (o.deliveryDistance || 0), 0).toFixed(1))
     };
 
-    // 4. Group orders by date with rich data
     const groupedOrders = {};
 
     for (const order of orders) {
-      // Fetch shop details
       const shop = await Shop.findById(order.shopId);
 
       const createdAt = moment(order.updatedAt);
@@ -1846,7 +1677,6 @@ exports.getDeliveryOrderHistory = async (req, res) => {
         groupedOrders[label] = [];
       }
 
-      // Get status badge color
       let statusColor = 'grey';
       let statusIcon = 'clock';
       
@@ -1903,7 +1733,7 @@ exports.getDeliveryOrderHistory = async (req, res) => {
       }
     });
   } catch (error) {
-    console.error('❌ Order History Error:', error);
+    logger.error('❌ Order History Error:', error);
     return res.status(500).json({
       message: 'Failed to fetch delivery order history',
       success: false,
@@ -1911,7 +1741,6 @@ exports.getDeliveryOrderHistory = async (req, res) => {
     });
   }
 };
-
 
 exports.updateDeliveryBoyDetails = async (req, res) => {
   try {
@@ -1924,28 +1753,13 @@ exports.updateDeliveryBoyDetails = async (req, res) => {
 
     const { deliveryBoyId } = req.params;
     const {
-      name,
-      email,
-      phone,
-      countryCode,
-      dob,
-      licenseNo,
-      accountVerify,
-      isOnline,
-      profileImage,
-      licenseImage,
-      areaAssigned,
-      emiratesId,
-      operatingHours,
-      agencyAddress,
-      city,
-      latitude,
-      longitude,
-      availability,
-      agencyId,
+      name, email, phone, countryCode, dob, licenseNo,
+      accountVerify, isOnline, profileImage, licenseImage,
+      areaAssigned, emiratesId, operatingHours, agencyAddress,
+      city, latitude, longitude, availability, agencyId,
     } = req.body;
 
-    console.log('📦 Update payload received:', req.body);
+    logger.info(`📦 Update payload received: ${JSON.stringify(req.body)}`);
 
     const deliveryBoy = await DeliveryBoy.findById(deliveryBoyId);
 
@@ -1956,7 +1770,6 @@ exports.updateDeliveryBoyDetails = async (req, res) => {
       });
     }
 
-    // ✅ Update ALL fields if provided
     if (name !== undefined) deliveryBoy.name = name;
     if (email !== undefined) deliveryBoy.email = email;
     if (phone !== undefined) deliveryBoy.phone = phone;
@@ -1979,7 +1792,7 @@ exports.updateDeliveryBoyDetails = async (req, res) => {
 
     await deliveryBoy.save();
 
-    console.log('✅ Delivery boy updated successfully');
+    logger.info('✅ Delivery boy updated successfully');
 
     return res.status(200).json({
       message: 'Delivery Boy details updated successfully',
@@ -1988,7 +1801,7 @@ exports.updateDeliveryBoyDetails = async (req, res) => {
     });
 
   } catch (error) {
-    console.error('❌ Update Delivery Boy Error:', error);
+    logger.error('❌ Update Delivery Boy Error:', error);
     return res.status(500).json({
       message: 'Failed to update delivery boy details',
       success: false,
@@ -1997,7 +1810,6 @@ exports.updateDeliveryBoyDetails = async (req, res) => {
   }
 };
 
-// Register Delivery Boy
 exports.registerDeliveryBoy = async (req, res) => {
   try {
     const deliveryBoy = new DeliveryBoy(req.body);
@@ -2015,7 +1827,7 @@ exports.registerDeliveryBoy = async (req, res) => {
     });
   }
 };
-// Delete delivery boy by ID (route: DELETE /delete/:id)
+
 exports.deleteDeliveryBoyById = async (req, res) => {
   const { id } = req.params;
   try {
@@ -2041,21 +1853,12 @@ exports.deleteDeliveryBoyById = async (req, res) => {
   }
 };
 
-// ═══════════════════════════════════════════════════════════════════════════
-// DELIVERY BOY DETAILED REPORT API
-// GET /delivery-boys/:deliveryBoyId/report
-// ═══════════════════════════════════════════════════════════════════════════
-
 exports.getDeliveryBoyReport = async (req, res) => {
   try {
     const { deliveryBoyId } = req.params;
     const { from, to, status } = req.query;
 
-    console.log(`📊 Fetching detailed report for delivery boy: ${deliveryBoyId}`);
-
-    // ─────────────────────────────────────────────────────────────────────
-    // STEP 1: Fetch delivery boy with agency populated
-    // ─────────────────────────────────────────────────────────────────────
+    logger.info(`📊 Fetching detailed report for delivery boy: ${deliveryBoyId}`);
 
     const deliveryBoy = await DeliveryBoy.findById(deliveryBoyId)
       .populate({
@@ -2071,10 +1874,6 @@ exports.getDeliveryBoyReport = async (req, res) => {
       });
     }
 
-    // ─────────────────────────────────────────────────────────────────────
-    // STEP 2: Build order filter
-    // ─────────────────────────────────────────────────────────────────────
-
     const orderFilter = { assignedDeliveryBoy: deliveryBoyId };
 
     if (from && to) {
@@ -2088,10 +1887,6 @@ exports.getDeliveryBoyReport = async (req, res) => {
       orderFilter.status = status;
     }
 
-    // ─────────────────────────────────────────────────────────────────────
-    // STEP 3: Fetch all assigned orders with full population
-    // ─────────────────────────────────────────────────────────────────────
-
     const orders = await Order.find(orderFilter)
       .populate('userId', 'name email phone')
       .populate('shopId', 'shopeDetails.shopName shopeDetails.shopAddress shopeDetails.shopContact shopeDetails.shopLocation')
@@ -2099,29 +1894,21 @@ exports.getDeliveryBoyReport = async (req, res) => {
       .sort({ createdAt: -1 })
       .lean();
 
-    // ─────────────────────────────────────────────────────────────────────
-    // STEP 4: Compute statistics
-    // ─────────────────────────────────────────────────────────────────────
-
     const totalOrders       = orders.length;
     const deliveredOrders   = orders.filter(o => o.status === 'Delivered');
     const cancelledOrders   = orders.filter(o => o.cancellation?.isCancelled);
     const pendingOrders     = orders.filter(o => !['Delivered', 'Cancelled'].includes(o.status) && !o.cancellation?.isCancelled);
 
-    const totalEarnings     = deliveredOrders.reduce((sum, o) => sum + (o.deliveryEarning || 0), 0);
-    const totalDistance     = deliveredOrders.reduce((sum, o) => sum + (o.deliveryDistance || 0), 0);
+    const totalEarnings      = deliveredOrders.reduce((sum, o) => sum + (o.deliveryEarning || 0), 0);
+    const totalDistance      = deliveredOrders.reduce((sum, o) => sum + (o.deliveryDistance || 0), 0);
     const avgEarningPerOrder = deliveredOrders.length > 0 ? totalEarnings / deliveredOrders.length : 0;
     const avgDistance        = deliveredOrders.length > 0 ? totalDistance / deliveredOrders.length : 0;
     const completionRate     = totalOrders > 0 ? (deliveredOrders.length / totalOrders) * 100 : 0;
+    const totalOrderValue    = deliveredOrders.reduce((sum, o) => sum + (o.totalPayable || 0), 0);
 
-    // Total order value handled
-    const totalOrderValue   = deliveredOrders.reduce((sum, o) => sum + (o.totalPayable || 0), 0);
-
-    // COD vs Card breakdown
     const codOrders  = deliveredOrders.filter(o => o.paymentType === 'COD').length;
     const cardOrders = deliveredOrders.filter(o => o.paymentType === 'CARD').length;
 
-    // Average delivery time (from "Accepted by Delivery Boy" to "Delivered")
     let totalDeliveryMinutes = 0;
     let ordersWithTime = 0;
 
@@ -2141,7 +1928,6 @@ exports.getDeliveryBoyReport = async (req, res) => {
       ? Math.round(totalDeliveryMinutes / ordersWithTime)
       : null;
 
-    // Monthly breakdown (last 6 months)
     const monthlyBreakdown = {};
     orders.forEach(order => {
       const monthKey = new Date(order.createdAt).toLocaleString('en-US', { month: 'short', year: 'numeric' });
@@ -2154,10 +1940,6 @@ exports.getDeliveryBoyReport = async (req, res) => {
         monthlyBreakdown[monthKey].earnings += order.deliveryEarning || 0;
       }
     });
-
-    // ─────────────────────────────────────────────────────────────────────
-    // STEP 5: Format orders for response
-    // ─────────────────────────────────────────────────────────────────────
 
     const formattedOrders = orders.map(order => ({
       orderId:          order._id,
@@ -2190,92 +1972,73 @@ exports.getDeliveryBoyReport = async (req, res) => {
         location: order.shopId?.shopeDetails?.shopLocation || null,
       },
       items: order.items?.map(item => ({
-        partName:       item.snapshot?.partName    || 'N/A',
-        partNumber:     item.snapshot?.partNumber  || 'N/A',
-        quantity:       item.quantity,
-        price:          item.snapshot?.price,
+        partName:        item.snapshot?.partName    || 'N/A',
+        partNumber:      item.snapshot?.partNumber  || 'N/A',
+        quantity:        item.quantity,
+        price:           item.snapshot?.price,
         discountedPrice: item.snapshot?.discountedPrice,
-        image:          item.snapshot?.image,
+        image:           item.snapshot?.image,
       })) || [],
     }));
 
-    // ─────────────────────────────────────────────────────────────────────
-    // STEP 6: Format agency details
-    // ─────────────────────────────────────────────────────────────────────
-
     const agency = deliveryBoy.agencyId
       ? {
-          id:          deliveryBoy.agencyId._id,
-          name:        deliveryBoy.agencyId.agencyDetails?.agencyName    || 'N/A',
-          email:       deliveryBoy.agencyId.agencyDetails?.agencyMail    || 'N/A',
-          contact:     deliveryBoy.agencyId.agencyDetails?.agencyContact || 'N/A',
-          address:     deliveryBoy.agencyId.agencyDetails?.agencyAddress || 'N/A',
-          profileImage: deliveryBoy.agencyId.agencyDetails?.profileImage || null,
-          city:        deliveryBoy.agencyId.agencyDetails?.city          || 'N/A',
-          emirates:    deliveryBoy.agencyId.agencyDetails?.emirates      || [],
-          payoutType:  deliveryBoy.agencyId.agencyDetails?.payoutType    || 'monthly',
-          isVerified:  deliveryBoy.agencyId.isVerified,
+          id:           deliveryBoy.agencyId._id,
+          name:         deliveryBoy.agencyId.agencyDetails?.agencyName    || 'N/A',
+          email:        deliveryBoy.agencyId.agencyDetails?.agencyMail    || 'N/A',
+          contact:      deliveryBoy.agencyId.agencyDetails?.agencyContact || 'N/A',
+          address:      deliveryBoy.agencyId.agencyDetails?.agencyAddress || 'N/A',
+          profileImage: deliveryBoy.agencyId.agencyDetails?.profileImage  || null,
+          city:         deliveryBoy.agencyId.agencyDetails?.city          || 'N/A',
+          emirates:     deliveryBoy.agencyId.agencyDetails?.emirates      || [],
+          payoutType:   deliveryBoy.agencyId.agencyDetails?.payoutType    || 'monthly',
+          isVerified:   deliveryBoy.agencyId.isVerified,
         }
       : null;
-
-    // ─────────────────────────────────────────────────────────────────────
-    // STEP 7: Build final response
-    // ─────────────────────────────────────────────────────────────────────
 
     return res.status(200).json({
       success: true,
       message: 'Delivery boy report fetched successfully',
       data: {
-        // ── Personal Info ──────────────────────────────────────────────
         deliveryBoy: {
-          id:              deliveryBoy._id,
-          name:            deliveryBoy.name,
-          email:           deliveryBoy.email,
-          phone:           deliveryBoy.phone,
-          dob:             deliveryBoy.dob,
-          profileImage:    deliveryBoy.profileImage,
-          licenseImage:    deliveryBoy.licenseImage,
-          licenseNo:       deliveryBoy.licenseNo,
-          emiratesId:      deliveryBoy.emiratesId,
-          city:            deliveryBoy.city,
-          areaAssigned:    deliveryBoy.areaAssigned,
-          isOnline:        deliveryBoy.isOnline,
-          availability:    deliveryBoy.availability,
-          accountVerify:   deliveryBoy.accountVerify,
+          id:               deliveryBoy._id,
+          name:             deliveryBoy.name,
+          email:            deliveryBoy.email,
+          phone:            deliveryBoy.phone,
+          dob:              deliveryBoy.dob,
+          profileImage:     deliveryBoy.profileImage,
+          licenseImage:     deliveryBoy.licenseImage,
+          licenseNo:        deliveryBoy.licenseNo,
+          emiratesId:       deliveryBoy.emiratesId,
+          city:             deliveryBoy.city,
+          areaAssigned:     deliveryBoy.areaAssigned,
+          isOnline:         deliveryBoy.isOnline,
+          availability:     deliveryBoy.availability,
+          accountVerify:    deliveryBoy.accountVerify,
           activeDeviceInfo: deliveryBoy.activeDeviceInfo,
-          lastLoginAt:     deliveryBoy.lastLoginAt,
-          latitude:        deliveryBoy.latitude,
-          longitude:       deliveryBoy.longitude,
-          createdAt:       deliveryBoy.createdAt,
+          lastLoginAt:      deliveryBoy.lastLoginAt,
+          latitude:         deliveryBoy.latitude,
+          longitude:        deliveryBoy.longitude,
+          createdAt:        deliveryBoy.createdAt,
         },
-
-        // ── Agency Info ────────────────────────────────────────────────
         agency,
-
-        // ── Statistics ─────────────────────────────────────────────────
         stats: {
           totalOrders,
-          deliveredOrders:   deliveredOrders.length,
-          cancelledOrders:   cancelledOrders.length,
-          pendingOrders:     pendingOrders.length,
-          completionRate:    +completionRate.toFixed(1),
-          totalEarnings:     +totalEarnings.toFixed(2),
+          deliveredOrders:    deliveredOrders.length,
+          cancelledOrders:    cancelledOrders.length,
+          pendingOrders:      pendingOrders.length,
+          completionRate:     +completionRate.toFixed(1),
+          totalEarnings:      +totalEarnings.toFixed(2),
           avgEarningPerOrder: +avgEarningPerOrder.toFixed(2),
-          totalDistance:     +totalDistance.toFixed(2),
-          avgDistance:       +avgDistance.toFixed(2),
-          totalOrderValue:   +totalOrderValue.toFixed(2),
+          totalDistance:      +totalDistance.toFixed(2),
+          avgDistance:        +avgDistance.toFixed(2),
+          totalOrderValue:    +totalOrderValue.toFixed(2),
           avgDeliveryMinutes,
           codOrders,
           cardOrders,
         },
-
-        // ── Monthly Breakdown ──────────────────────────────────────────
         monthlyBreakdown,
-
-        // ── Orders ────────────────────────────────────────────────────
         orders: formattedOrders,
-
-        // ── Meta ───────────────────────────────────────────────────────
         meta: {
           totalOrdersFetched: formattedOrders.length,
           filters: { from, to, status },
@@ -2285,7 +2048,7 @@ exports.getDeliveryBoyReport = async (req, res) => {
     });
 
   } catch (error) {
-    console.error('❌ Delivery Boy Report Error:', error);
+    logger.error('❌ Delivery Boy Report Error:', error);
     return res.status(500).json({
       success: false,
       message: 'Failed to fetch delivery boy report',

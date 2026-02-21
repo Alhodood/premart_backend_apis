@@ -5,6 +5,7 @@ const Engine = require('../models/Engine');
 const Transmission = require('../models/Transmission');
 const VehicleConfiguration = require('../models/VehicleConfiguration');
 const mongoose = require('mongoose');
+const logger = require('../config/logger'); // ← Winston logger
 
 // CREATE PART
 exports.createPart = async (req, res) => {
@@ -17,7 +18,7 @@ exports.createPart = async (req, res) => {
       compatibleVehicleConfigs
     } = req.body;
 
-    console.log('📦 Create Part Request:', JSON.stringify(req.body, null, 2));
+    logger.info('📦 Create Part Request: ' + JSON.stringify(req.body, null, 2));
 
     if (!partNumber || !partName || !category) {
       return res.status(400).json({
@@ -40,7 +41,7 @@ exports.createPart = async (req, res) => {
       if (mongoose.Types.ObjectId.isValid(subCategory)) {
         // It's a valid ObjectId
         subCategoryId = subCategory;
-        
+
         // Verify subCategory exists
         const subCatExists = await SubCategory.findById(subCategoryId);
         if (!subCatExists) {
@@ -54,7 +55,7 @@ exports.createPart = async (req, res) => {
         const foundSubCategory = await SubCategory.findOne({
           subCategoryName: new RegExp(String(subCategory).trim(), 'i')
         }).select('_id');
-        
+
         if (foundSubCategory) {
           subCategoryId = foundSubCategory._id;
         } else {
@@ -97,7 +98,7 @@ exports.createPart = async (req, res) => {
 
     // Create the part
     const part = await PartsCatalog.create(partData);
-    console.log('✅ Part created:', part._id);
+    logger.info('✅ Part created: ' + part._id);
 
     // Populate the response
     const populated = await PartsCatalog.findById(part._id)
@@ -114,11 +115,9 @@ exports.createPart = async (req, res) => {
     res.status(201).json({ success: true, data: populated });
 
   } catch (err) {
-    console.error('❌ Create Part Error:', err);
-    console.error('Error details:', err.message);
-    console.error('Stack:', err.stack);
-    res.status(500).json({ 
-      success: false, 
+    logger.error('❌ Create Part Error: ' + err.message, { stack: err.stack });
+    res.status(500).json({
+      success: false,
       message: err.message,
       error: process.env.NODE_ENV === 'development' ? err.stack : undefined
     });
@@ -131,9 +130,9 @@ exports.updatePart = async (req, res) => {
     const { id } = req.params;
     const updateData = req.body;
 
-    console.log('🔄 Update Part Request');
-    console.log('📋 Part ID:', id);
-    console.log('📦 Update Data:', JSON.stringify(updateData, null, 2));
+    logger.info('🔄 Update Part Request');
+    logger.info('📋 Part ID: ' + id);
+    logger.info('📦 Update Data: ' + JSON.stringify(updateData, null, 2));
 
     // Validate part ID
     if (!id) {
@@ -146,22 +145,22 @@ exports.updatePart = async (req, res) => {
     // Check if part exists
     const existingPart = await PartsCatalog.findById(id);
     if (!existingPart) {
-      console.log('❌ Part not found with ID:', id);
+      logger.warn('❌ Part not found with ID: ' + id);
       return res.status(404).json({
         success: false,
         message: 'Part not found'
       });
     }
 
-    console.log('✅ Found existing part:', existingPart.partNumber);
+    logger.info('✅ Found existing part: ' + existingPart.partNumber);
 
     // If partNumber is being updated, check for duplicates
     if (updateData.partNumber && updateData.partNumber !== existingPart.partNumber) {
-      const duplicate = await PartsCatalog.findOne({ 
+      const duplicate = await PartsCatalog.findOne({
         partNumber: updateData.partNumber,
         _id: { $ne: id }
       });
-      
+
       if (duplicate) {
         return res.status(400).json({
           success: false,
@@ -183,7 +182,7 @@ exports.updatePart = async (req, res) => {
             message: 'One or more invalid vehicle configuration IDs'
           });
         }
-        console.log('✅ Validated vehicle configurations');
+        logger.info('✅ Validated vehicle configurations');
       }
     }
 
@@ -210,20 +209,18 @@ exports.updatePart = async (req, res) => {
       });
     }
 
-    console.log('✅ Part updated successfully:', updatedPart._id);
+    logger.info('✅ Part updated successfully: ' + updatedPart._id);
 
-    res.json({ 
-      success: true, 
+    res.json({
+      success: true,
       message: 'Part updated successfully',
-      data: updatedPart 
+      data: updatedPart
     });
 
   } catch (err) {
-    console.error('❌ Update Part Error:', err);
-    console.error('Error details:', err.message);
-    console.error('Stack:', err.stack);
-    res.status(500).json({ 
-      success: false, 
+    logger.error('❌ Update Part Error: ' + err.message, { stack: err.stack });
+    res.status(500).json({
+      success: false,
       message: 'Failed to update part',
       error: err.message
     });
@@ -248,12 +245,10 @@ exports.getAllParts = async (req, res) => {
     res.json({ success: true, count: parts.length, data: parts });
 
   } catch (err) {
-    console.error('Get All Parts Error:', err);
+    logger.error('Get All Parts Error: ' + err.message, { stack: err.stack });
     res.status(500).json({ success: false, error: err.message });
   }
 };
-
-
 
 // GET PART BY ID - FIXED
 exports.getPartById = async (req, res) => {
@@ -285,7 +280,6 @@ exports.getPartById = async (req, res) => {
     // Format shops array
     const shops = shopProducts.map(sp => {
       const shop = sp.shopId?.shopeDetails || {};
-
       return {
         shopProductId: sp._id,
         shopId: sp.shopId?._id,
@@ -305,8 +299,8 @@ exports.getPartById = async (req, res) => {
     });
 
     // Return part with shop details
-    res.json({ 
-      success: true, 
+    res.json({
+      success: true,
       data: {
         ...part.toObject(),
         shops: shops,
@@ -318,12 +312,10 @@ exports.getPartById = async (req, res) => {
     });
 
   } catch (err) {
-    console.error('Get Part Error:', err);
+    logger.error('Get Part Error: ' + err.message, { stack: err.stack });
     res.status(500).json({ success: false, error: err.message });
   }
 };
-
-
 
 // ADVANCED SEARCH - ENHANCED WITH SHOPS
 exports.searchParts = async (req, res) => {
@@ -348,7 +340,7 @@ exports.searchParts = async (req, res) => {
 
     if (partNumber) filter.partNumber = new RegExp(partNumber, 'i');
     if (partName) filter.partName = new RegExp(partName, 'i');
-    
+
     // Validate category is a valid ObjectId
     if (category) {
       if (mongoose.Types.ObjectId.isValid(category)) {
@@ -360,13 +352,13 @@ exports.searchParts = async (req, res) => {
         });
       }
     }
-    
+
     // Validate subCategory - handle both ObjectId and name (URL decoded)
     if (subCategory) {
       try {
         // Decode URL-encoded subcategory name (e.g., "Spark%20Plugs" -> "Spark Plugs")
         const decodedSubCategory = decodeURIComponent(String(subCategory));
-        
+
         if (mongoose.Types.ObjectId.isValid(decodedSubCategory)) {
           // It's a valid ObjectId
           filter.subCategory = decodedSubCategory;
@@ -375,12 +367,12 @@ exports.searchParts = async (req, res) => {
           const foundSubCategory = await SubCategory.findOne({
             subCategoryName: new RegExp(decodedSubCategory.trim(), 'i')
           }).select('_id');
-          
+
           if (foundSubCategory) {
             filter.subCategory = foundSubCategory._id;
           } else {
             // Invalid subcategory, return empty results instead of error
-            console.log(`⚠️ SubCategory not found: "${decodedSubCategory}"`);
+            logger.warn(`⚠️ SubCategory not found: "${decodedSubCategory}"`);
             return res.json({
               success: true,
               count: 0,
@@ -393,7 +385,7 @@ exports.searchParts = async (req, res) => {
           }
         }
       } catch (subCatErr) {
-        console.error('❌ SubCategory lookup error:', subCatErr);
+        logger.error('❌ SubCategory lookup error: ' + subCatErr.message, { stack: subCatErr.stack });
         return res.status(500).json({
           success: false,
           message: 'Error looking up subcategory',
@@ -405,7 +397,7 @@ exports.searchParts = async (req, res) => {
     // Handle vehicle config filtering
     // Priority: vehicleConfig (direct ID) > brand/model/year lookup
     let vehicleConfigIds = null;
-    
+
     if (vehicleConfig) {
       // Direct vehicle config ID provided
       if (mongoose.Types.ObjectId.isValid(vehicleConfig)) {
@@ -420,7 +412,7 @@ exports.searchParts = async (req, res) => {
     } else if (brand || model || year) {
       // Look up vehicle configs by brand/model/year
       const vehicleFilter = {};
-      
+
       // Validate brand is a valid ObjectId
       if (brand) {
         if (mongoose.Types.ObjectId.isValid(brand)) {
@@ -432,7 +424,7 @@ exports.searchParts = async (req, res) => {
           });
         }
       }
-      
+
       // Validate model is a valid ObjectId
       if (model) {
         if (mongoose.Types.ObjectId.isValid(model)) {
@@ -444,20 +436,20 @@ exports.searchParts = async (req, res) => {
           });
         }
       }
-      
+
       if (year) vehicleFilter.year = Number(year);
-      
+
       try {
         const matchingConfigs = await VehicleConfiguration.find(vehicleFilter).select('_id');
         vehicleConfigIds = matchingConfigs.map(c => c._id);
-        
+
         if (vehicleConfigIds.length > 0) {
           filter.compatibleVehicleConfigs = { $in: vehicleConfigIds };
         } else {
           // No matching configs found, return empty
-          return res.json({ 
-            success: true, 
-            count: 0, 
+          return res.json({
+            success: true,
+            count: 0,
             page: parseInt(page),
             limit: parseInt(limit),
             totalPages: 0,
@@ -466,7 +458,7 @@ exports.searchParts = async (req, res) => {
           });
         }
       } catch (vehicleConfigErr) {
-        console.error('VehicleConfig lookup error:', vehicleConfigErr);
+        logger.error('VehicleConfig lookup error: ' + vehicleConfigErr.message, { stack: vehicleConfigErr.stack });
         return res.status(500).json({
           success: false,
           message: 'Error looking up vehicle configurations',
@@ -476,8 +468,8 @@ exports.searchParts = async (req, res) => {
     }
 
     // Get parts matching the filter
-    console.log('🔍 Search filter:', JSON.stringify(filter, null, 2));
-    
+    logger.info('🔍 Search filter: ' + JSON.stringify(filter, null, 2));
+
     const results = await PartsCatalog.find(filter)
       .populate('category', 'categoryName categoryImage')
       .populate('subCategory', 'subCategoryName subCategoryImage')
@@ -489,8 +481,8 @@ exports.searchParts = async (req, res) => {
         }
       })
       .sort({ createdAt: -1 });
-    
-    console.log(`✅ Found ${results.length} parts matching filter`);
+
+    logger.info(`✅ Found ${results.length} parts matching filter`);
 
     // If no parts found, return early
     if (results.length === 0) {
@@ -506,7 +498,7 @@ exports.searchParts = async (req, res) => {
 
     // OPTIMIZED: Fetch all shop products for all parts in one query (avoid N+1 problem)
     const partIds = results.map(p => p._id);
-    
+
     // Build shop product filter
     const shopProductFilter = {
       part: { $in: partIds },
@@ -544,7 +536,7 @@ exports.searchParts = async (req, res) => {
     // Map shops to each part
     const partsWithShops = results.map(part => {
       const shopProducts = shopProductsByPart[part._id.toString()] || [];
-      
+
       // Format shop data
       const shops = shopProducts
         .filter(sp => sp.shopId) // Filter out null shops
@@ -594,12 +586,10 @@ exports.searchParts = async (req, res) => {
     });
 
   } catch (err) {
-    console.error('Search Parts Error:', err);
+    logger.error('Search Parts Error: ' + err.message, { stack: err.stack });
     res.status(500).json({ success: false, error: err.message });
   }
 };
-
-
 
 // SOFT DELETE
 exports.deactivatePart = async (req, res) => {
@@ -619,11 +609,10 @@ exports.deactivatePart = async (req, res) => {
     res.json({ success: true, data: part });
 
   } catch (err) {
-    console.error('Deactivate Part Error:', err);
+    logger.error('Deactivate Part Error: ' + err.message, { stack: err.stack });
     res.status(500).json({ success: false, error: err.message });
   }
 };
-
 
 // SEARCH BY PART NUMBER - WITH SHOP INFORMATION
 exports.searchByPartNumber = async (req, res) => {
@@ -685,7 +674,7 @@ exports.searchByPartNumber = async (req, res) => {
     // Format response with shop information
     const formattedParts = parts.map(part => {
       const partShopProducts = shopProductsByPart[part._id.toString()] || [];
-      
+
       // Calculate price range and stock status
       const prices = partShopProducts.map(sp => sp.discountedPrice || sp.price);
       const minPrice = prices.length > 0 ? Math.min(...prices) : null;
@@ -696,7 +685,6 @@ exports.searchByPartNumber = async (req, res) => {
       const shops = partShopProducts.map(sp => {
         const shop = sp.shopId;
         const shopDetails = shop?.shopeDetails || {};
-        
         return {
           shopId: shop?._id || null,
           shopProductId: sp._id,
@@ -748,7 +736,7 @@ exports.searchByPartNumber = async (req, res) => {
     });
 
   } catch (err) {
-    console.error('Search By Part Number Error:', err);
+    logger.error('Search By Part Number Error: ' + err.message, { stack: err.stack });
     res.status(500).json({ success: false, error: err.message });
   }
 };
@@ -795,7 +783,6 @@ exports.getProductDetailsByProductId = async (req, res) => {
     // 3. Format shops
     const shops = shopProducts.map(sp => {
       const shop = sp.shopId?.shopeDetails || {};
-
       return {
         shopProductId: sp._id,
         shopId: sp.shopId?._id,
@@ -827,7 +814,7 @@ exports.getProductDetailsByProductId = async (req, res) => {
     });
 
   } catch (err) {
-    console.error('Product details error:', err);
+    logger.error('Product details error: ' + err.message, { stack: err.stack });
     res.status(500).json({ success: false, error: err.message });
   }
 };
@@ -837,8 +824,8 @@ exports.deletePart = async (req, res) => {
   try {
     const { id } = req.params;
 
-    console.log('🗑️ Delete Part Request');
-    console.log('📋 Part ID:', id);
+    logger.info('🗑️ Delete Part Request');
+    logger.info('📋 Part ID: ' + id);
 
     // Validate part ID
     if (!id || !mongoose.Types.ObjectId.isValid(id)) {
@@ -851,14 +838,14 @@ exports.deletePart = async (req, res) => {
     // Check if part exists
     const part = await PartsCatalog.findById(id);
     if (!part) {
-      console.log('❌ Part not found with ID:', id);
+      logger.warn('❌ Part not found with ID: ' + id);
       return res.status(404).json({
         success: false,
         message: 'Part not found'
       });
     }
 
-    console.log('✅ Found part:', part.partNumber);
+    logger.info('✅ Found part: ' + part.partNumber);
 
     // Check if part is used in any shop products
     const shopProductCount = await ShopProduct.countDocuments({
@@ -867,7 +854,7 @@ exports.deletePart = async (req, res) => {
     });
 
     if (shopProductCount > 0) {
-      console.log(`⚠️ Part is used in ${shopProductCount} shop products`);
+      logger.warn(`⚠️ Part is used in ${shopProductCount} shop products`);
       return res.status(400).json({
         success: false,
         message: `Cannot delete part. It is currently being used in ${shopProductCount} shop product(s). Please remove or deactivate those products first.`,
@@ -878,7 +865,7 @@ exports.deletePart = async (req, res) => {
     // Soft delete: Set isActive to false
     const deletedPart = await PartsCatalog.findByIdAndUpdate(
       id,
-      { 
+      {
         isActive: false,
         deletedAt: new Date()
       },
@@ -892,7 +879,7 @@ exports.deletePart = async (req, res) => {
       });
     }
 
-    console.log('✅ Part soft deleted successfully:', deletedPart._id);
+    logger.info('✅ Part soft deleted successfully: ' + deletedPart._id);
 
     res.json({
       success: true,
@@ -906,8 +893,7 @@ exports.deletePart = async (req, res) => {
     });
 
   } catch (err) {
-    console.error('❌ Delete Part Error:', err);
-    console.error('Error details:', err.message);
+    logger.error('❌ Delete Part Error: ' + err.message, { stack: err.stack });
     res.status(500).json({
       success: false,
       message: 'Failed to delete part',
@@ -921,8 +907,8 @@ exports.permanentDeletePart = async (req, res) => {
   try {
     const { id } = req.params;
 
-    console.log('🗑️ PERMANENT Delete Part Request');
-    console.log('📋 Part ID:', id);
+    logger.info('🗑️ PERMANENT Delete Part Request');
+    logger.info('📋 Part ID: ' + id);
 
     // Validate part ID
     if (!id || !mongoose.Types.ObjectId.isValid(id)) {
@@ -957,7 +943,7 @@ exports.permanentDeletePart = async (req, res) => {
     // Permanently delete the part
     await PartsCatalog.findByIdAndDelete(id);
 
-    console.log('✅ Part permanently deleted:', part.partNumber);
+    logger.info('✅ Part permanently deleted: ' + part.partNumber);
 
     res.json({
       success: true,
@@ -970,7 +956,7 @@ exports.permanentDeletePart = async (req, res) => {
     });
 
   } catch (err) {
-    console.error('❌ Permanent Delete Part Error:', err);
+    logger.error('❌ Permanent Delete Part Error: ' + err.message, { stack: err.stack });
     res.status(500).json({
       success: false,
       message: 'Failed to permanently delete part',

@@ -1,4 +1,5 @@
 const DeviceToken = require('../models/DeviceToken');
+const logger = require('../config/logger'); 
 
 /**
  * Link device_id / device_token to a user (e.g. after login).
@@ -18,7 +19,6 @@ async function linkDeviceToUser(userId, device_id, device_token) {
     updated_at: new Date(),
   });
 }
-
 exports.linkDeviceToUser = linkDeviceToUser;
 
 /**
@@ -38,8 +38,7 @@ exports.register = async (req, res) => {
       });
     }
 
-    console.log('registering FCM TOKEN', { device_id, device_token });
-
+    logger.info('registering FCM TOKEN: ' + JSON.stringify({ device_id, device_token }));
 
     const userId = req.user?.id || req.user?._id || null;
 
@@ -58,8 +57,9 @@ exports.register = async (req, res) => {
       message: 'Device registered successfully',
       data: { device_id: updated.device_id, linked: !!updated.user_id },
     });
+
   } catch (err) {
-    console.error('Device register error:', err);
+    logger.error('Device register error: ' + err.message, { stack: err.stack });
     return res.status(500).json({
       success: false,
       message: 'Failed to register device',

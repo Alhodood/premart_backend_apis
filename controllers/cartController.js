@@ -1,5 +1,6 @@
 const Cart = require('../models/Cart');
 const ShopProduct = require('../models/ShopProduct');
+const logger = require('../config/logger'); // ← only addition at top
 
 exports.addToCart = async (req, res) => {
   try {
@@ -33,7 +34,7 @@ exports.addToCart = async (req, res) => {
 
     return res.json({ success: true, message: 'Added to cart', data: cart });
   } catch (err) {
-    console.error(err);
+    logger.error('addToCart failed', { userId: req.params.userId, error: err.message, stack: err.stack }); // ← replaced console.error
     res.status(500).json({ success: false, message: 'Add to cart failed' });
   }
 };
@@ -52,6 +53,7 @@ exports.removeFromCart = async (req, res) => {
 
     res.json({ success: true, message: 'Removed from cart', data: cart });
   } catch (err) {
+    logger.error('removeFromCart failed', { userId: req.params.userId, error: err.message, stack: err.stack }); // ← was missing before
     res.status(500).json({ success: false, message: 'Remove failed' });
   }
 };
@@ -76,6 +78,7 @@ exports.updateQuantity = async (req, res) => {
 
     res.json({ success: true, message: 'Quantity updated', data: cart });
   } catch (err) {
+    logger.error('updateQuantity failed', { userId: req.params.userId, error: err.message, stack: err.stack }); // ← was missing before
     res.status(500).json({ success: false, message: 'Update failed' });
   }
 };
@@ -89,11 +92,11 @@ exports.getCart = async (req, res) => {
       populate: [
         {
           path: 'part',
-          populate: ['category', 'subCategory'] // PartsCatalog doesn't have brand/model directly
+          populate: ['category', 'subCategory']
         },
         {
           path: 'shopId',
-          select: 'shopeDetails' // Populate shop details
+          select: 'shopeDetails'
         }
       ]
     });
@@ -107,7 +110,6 @@ exports.getCart = async (req, res) => {
       const shop = shopProduct?.shopId;
       const shopDetails = shop?.shopeDetails;
 
-      // Format shop information
       const shopInfo = shop && shopDetails ? {
         _id: shop._id,
         shopName: shopDetails.shopName || null,
@@ -130,7 +132,7 @@ exports.getCart = async (req, res) => {
 
     res.json({ success: true, data: formatted });
   } catch (err) {
-    console.error(err);
+    logger.error('getCart failed', { userId: req.params.userId, error: err.message, stack: err.stack }); // ← replaced console.error
     res.status(500).json({ success: false, message: 'Fetch cart failed' });
   }
 };
@@ -141,6 +143,7 @@ exports.clearCart = async (req, res) => {
     await Cart.findOneAndUpdate({ userId }, { items: [] });
     res.json({ success: true, message: 'Cart cleared' });
   } catch (err) {
+    logger.error('clearCart failed', { userId: req.params.userId, error: err.message, stack: err.stack }); // ← was missing before
     res.status(500).json({ success: false, message: 'Clear failed' });
   }
 };

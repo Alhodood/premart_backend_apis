@@ -6,12 +6,11 @@ const {
   sendAgencyVerificationEmail
 } = require('../services/emailService');
 const DeliveryBoy = require('../models/DeliveryBoy');
-
+const logger = require('../config/logger');
 
 // ─────────────────────────────────────────────────────────────────────────────
 // CORE: Create notification in DB + emit via socket to correct room
 // ─────────────────────────────────────────────────────────────────────────────
-
 const createAndEmitNotification = async ({ title, message, type, role, targetId = null }) => {
   try {
     const notification = await SuperNotification.create({
@@ -23,19 +22,13 @@ const createAndEmitNotification = async ({ title, message, type, role, targetId 
       readBy: [],
       createdAt: new Date(),
     });
-
-    console.log(`🔔 Notification created: [${role}] ${title}`);
+    logger.info(`createAndEmitNotification: notification created`, { role, title, id: notification._id });
 
     try {
       const socketModule = require('../sockets/socket');
       const io = socketModule.getIO();
 
-      // ✅ Route to specific room:
-      // - shopAdmin with targetId  → shop_{shopId}    (only that shop)
-      // - agency with targetId     → agency_{agencyId} (only that agency)
-      // - superAdmin               → superAdmin room   (all super admins)
       let targetRoom;
-
       if (targetId && role === 'shopAdmin') {
         targetRoom = `shop_${targetId.toString()}`;
       } else if (targetId && role === 'agency') {
@@ -59,15 +52,15 @@ const createAndEmitNotification = async ({ title, message, type, role, targetId 
           readBy:    notification.readBy,
           createdAt: notification.createdAt,
         });
-        console.log(`📤 Emitted to room '${targetRoom}': ${title}`);
+        logger.info(`createAndEmitNotification: emitted to room`, { targetRoom, title });
       }
     } catch (socketErr) {
-      console.warn('⚠️ Socket emit skipped:', socketErr.message);
+      logger.warn('createAndEmitNotification: socket emit skipped', { error: socketErr.message });
     }
 
     return notification;
   } catch (err) {
-    console.error('❌ Notification error:', err.message);
+    logger.error('createAndEmitNotification: failed to create notification', { error: err });
     throw err;
   }
 };
@@ -86,21 +79,16 @@ exports.getNotifications = async (req, res) => {
     const page  = parseInt(req.query.page)  || 1;
     const limit = parseInt(req.query.limit) || 50;
     const skip  = (page - 1) * limit;
+    logger.info('getNotifications: request received', { role, userId, page, limit });
 
     if (!role) {
+      logger.warn('getNotifications: role parameter missing');
       return res.status(400).json({ success: false, message: 'role is required' });
     }
 
-    // Role filter — match role OR 'all'
-    const roleFilter = {
-      $or: [{ role }, { role: 'all' }]
-    };
+    const roleFilter = { $or: [{ role }, { role: 'all' }] };
 
-    // Target filter:
-    // superAdmin → no targetId filter (sees everything for superAdmin role)
-    // shopAdmin/agency → filter by their own ID
     let targetFilter = {};
-
     if (role !== 'superAdmin') {
       targetFilter = {
         $or: [
@@ -122,11 +110,11 @@ exports.getNotifications = async (req, res) => {
       .lean();
 
     const total = await SuperNotification.countDocuments(query);
-
     const unreadNotifications = userId
       ? notifications.filter(n => !n.readBy?.some(id => id.toString() === userId))
       : notifications;
 
+    logger.info('getNotifications: fetched successfully', { count: notifications.length, unreadCount: unreadNotifications.length });
     return res.status(200).json({
       success: true,
       message: 'Notifications fetched successfully',
@@ -137,7 +125,7 @@ exports.getNotifications = async (req, res) => {
       }
     });
   } catch (error) {
-    console.error('❌ Get notifications error:', error);
+    logger.error('getNotifications: failed to fetch notifications', { error });
     return res.status(500).json({
       success: false,
       message: 'Failed to fetch notifications',
@@ -153,13 +141,16 @@ exports.markAsRead = async (req, res) => {
   try {
     const { notificationId } = req.params;
     const { userId } = req.body;
+    logger.info('markAsRead: request received', { notificationId, userId });
 
     if (!userId) {
+      logger.warn('markAsRead: userId missing');
       return res.status(400).json({ success: false, message: 'userId is required' });
     }
 
     const notification = await SuperNotification.findById(notificationId);
     if (!notification) {
+      logger.warn('markAsRead: notification not found', { notificationId });
       return res.status(404).json({ success: false, message: 'Notification not found' });
     }
 
@@ -168,13 +159,14 @@ exports.markAsRead = async (req, res) => {
       await notification.save();
     }
 
+    logger.info('markAsRead: notification marked as read', { notificationId, userId });
     return res.status(200).json({
       success: true,
       message: 'Notification marked as read',
       data: notification
     });
   } catch (error) {
-    console.error('❌ Mark as read error:', error);
+    logger.error('markAsRead: failed to mark notification as read', { error });
     return res.status(500).json({
       success: false,
       message: 'Failed to mark notification as read',
@@ -189,25 +181,27 @@ exports.markAsRead = async (req, res) => {
 exports.markAllAsRead = async (req, res) => {
   try {
     const { userId, role } = req.body;
+    logger.info('markAllAsRead: request received', { userId, role });
 
     if (!userId) {
+      logger.warn('markAllAsRead: userId missing');
       return res.status(400).json({ success: false, message: 'userId is required' });
     }
 
     let query = { readBy: { $ne: userId } };
-
     if (role) {
       query.$or = [{ role }, { role: 'all' }];
     }
 
     await SuperNotification.updateMany(query, { $addToSet: { readBy: userId } });
 
+    logger.info('markAllAsRead: all notifications marked as read', { userId });
     return res.status(200).json({
       success: true,
       message: 'All notifications marked as read'
     });
   } catch (error) {
-    console.error('❌ Mark all as read error:', error);
+    logger.error('markAllAsRead: failed to mark all notifications as read', { error });
     return res.status(500).json({
       success: false,
       message: 'Failed to mark all notifications as read',
@@ -222,18 +216,21 @@ exports.markAllAsRead = async (req, res) => {
 exports.deleteNotification = async (req, res) => {
   try {
     const { notificationId } = req.params;
+    logger.info('deleteNotification: request received', { notificationId });
 
     const notification = await SuperNotification.findByIdAndDelete(notificationId);
     if (!notification) {
+      logger.warn('deleteNotification: notification not found', { notificationId });
       return res.status(404).json({ success: false, message: 'Notification not found' });
     }
 
+    logger.info('deleteNotification: notification deleted successfully', { notificationId });
     return res.status(200).json({
       success: true,
       message: 'Notification deleted successfully'
     });
   } catch (error) {
-    console.error('❌ Delete notification error:', error);
+    logger.error('deleteNotification: failed to delete notification', { error });
     return res.status(500).json({
       success: false,
       message: 'Failed to delete notification',
@@ -245,7 +242,6 @@ exports.deleteNotification = async (req, res) => {
 // ─────────────────────────────────────────────────────────────────────────────
 // HELPER: Legacy createNotification (kept for backward compatibility)
 // ─────────────────────────────────────────────────────────────────────────────
-
 exports.createNotification = async ({
   title,
   message,
@@ -262,12 +258,10 @@ exports.createNotification = async ({
 // ─────────────────────────────────────────────────────────────────────────────
 // NEW ORDER — notify shop + super admin
 // ─────────────────────────────────────────────────────────────────────────────
-
 exports.notifyNewOrder = async (order, shop) => {
   const shopName = shop?.shopeDetails?.shopName || 'Unknown Shop';
   const shortId  = order._id?.toString()?.slice(-6);
 
-  // ✅ Notify the specific shop that received the order
   await createAndEmitNotification({
     title:    '🛒 New Order Received',
     message:  `Order #${shortId} — AED ${order.totalPayable || '0'}`,
@@ -276,7 +270,6 @@ exports.notifyNewOrder = async (order, shop) => {
     targetId: order.shopId?.toString(),
   });
 
-  // ✅ Notify super admin about new platform order
   await createAndEmitNotification({
     title:    '🛒 New Order on Platform',
     message:  `${shopName} received order #${shortId} — AED ${order.totalPayable || '0'}`,
@@ -289,7 +282,6 @@ exports.notifyNewOrder = async (order, shop) => {
 // ─────────────────────────────────────────────────────────────────────────────
 // ORDER STATUS CHANGE — notify shop always; on Delivered also agency + super admin
 // ─────────────────────────────────────────────────────────────────────────────
-
 exports.notifyOrderStatusChange = async (order, newStatus, shop) => {
   try {
     const shopName = shop?.shopeDetails?.shopName || 'Unknown Shop';
@@ -297,7 +289,6 @@ exports.notifyOrderStatusChange = async (order, newStatus, shop) => {
     const orderId  = order._id.toString();
     const shortId  = orderId.slice(-6);
 
-    // ✅ Always notify the specific shop about status change
     await createAndEmitNotification({
       title:    `Order ${newStatus}`,
       message:  `Order #${shortId} is now ${newStatus}`,
@@ -306,10 +297,7 @@ exports.notifyOrderStatusChange = async (order, newStatus, shop) => {
       targetId: order.shopId,
     });
 
-    // ✅ On Delivered — notify agency + super admin
     if (newStatus === 'Delivered') {
-
-      // ✅ 1. Find delivery boy's agency and notify them
       if (order.assignedDeliveryBoy) {
         try {
           const deliveryBoy = await DeliveryBoy.findById(order.assignedDeliveryBoy).lean();
@@ -321,14 +309,13 @@ exports.notifyOrderStatusChange = async (order, newStatus, shop) => {
               role:     'agency',
               targetId: deliveryBoy.agencyId,
             });
-            console.log(`✅ Agency ${deliveryBoy.agencyId} notified of delivery`);
+            logger.info('notifyOrderStatusChange: agency notified of delivery', { agencyId: deliveryBoy.agencyId });
           }
         } catch (dbErr) {
-          console.warn('⚠️ Could not fetch delivery boy for agency notification:', dbErr.message);
+          logger.warn('notifyOrderStatusChange: could not fetch delivery boy for agency notification', { error: dbErr.message });
         }
       }
 
-      // ✅ 2. Notify super admin
       await createAndEmitNotification({
         title:    '✅ Order Delivered',
         message:  `${shopName} — Order #${shortId} delivered. AED ${amount}`,
@@ -338,28 +325,26 @@ exports.notifyOrderStatusChange = async (order, newStatus, shop) => {
       });
     }
 
-    // ✅ Send email to customer
     try {
       const User = require('../models/User');
       const user = await User.findById(order.userId);
       if (user?.email) {
         await sendOrderStatusEmail(user.email, orderId, newStatus, order);
-        console.log(`✅ Order status email sent to: ${user.email}`);
+        logger.info('notifyOrderStatusChange: order status email sent', { email: user.email, newStatus });
       }
     } catch (emailErr) {
-      console.warn('⚠️ Order status email failed:', emailErr.message);
+      logger.warn('notifyOrderStatusChange: order status email failed', { error: emailErr.message });
     }
 
-    console.log(`✅ Order status notifications sent: ${newStatus}`);
+    logger.info('notifyOrderStatusChange: all notifications sent', { newStatus, orderId });
   } catch (error) {
-    console.error('❌ Notify order status change error:', error);
+    logger.error('notifyOrderStatusChange: failed', { error });
   }
 };
 
 // ─────────────────────────────────────────────────────────────────────────────
 // DELIVERY ASSIGNED — notify agency
 // ─────────────────────────────────────────────────────────────────────────────
-
 exports.notifyDeliveryAssigned = async (order, agencyId) =>
   createAndEmitNotification({
     title:    '📦 New Delivery Assigned',
@@ -372,10 +357,6 @@ exports.notifyDeliveryAssigned = async (order, agencyId) =>
 // ─────────────────────────────────────────────────────────────────────────────
 // PAYOUT NOTIFICATIONS — targeted to specific shop / agency
 // ─────────────────────────────────────────────────────────────────────────────
-
-/**
- * Call after creating/updating a ShopPayout
- */
 exports.notifyShopPayout = async (payout, shopId) => {
   try {
     const amount = payout.netPayable?.toFixed(2) || payout.totalEarnings?.toFixed(2) || '0';
@@ -386,15 +367,12 @@ exports.notifyShopPayout = async (payout, shopId) => {
       role:     'shopAdmin',
       targetId: shopId,
     });
-    console.log(`✅ Shop payout notification sent to shop: ${shopId}`);
+    logger.info('notifyShopPayout: shop payout notification sent', { shopId, amount });
   } catch (error) {
-    console.error('❌ Shop payout notification error:', error);
+    logger.error('notifyShopPayout: failed', { error });
   }
 };
 
-/**
- * Call after creating/updating an AgencyPayout
- */
 exports.notifyAgencyPayment = async (payout, agencyId) => {
   try {
     const amount = payout.totalEarnings?.toFixed(2) || '0';
@@ -405,31 +383,28 @@ exports.notifyAgencyPayment = async (payout, agencyId) => {
       role:     'agency',
       targetId: agencyId,
     });
-    console.log(`✅ Agency payout notification sent to agency: ${agencyId}`);
+    logger.info('notifyAgencyPayment: agency payout notification sent', { agencyId, amount });
   } catch (error) {
-    console.error('❌ Agency payout notification error:', error);
+    logger.error('notifyAgencyPayment: failed', { error });
   }
 };
 
 // ─────────────────────────────────────────────────────────────────────────────
 // VERIFICATION — shop/agency verified or rejected
 // ─────────────────────────────────────────────────────────────────────────────
-
 exports.notifyShopVerification = async (shop, isVerified) => {
   const shopName = shop.shopeDetails?.shopName || 'Your Shop';
 
-  // Send email to shop
   try {
     const shopEmail = shop.shopeDetails?.shopMail || shop.shopeDetails?.shopEmail || shop.email;
     if (shopEmail) {
       await sendShopVerificationEmail(shopEmail, shopName, isVerified);
-      console.log(`✅ Shop verification email sent to: ${shopEmail}`);
+      logger.info('notifyShopVerification: verification email sent', { shopEmail, isVerified });
     }
   } catch (emailErr) {
-    console.error('❌ Shop verification email failed:', emailErr.message);
+    logger.error('notifyShopVerification: verification email failed', { error: emailErr.message });
   }
 
-  // ✅ Notify the specific shop
   await createAndEmitNotification({
     title:    isVerified ? '✅ Shop Verified' : '❌ Verification Rejected',
     message:  isVerified
@@ -440,7 +415,6 @@ exports.notifyShopVerification = async (shop, isVerified) => {
     targetId: shop._id,
   });
 
-  // ✅ Notify super admin of the action
   await createAndEmitNotification({
     title:    `Shop ${isVerified ? 'Verified' : 'Rejected'}`,
     message:  `${shopName} has been ${isVerified ? 'verified and is now live' : 'rejected'}`,
@@ -453,18 +427,16 @@ exports.notifyShopVerification = async (shop, isVerified) => {
 exports.notifyAgencyVerification = async (agency, isVerified) => {
   const agencyName = agency.agencyDetails?.agencyName || 'Your Agency';
 
-  // Send email to agency
   try {
     const agencyEmail = agency.agencyDetails?.agencyMail || agency.agencyDetails?.email || agency.email;
     if (agencyEmail) {
       await sendAgencyVerificationEmail(agencyEmail, agencyName, isVerified);
-      console.log(`✅ Agency verification email sent to: ${agencyEmail}`);
+      logger.info('notifyAgencyVerification: verification email sent', { agencyEmail, isVerified });
     }
   } catch (emailErr) {
-    console.error('❌ Agency verification email failed:', emailErr.message);
+    logger.error('notifyAgencyVerification: verification email failed', { error: emailErr.message });
   }
 
-  // ✅ Notify the specific agency
   await createAndEmitNotification({
     title:    isVerified ? '✅ Agency Verified' : '❌ Verification Rejected',
     message:  isVerified
@@ -475,7 +447,6 @@ exports.notifyAgencyVerification = async (agency, isVerified) => {
     targetId: agency._id,
   });
 
-  // ✅ Notify super admin of the action
   await createAndEmitNotification({
     title:    `Agency ${isVerified ? 'Verified' : 'Rejected'}`,
     message:  `${agencyName} has been ${isVerified ? 'verified and is now active' : 'rejected'}`,
@@ -488,7 +459,6 @@ exports.notifyAgencyVerification = async (agency, isVerified) => {
 // ─────────────────────────────────────────────────────────────────────────────
 // REGISTRATION — notify super admin of new shop/agency signup
 // ─────────────────────────────────────────────────────────────────────────────
-
 exports.notifyRegistrationRequest = async (entityType, entityId, entityName) =>
   createAndEmitNotification({
     title:    `New ${entityType} Registration`,

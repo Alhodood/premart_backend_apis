@@ -2,11 +2,10 @@ const Notification = require('../models/superNotification');
 const socketService = require('../sockets/socket');
 const { sendPushToUser, sendPushToToken } = require('../helper/fcmPushHelper');
 const { notifyUser } = require('../helper/notificationHelper');
+const logger = require('../config/logger'); // ← only addition at top
 
 const DEFAULT_TITLE = 'Notification';
 const NOTIFICATION_TYPE_INFO = 'info';
-
-
 
 exports.createNotification = async (req, res) => {
   try {
@@ -39,17 +38,14 @@ exports.createNotification = async (req, res) => {
       const messageText = message || '';
       const data = { notificationId: String(notification._id) };
 
-      // Targeted users: UserNotification + socket + push via notifyUser (same as orderController)
       if (recipientIds.length > 0) {
         for (const uid of recipientIds) {
           const uidStr = normalizeUserId(uid);
           if (!uidStr) continue;
           await notifyUser(uidStr, titleText, messageText, data, NOTIFICATION_TYPE_INFO)
-            .catch((e) => console.warn('SuperNotification notify user failed:', uidStr, e.message));
+            .catch((e) => logger.warn('SuperNotification notify user failed', { userId: uidStr, error: e.message })); // ← replaced console.warn
         }
-      }
-      // Delivery boys: socket + push via activeDeviceToken (no UserNotification)
-      else if (role === 'deliveryBoy') {
+      } else if (role === 'deliveryBoy') {
         const DeliveryBoy = require('../models/DeliveryBoy');
         const io = socketService.getIO();
         const payload = buildSocketPayload(notification, title, message, image);
@@ -64,10 +60,7 @@ exports.createNotification = async (req, res) => {
             await sendPushToUser(uidStr, titleText, messageText, data).catch(() => {});
           }
         }
-      }
-      // Broadcast to customers / all: UserNotification + socket + push via notifyUser (linked users)
-      // + push to devices that registered but have no user_id (guest/unregistered)
-      else if (role === 'customer' || role === 'all') {
+      } else if (role === 'customer' || role === 'all') {
         const DeviceToken = require('../models/DeviceToken');
         const userIds = await DeviceToken.distinct('user_id', { user_id: { $ne: null } });
 
@@ -75,16 +68,14 @@ exports.createNotification = async (req, res) => {
           const uidStr = normalizeUserId(uid);
           if (!uidStr) continue;
           await notifyUser(uidStr, titleText, messageText, data, NOTIFICATION_TYPE_INFO)
-            .catch((e) => console.warn('SuperNotification notify user failed:', uidStr, e.message));
+            .catch((e) => logger.warn('SuperNotification notify user failed', { userId: uidStr, error: e.message })); // ← replaced console.warn
         }
 
-        // Also send push to devices that registered (have token) but are not linked to a user (user_id null)
         const guestTokens = await DeviceToken.find({ user_id: null }).select('device_token').lean();
         for (const { device_token } of guestTokens) {
           if (device_token) {
-            await sendPushToToken(device_token, titleText, messageText, data).catch((e) =>
-              console.warn('SuperNotification push to guest device failed:', e.message)
-            );
+            await sendPushToToken(device_token, titleText, messageText, data)
+              .catch((e) => logger.warn('SuperNotification push to guest device failed', { error: e.message })); // ← replaced console.warn
           }
         }
       }
@@ -96,7 +87,7 @@ exports.createNotification = async (req, res) => {
       data: notification
     });
   } catch (err) {
-    console.error('Create notification failed:', err);
+    logger.error('createNotification failed', { creatorId: req.params.creatorId, error: err.message, stack: err.stack }); // ← replaced console.error
     return res.status(500).json({
       success: false,
       message: 'Failed to create notification',
@@ -120,23 +111,14 @@ function buildSocketPayload(notification, title, message, image) {
   };
 }
 
-
 exports.getAllNotifications = async (req, res) => {
   try {
     const {
-      search,
-      role,
-      type,
-      from,
-      to,
-      page = 1,
-      limit = 10,
-      status,
-      sendNowOnly
+      search, role, type, from, to,
+      page = 1, limit = 10, status, sendNowOnly
     } = req.query;
 
     let filter = {};
-
     if (search) {
       filter.$or = [
         { title: new RegExp(search, 'i') },
@@ -144,7 +126,6 @@ exports.getAllNotifications = async (req, res) => {
       ];
     }
     if (role && role !== 'all') filter.role = role;
-
     if (type === 'Scheduled') {
       filter.isScheduled = true;
       filter.scheduledAt = { $gt: new Date() };
@@ -152,16 +133,9 @@ exports.getAllNotifications = async (req, res) => {
       filter.isScheduled = true;
       filter.scheduledAt = { $lte: new Date() };
     }
-
-    if (sendNowOnly === 'true') {
-      filter.isScheduled = false;
-    }
-
+    if (sendNowOnly === 'true') filter.isScheduled = false;
     if (from && to) {
-      filter.createdAt = {
-        $gte: new Date(from),
-        $lte: new Date(to)
-      };
+      filter.createdAt = { $gte: new Date(from), $lte: new Date(to) };
     }
 
     const data = await Notification.find(filter)
@@ -174,17 +148,15 @@ exports.getAllNotifications = async (req, res) => {
     res.status(200).json({
       message: 'Notifications fetched successfully',
       success: true,
-      total,
-      page,
+      total, page,
       limit: parseInt(limit),
       data
     });
-
   } catch (err) {
+    logger.error('getAllNotifications failed', { query: req.query, error: err.message, stack: err.stack }); // ← was missing before
     res.status(500).json({ message: 'Error fetching notifications', success: false, data: err.message });
   }
 };
-
 
 exports.getAllNotificationsAdmin = async (req, res) => {
   try {
@@ -212,73 +184,55 @@ exports.getAllNotificationsAdmin = async (req, res) => {
     res.status(200).json({
       message: 'Notifications fetched successfully',
       success: true,
-      total,
-      page,
-      limit,
+      total, page, limit,
       data: formattedData
     });
-
   } catch (err) {
+    logger.error('getAllNotificationsAdmin failed', { error: err.message, stack: err.stack }); // ← was missing before
     res.status(500).json({ message: 'Error fetching notifications', success: false, data: err.message });
   }
 };
 
-
 exports.getMyNotifications = async (req, res) => {
   try {
     const userId = req.params.userId;
-
     const data = await Notification.find({
-      $or: [
-        { role: 'all' },
-        { recipientIds: userId }
-      ]
+      $or: [{ role: 'all' }, { recipientIds: userId }]
     }).sort({ createdAt: -1 });
 
-    res.status(200).json({
-      message: 'My notifications',
-      success: true,
-      data
-    });
-
+    res.status(200).json({ message: 'My notifications', success: true, data });
   } catch (err) {
+    logger.error('getMyNotifications failed', { userId: req.params.userId, error: err.message, stack: err.stack }); // ← was missing before
     res.status(500).json({ message: 'Error', success: false, data: err.message });
   }
 };
+
 exports.getAllUserNotifications = async (req, res) => {
   try {
     const userId = req.params.userId;
-
     const notifications = await Notification.find({
       $or: [
         { role: 'all' },
-        { role: req.query.role || 'customer' }, // optional: filter by role
-        { recipientIds: userId } // targeted notifications
+        { role: req.query.role || 'customer' },
+        { recipientIds: userId }
       ],
-      readBy: { $ne: userId } // exclude notifications already read
-    })
-    .sort({ createdAt: -1 }); // optional: latest first
+      readBy: { $ne: userId }
+    }).sort({ createdAt: -1 });
 
     res.status(200).json({
       success: true,
       message: 'Unread notifications fetched successfully',
       data: notifications
     });
-    
   } catch (err) {
-    res.status(500).json({
-      success: false,
-      message: 'Failed to fetch notifications',
-      error: err.message
-    });
+    logger.error('getAllUserNotifications failed', { userId: req.params.userId, error: err.message, stack: err.stack }); // ← was missing before
+    res.status(500).json({ success: false, message: 'Failed to fetch notifications', error: err.message });
   }
 };
-
 
 exports.markAsRead = async (req, res) => {
   try {
     const notification = await Notification.findById(req.params.notificationId);
-
     if (!notification) {
       return res.status(404).json({ message: 'Notification not found', success: false });
     }
@@ -289,22 +243,18 @@ exports.markAsRead = async (req, res) => {
       await notification.save();
     }
 
-    res.status(200).json({
-      message: 'Marked as read',
-      success: true
-    });
-
+    res.status(200).json({ message: 'Marked as read', success: true });
   } catch (err) {
+    logger.error('markAsRead failed', { notificationId: req.params.notificationId, userId: req.params.userId, error: err.message, stack: err.stack }); // ← was missing before
     res.status(500).json({ message: 'Failed to mark as read', success: false, data: err.message });
   }
 };
 
-
 exports.updateNotification = async (req, res) => {
   try {
     const notificationId = req.params.id;
-    // Ensure notification exists and is scheduled
     const notification = await Notification.findById(notificationId);
+
     if (!notification) {
       return res.status(404).json({ message: 'Notification not found', success: false });
     }
@@ -312,28 +262,26 @@ exports.updateNotification = async (req, res) => {
       return res.status(400).json({ message: 'Only scheduled notifications can be updated', success: false });
     }
 
-    // Perform update and return the new document
     const updated = await Notification.findByIdAndUpdate(
       notificationId,
       req.body,
       { new: true, runValidators: true }
     );
+
     return res.status(200).json({ message: 'Notification updated', success: true, data: updated });
   } catch (err) {
+    logger.error('updateNotification failed', { notificationId: req.params.id, error: err.message, stack: err.stack }); // ← was missing before
     return res.status(500).json({ message: 'Update failed', success: false, data: err.message });
   }
 };
-
-
 
 exports.deleteNotification = async (req, res) => {
   try {
     const result = await Notification.findByIdAndDelete(req.params.id);
     if (!result) return res.status(404).json({ message: 'Not found', success: false });
-
     res.status(200).json({ message: 'Deleted successfully', success: true });
-
   } catch (err) {
+    logger.error('deleteNotification failed', { notificationId: req.params.id, error: err.message, stack: err.stack }); // ← was missing before
     res.status(500).json({ message: 'Delete failed', success: false, data: err.message });
   }
 };
