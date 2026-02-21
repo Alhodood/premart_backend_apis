@@ -2,10 +2,11 @@ const Order = require('../models/Order');
 const User = require('../models/User');
 const mongoose = require('mongoose');
 const { Shop } = require('../models/Shop');
+const logger = require('../config/logger'); // ← Winston logger
 
 exports.getSuperAdminDashboard = async (req, res) => {
   try {
-    console.log('📊 Fetching Super Admin Dashboard Analytics');
+    logger.info('📊 Fetching Super Admin Dashboard Analytics');
 
     const now = new Date();
     const currentMonthStart = new Date(now.getFullYear(), now.getMonth(), 1);
@@ -24,7 +25,6 @@ exports.getSuperAdminDashboard = async (req, res) => {
       if (current === 0 && previous > 0) return '-100%';
       const percentChange = ((current - previous) / previous) * 100;
       const rounded = Math.round(percentChange);
-      // ✅ Cap at ±999% — avoids 4-digit growth confusion
       if (rounded > 999) return '+999%+';
       if (rounded < -999) return '-999%+';
       const sign = rounded >= 0 ? '+' : '';
@@ -86,7 +86,7 @@ exports.getSuperAdminDashboard = async (req, res) => {
       payableThisMonth = agencyPayThisMonth[0]?.total || 0;
       payableLastMonth = agencyPayLastMonth[0]?.total || 0;
     } catch (error) {
-      console.log('⚠️ Agency payable calculation failed:', error.message);
+      logger.warn(`⚠️ Agency payable calculation failed: ${error.message}`);
     }
 
     // ── Top products (paid + delivered) ─────────────────────────────────
@@ -123,20 +123,16 @@ exports.getSuperAdminDashboard = async (req, res) => {
         topSellingProductsLastAmount = topProductSalesLastMonthAgg[0]?.totalAmount || 0;
       }
     } catch (error) {
-      console.log('⚠️ Top products calculation failed:', error.message);
+      logger.warn(`⚠️ Top products calculation failed: ${error.message}`);
     }
 
-    // ── Visitors — ✅ FIX: show new signups this month, not all-time ────
+    // ── Visitors ─────────────────────────────────────────────────────────
     const [newVisitorsThisMonth, newVisitorsLastMonth] = await Promise.all([
       User.countDocuments({ role: 'CUSTOMER', createdAt: { $gte: currentMonthStart } }),
       User.countDocuments({ role: 'CUSTOMER', createdAt: { $gte: lastMonthStart, $lt: currentMonthStart } }),
     ]);
 
-    // ════════════════════════════════════════════════════════════════════
-    // ✅ NEW CARD 1: Pending Orders Value (AED)
-    //    Total AED value of orders stuck in pipeline (Pending/Processing)
-    //    Tells super admin how much revenue is awaiting delivery
-    // ════════════════════════════════════════════════════════════════════
+    // ── Pending Orders Value ─────────────────────────────────────────────
     const [pendingAgg, pendingLastAgg] = await Promise.all([
       Order.aggregate([
         {
@@ -190,12 +186,7 @@ exports.getSuperAdminDashboard = async (req, res) => {
     const pendingOrdersCount     = pendingAgg[0]?.count      || 0;
     const pendingOrdersLastValue = pendingLastAgg[0]?.totalValue || 0;
 
-    // ════════════════════════════════════════════════════════════════════
-    // ✅ NEW CARD 2: Delivery Success Rate (%)
-    //    Delivered / (Delivered + Cancelled) × 100
-    //    Measures how well orders are actually reaching customers
-    //    Growth = this month rate vs last month rate (point change)
-    // ════════════════════════════════════════════════════════════════════
+    // ── Delivery Success Rate ────────────────────────────────────────────
     const [deliveredThis, cancelledThis, deliveredLast, cancelledLast] =
       await Promise.all([
         Order.countDocuments({ createdAt: { $gte: currentMonthStart }, status: 'Delivered' }),
@@ -206,23 +197,14 @@ exports.getSuperAdminDashboard = async (req, res) => {
 
     const closedThis = deliveredThis + cancelledThis;
     const closedLast = deliveredLast + cancelledLast;
-
     const deliveryRate     = closedThis > 0 ? Math.round((deliveredThis / closedThis) * 100) : 0;
     const deliveryRateLast = closedLast > 0 ? Math.round((deliveredLast / closedLast) * 100) : 0;
 
-    // ════════════════════════════════════════════════════════════════════
-    // ✅ NEW CARD 3: Average Order Value (AED)
-    //    Total paid sales ÷ Total paid orders
-    //    Key metric to track spend per order over time
-    // ════════════════════════════════════════════════════════════════════
-    const avgOrderValue     = totalOrders   > 0 ? Math.round(totalSalesAmount    / totalOrders)   : 0;
+    // ── Average Order Value ──────────────────────────────────────────────
+    const avgOrderValue     = totalOrders    > 0 ? Math.round(totalSalesAmount    / totalOrders)    : 0;
     const avgOrderValueLast = previousOrders > 0 ? Math.round(previousSalesAmount / previousOrders) : 0;
 
-    // ════════════════════════════════════════════════════════════════════
-    // ✅ NEW CARD 4: Active Shops
-    //    Shops that have at least 1 paid order this month
-    //    Shows platform breadth — how many shops are actually earning
-    // ════════════════════════════════════════════════════════════════════
+    // ── Active Shops ─────────────────────────────────────────────────────
     let activeShopsThis = 0;
     let activeShopsLast = 0;
     try {
@@ -238,67 +220,54 @@ exports.getSuperAdminDashboard = async (req, res) => {
           { $count: 'total' },
         ]),
       ]);
-      activeShopsThis = activeAgg[0]?.total      || 0;
-      activeShopsLast = activeLastAgg[0]?.total  || 0;
+      activeShopsThis = activeAgg[0]?.total     || 0;
+      activeShopsLast = activeLastAgg[0]?.total || 0;
     } catch (error) {
-      console.log('⚠️ Active shops calculation failed:', error.message);
+      logger.warn(`⚠️ Active shops calculation failed: ${error.message}`);
     }
 
-    console.log('📊 Dashboard Stats:', {
+    logger.info(`📊 Dashboard Stats: ${JSON.stringify({
       totalSales: totalSalesAmount, totalOrders,
       pendingOrdersValue, pendingOrdersCount,
       deliveryRate, avgOrderValue, activeShopsThis,
-    });
+    })}`);
 
     const responseData = {
       currentMonthLabel,
-
-      // ── Existing 6 cards ─────────────────────────────────────────────
       totalSalesAmount: Math.round(totalSalesAmount).toString(),
       salesGrowth: getGrowth(totalSalesAmount, previousSalesAmount),
       salesDateCompared: lastMonthLabel,
-
       totalOrders,
       orderGrowth: getGrowth(totalOrders, previousOrders),
       orderDateCompared: lastMonthLabel,
-
       payableToAgencies: Math.round(payableThisMonth).toString(),
       payableToAgenciesGrowth: getGrowth(payableThisMonth, payableLastMonth),
       payableToAgenciesDateCompared: lastMonthLabel,
-
       topSellingProductsTotalAmount: Math.round(topSellingProductsTotalAmount).toString(),
       topSellingProductsGrowth: getGrowth(topSellingProductsTotalAmount, topSellingProductsLastAmount),
       topSellingProductsDateCompared: lastMonthLabel,
-
       couponTotalUsageCount: couponOrdersThisMonth,
       couponGrowth: getGrowth(couponOrdersThisMonth, couponOrdersLastMonth),
       couponDateCompared: lastMonthLabel,
-
-      // ✅ FIX: new signups this month (not all-time)
       totalVisitors: newVisitorsThisMonth,
       visitorGrowth: getGrowth(newVisitorsThisMonth, newVisitorsLastMonth),
       visitorDateCompared: lastMonthLabel,
-
-      // ── 4 New cards ───────────────────────────────────────────────────
       pendingOrdersValue: Math.round(pendingOrdersValue).toString(),
       pendingOrdersCount,
       pendingOrdersGrowth: getGrowth(pendingOrdersValue, pendingOrdersLastValue),
       pendingOrdersDateCompared: lastMonthLabel,
-
       deliverySuccessRate: deliveryRate,
       deliverySuccessRateGrowth: getGrowth(deliveryRate, deliveryRateLast),
       deliverySuccessRateDateCompared: lastMonthLabel,
-
       avgOrderValue: avgOrderValue.toString(),
       avgOrderValueGrowth: getGrowth(avgOrderValue, avgOrderValueLast),
       avgOrderValueDateCompared: lastMonthLabel,
-
       activeShops: activeShopsThis,
       activeShopsGrowth: getGrowth(activeShopsThis, activeShopsLast),
       activeShopsDateCompared: lastMonthLabel,
     };
 
-    console.log('✅ Response data:', JSON.stringify(responseData, null, 2));
+    logger.info(`✅ Response data: ${JSON.stringify(responseData, null, 2)}`);
 
     res.status(200).json({
       message: 'Super Admin Dashboard Analytics',
@@ -306,14 +275,14 @@ exports.getSuperAdminDashboard = async (req, res) => {
       data: responseData,
     });
   } catch (err) {
-    console.error('❌ Super Admin Dashboard Error:', err);
+    logger.error('❌ Super Admin Dashboard Error:', err);
     res.status(500).json({ message: 'Failed to fetch Super Admin Dashboard', success: false, error: err.message });
   }
 };
 
 exports.getWeeklySales = async (req, res) => {
   try {
-    console.log('📊 Fetching Weekly Sales Data');
+    logger.info('📊 Fetching Weekly Sales Data');
 
     const { startDate, endDate } = req.query;
     let start, end;
@@ -334,7 +303,7 @@ exports.getWeeklySales = async (req, res) => {
       start.setUTCHours(0, 0, 0, 0);
     }
 
-    console.log(`📅 Query range: ${start.toISOString()} to ${end.toISOString()}`);
+    logger.info(`📅 Query range: ${start.toISOString()} to ${end.toISOString()}`);
 
     const weeklySales = await Order.aggregate([
       { $match: { status: 'Delivered', createdAt: { $gte: start, $lte: end } } },
@@ -385,7 +354,7 @@ exports.getWeeklySales = async (req, res) => {
       dateRange: { start: start.toISOString(), end: end.toISOString() },
     });
   } catch (err) {
-    console.error('❌ Weekly Sales Error:', err);
+    logger.error('❌ Weekly Sales Error:', err);
     res.status(500).json({ message: 'Failed to fetch weekly sales', success: false, error: err.message });
   }
 };
@@ -412,11 +381,10 @@ exports.getOrderStatusDistribution = async (req, res) => {
     ]);
 
     const total = orderStatuses.reduce((sum, item) => sum + item.count, 0);
-
     const formattedData = orderStatuses.map((item) => ({
       status: item._id || 'Unknown',
       count: item.count,
-      totalAmount: Math.round(item.totalAmount),         // ✅ ADD THIS
+      totalAmount: Math.round(item.totalAmount),
       percentage: total > 0 ? Math.round((item.count / total) * 100) : 0,
     }));
 
@@ -426,11 +394,10 @@ exports.getOrderStatusDistribution = async (req, res) => {
       data: formattedData,
     });
   } catch (err) {
-    console.error('❌ Order Status Distribution Error:', err);
+    logger.error('❌ Order Status Distribution Error:', err);
     res.status(500).json({ message: 'Failed to fetch order status distribution', success: false, error: err.message });
   }
 };
-
 
 // Helper: sum totalPayable (handles string/number types)
 const sumPayableExpr = {
@@ -480,7 +447,6 @@ exports.getShopDashboardByShopId = async (req, res) => {
     const curR     = { $gte: curStart };
     const preR     = { $gte: preStart, $lt: curStart };
 
-    // Helper: sum totalPayable
     const sumPayable = {
       $sum: {
         $cond: [
@@ -491,11 +457,8 @@ exports.getShopDashboardByShopId = async (req, res) => {
       },
     };
 
-    console.log(`📊 Fetching shop dashboard for shopId: ${shopId}`);
+    logger.info(`📊 Fetching shop dashboard for shopId: ${shopId}`);
 
-    // ══════════════════════════════════════════════════════════════════════════
-    // PARALLEL DATA FETCHING FOR MAXIMUM PERFORMANCE
-    // ══════════════════════════════════════════════════════════════════════════
     const [
       thisSales, lastSales,
       ordersThis, ordersLast,
@@ -537,33 +500,27 @@ exports.getShopDashboardByShopId = async (req, res) => {
       ]),
     ]);
 
-    const revThis    = thisSales[0]?.v   || 0;
-    const revLast    = lastSales[0]?.v   || 0;
-    const avgThis    = ordersThis > 0 ? Math.round(revThis  / ordersThis)   : 0;
-    const avgLast    = ordersLast > 0 ? Math.round(revLast  / ordersLast)   : 0;
-    const pndVal     = pendingAgg[0]?.value  || 0;
-    const pndCnt     = pendingAgg[0]?.count  || 0;
-    const pndLast    = pendingPreAgg[0]?.value || 0;
+    const revThis = thisSales[0]?.v || 0;
+    const revLast = lastSales[0]?.v || 0;
+    const avgThis = ordersThis > 0 ? Math.round(revThis / ordersThis) : 0;
+    const avgLast = ordersLast > 0 ? Math.round(revLast / ordersLast) : 0;
+    const pndVal  = pendingAgg[0]?.value  || 0;
+    const pndCnt  = pendingAgg[0]?.count  || 0;
+    const pndLast = pendingPreAgg[0]?.value || 0;
+
     const closedThis = delivThis + cancelThis;
     const closedLast = delivLast + cancelLast;
-    const fulRate    = closedThis > 0 ? Math.round((delivThis / closedThis) * 100) : 0;
-    const fulLast    = closedLast > 0 ? Math.round((delivLast / closedLast) * 100) : 0;
-    const repThis    = repeatAgg[0]?.c   || 0;
-    const repLast    = repeatPreAgg[0]?.c || 0;
+    const fulRate = closedThis > 0 ? Math.round((delivThis / closedThis) * 100) : 0;
+    const fulLast = closedLast > 0 ? Math.round((delivLast / closedLast) * 100) : 0;
 
-    // ══════════════════════════════════════════════════════════════════════════
-    // 🆕 NEW: CONVERSION RATE
-    // ══════════════════════════════════════════════════════════════════════════
-    const conversionRate = totalOrdersAll > 0 
-      ? Math.round((ordersThis / totalOrdersAll) * 100) 
-      : 0;
-    const conversionRateLast = totalOrdersAllLast > 0 
-      ? Math.round((ordersLast / totalOrdersAllLast) * 100) 
-      : 0;
+    const repThis = repeatAgg[0]?.c    || 0;
+    const repLast = repeatPreAgg[0]?.c || 0;
 
-    // ══════════════════════════════════════════════════════════════════════════
-    // 🆕 NEW: AVERAGE DELIVERY TIME
-    // ══════════════════════════════════════════════════════════════════════════
+    // Conversion Rate
+    const conversionRate     = totalOrdersAll     > 0 ? Math.round((ordersThis / totalOrdersAll)     * 100) : 0;
+    const conversionRateLast = totalOrdersAllLast > 0 ? Math.round((ordersLast / totalOrdersAllLast) * 100) : 0;
+
+    // Average Delivery Time
     const deliveredOrders = await Order.find({
       shopId: shopOid,
       status: 'Delivered',
@@ -582,9 +539,7 @@ exports.getShopDashboardByShopId = async (req, res) => {
       avgDeliveryTime = parseFloat((totalDays / deliveredOrders.length).toFixed(1));
     }
 
-    // ══════════════════════════════════════════════════════════════════════════
-    // 🆕 NEW: CUSTOMER SATISFACTION
-    // ══════════════════════════════════════════════════════════════════════════
+    // Customer Satisfaction
     let avgRating = 0;
     let reviewCount = 0;
     try {
@@ -592,19 +547,16 @@ exports.getShopDashboardByShopId = async (req, res) => {
       const reviews = await Review.find({ shopId: shopOid });
       if (reviews.length > 0) {
         const totalRating = reviews.reduce((sum, r) => sum + (r.rating || 0), 0);
-        avgRating = parseFloat((totalRating / reviews.length).toFixed(1));
+        avgRating   = parseFloat((totalRating / reviews.length).toFixed(1));
         reviewCount = reviews.length;
       }
     } catch (err) {
-      console.log('⚠️ Reviews model not available, using default satisfaction');
-      // Default mock data if Review model doesn't exist
-      avgRating = 4.8;
+      logger.warn('⚠️ Reviews model not available, using default satisfaction');
+      avgRating   = 4.8;
       reviewCount = 127;
     }
 
-    // ══════════════════════════════════════════════════════════════════════════
-    // 🆕 NEW: REVENUE BY CATEGORY
-    // ══════════════════════════════════════════════════════════════════════════
+    // Revenue by Category
     const revenueByCategory = await Order.aggregate([
       { $match: { shopId: shopOid, paymentStatus: 'Paid', createdAt: curR } },
       { $unwind: '$items' },
@@ -621,24 +573,19 @@ exports.getShopDashboardByShopId = async (req, res) => {
     const totalCategoryRevenue = revenueByCategory.reduce((sum, c) => sum + c.revenue, 0);
     const categoryData = revenueByCategory.map(c => ({
       category: c._id || 'Other',
-      percentage: totalCategoryRevenue > 0 
-        ? Math.round((c.revenue / totalCategoryRevenue) * 100) 
-        : 0,
+      percentage: totalCategoryRevenue > 0 ? Math.round((c.revenue / totalCategoryRevenue) * 100) : 0,
     }));
 
-    // If no categories, provide default data
     if (categoryData.length === 0) {
       categoryData.push(
         { category: 'Engine Parts', percentage: 45 },
-        { category: 'Body Parts', percentage: 30 },
-        { category: 'Electronics', percentage: 15 },
-        { category: 'Accessories', percentage: 10 }
+        { category: 'Body Parts',   percentage: 30 },
+        { category: 'Electronics',  percentage: 15 },
+        { category: 'Accessories',  percentage: 10 }
       );
     }
 
-    // ══════════════════════════════════════════════════════════════════════════
-    // 🆕 NEW: HOURLY ORDERS DISTRIBUTION
-    // ══════════════════════════════════════════════════════════════════════════
+    // Hourly Orders Distribution
     const hourlyOrders = await Order.aggregate([
       { $match: { shopId: shopOid, createdAt: curR } },
       {
@@ -655,9 +602,7 @@ exports.getShopDashboardByShopId = async (req, res) => {
       return { hour, count: data?.count || 0 };
     });
 
-    // ══════════════════════════════════════════════════════════════════════════
-    // 🆕 NEW: RECENT ACTIVITY
-    // ══════════════════════════════════════════════════════════════════════════
+    // Recent Activity
     const recentActivity = await Order.find({ shopId: shopOid })
       .sort({ updatedAt: -1 })
       .limit(5)
@@ -666,22 +611,20 @@ exports.getShopDashboardByShopId = async (req, res) => {
 
     const activities = recentActivity.map(order => {
       let title = '';
-      let type = '';
-      
+      let type  = '';
       if (order.status === 'Delivered') {
         title = `Order delivered #${order.orderNumber}`;
-        type = 'delivered';
+        type  = 'delivered';
       } else if (order.paymentStatus === 'Paid') {
         title = `Payment received #${order.orderNumber}`;
-        type = 'payment';
+        type  = 'payment';
       } else if (order.status === 'Pending') {
         title = `New order #${order.orderNumber}`;
-        type = 'new_order';
+        type  = 'new_order';
       } else {
         title = `Order ${order.status.toLowerCase()} #${order.orderNumber}`;
-        type = order.status.toLowerCase();
+        type  = order.status.toLowerCase();
       }
-
       return {
         title,
         time: getTimeAgo(order.updatedAt),
@@ -690,9 +633,7 @@ exports.getShopDashboardByShopId = async (req, res) => {
       };
     });
 
-    // ══════════════════════════════════════════════════════════════════════════
-    // 🆕 NEW: TOP CUSTOMERS
-    // ══════════════════════════════════════════════════════════════════════════
+    // Top Customers
     const topCustomersAgg = await Order.aggregate([
       { $match: { shopId: shopOid, paymentStatus: 'Paid', createdAt: curR } },
       {
@@ -727,9 +668,7 @@ exports.getShopDashboardByShopId = async (req, res) => {
       })
     );
 
-    // ══════════════════════════════════════════════════════════════════════════
-    // 🆕 NEW: INVENTORY ALERTS
-    // ══════════════════════════════════════════════════════════════════════════
+    // Inventory Alerts
     let inventoryAlerts = [];
     try {
       const Product = require('../models/Product');
@@ -749,20 +688,17 @@ exports.getShopDashboardByShopId = async (req, res) => {
         status: p.stock === 0 ? 'critical' : p.stock < (p.reorderPoint || 20) / 2 ? 'low' : 'warning',
       }));
     } catch (err) {
-      console.log('⚠️ Product model not available, using mock inventory alerts');
-      // Mock data if Product model doesn't exist
+      logger.warn('⚠️ Product model not available, using mock inventory alerts');
       inventoryAlerts = [
-        { name: 'Brake Pads - Front', stock: 5, reorderPoint: 20, status: 'critical' },
-        { name: 'Oil Filter', stock: 8, reorderPoint: 30, status: 'low' },
-        { name: 'Air Filter', stock: 12, reorderPoint: 25, status: 'warning' },
-        { name: 'Spark Plugs', stock: 15, reorderPoint: 40, status: 'warning' },
-        { name: 'Wiper Blades', stock: 18, reorderPoint: 35, status: 'warning' },
+        { name: 'Brake Pads - Front', stock: 5,  reorderPoint: 20, status: 'critical' },
+        { name: 'Oil Filter',         stock: 8,  reorderPoint: 30, status: 'low'      },
+        { name: 'Air Filter',         stock: 12, reorderPoint: 25, status: 'warning'  },
+        { name: 'Spark Plugs',        stock: 15, reorderPoint: 40, status: 'warning'  },
+        { name: 'Wiper Blades',       stock: 18, reorderPoint: 35, status: 'warning'  },
       ];
     }
 
-    // ══════════════════════════════════════════════════════════════════════════
-    // 🆕 NEW: PAYMENT METHOD DISTRIBUTION
-    // ══════════════════════════════════════════════════════════════════════════
+    // Payment Method Distribution
     const paymentMethods = await Order.aggregate([
       { $match: { shopId: shopOid, paymentStatus: 'Paid', createdAt: curR } },
       {
@@ -776,23 +712,18 @@ exports.getShopDashboardByShopId = async (req, res) => {
     const totalPaidOrders = ordersThis;
     let paymentData = paymentMethods.map(pm => ({
       method: pm._id || 'Cash',
-      percentage: totalPaidOrders > 0 
-        ? Math.round((pm.count / totalPaidOrders) * 100) 
-        : 0,
+      percentage: totalPaidOrders > 0 ? Math.round((pm.count / totalPaidOrders) * 100) : 0,
     }));
 
-    // Default payment data if none exists
     if (paymentData.length === 0) {
       paymentData = [
-        { method: 'Credit Card', percentage: 45 },
-        { method: 'Cash on Delivery', percentage: 30 },
-        { method: 'Bank Transfer', percentage: 25 },
+        { method: 'Credit Card',       percentage: 45 },
+        { method: 'Cash on Delivery',  percentage: 30 },
+        { method: 'Bank Transfer',     percentage: 25 },
       ];
     }
 
-    // ══════════════════════════════════════════════════════════════════════════
-    // 7-DAY REVENUE LINE CHART
-    // ══════════════════════════════════════════════════════════════════════════
+    // 7-Day Revenue Line Chart
     const endDay   = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate(), 23, 59, 59, 999));
     const startDay = new Date(endDay.getTime() - 6 * 86400000);
     startDay.setUTCHours(0, 0, 0, 0);
@@ -814,18 +745,14 @@ exports.getShopDashboardByShopId = async (req, res) => {
       return { date: key, day: days[d.getDay()], revenue: e.revenue, orders: e.orders };
     });
 
-    // ══════════════════════════════════════════════════════════════════════════
-    // STATUS PIPELINE
-    // ══════════════════════════════════════════════════════════════════════════
+    // Status Pipeline
     const statusPipeline = await Order.aggregate([
       { $match: { shopId: shopOid, createdAt: curR } },
       { $group: { _id: '$status', count: { $sum: 1 }, value: sumPayable } },
       { $sort: { count: -1 } },
     ]);
 
-    // ══════════════════════════════════════════════════════════════════════════
-    // TOP 5 PRODUCTS
-    // ══════════════════════════════════════════════════════════════════════════
+    // Top 5 Products
     const topProducts = await Order.aggregate([
       { $match: { shopId: shopOid, paymentStatus: 'Paid', createdAt: curR } },
       { $unwind: '$items' },
@@ -843,53 +770,39 @@ exports.getShopDashboardByShopId = async (req, res) => {
       { $limit: 5 },
     ]);
 
-    console.log(`✅ Shop dashboard loaded for shopId: ${shopId}`);
+    logger.info(`✅ Shop dashboard loaded for shopId: ${shopId}`);
 
-    // ══════════════════════════════════════════════════════════════════════════
-    // FINAL RESPONSE
-    // ══════════════════════════════════════════════════════════════════════════
     return res.status(200).json({
       success: true,
       message: 'Shop Dashboard Analytics',
       data: {
         currentMonthLabel: fmtMonth(now),
         lastMonthLabel:    fmtMonth(preStart),
-
-        // KPI Cards
         shopRevenue:          Math.round(revThis).toString(),
         shopRevenueGrowth:    getGrowth(revThis, revLast),
         shopRevenuePrev:      fmtMonth(preStart),
-
         totalOrders:          ordersThis,
         totalOrdersGrowth:    getGrowth(ordersThis, ordersLast),
         totalOrdersPrev:      fmtMonth(preStart),
-
         avgOrderValue:        avgThis.toString(),
         avgOrderValueGrowth:  getGrowth(avgThis, avgLast),
         avgOrderValuePrev:    fmtMonth(preStart),
-
         pendingValue:         Math.round(pndVal).toString(),
         pendingCount:         pndCnt,
         pendingValueGrowth:   getGrowth(pndVal, pndLast),
         pendingValuePrev:     fmtMonth(preStart),
-
         fulfilmentRate:       fulRate,
         fulfilmentRateGrowth: getGrowth(fulRate, fulLast),
         fulfilmentRatePrev:   fmtMonth(preStart),
-
         repeatCustomers:       repThis,
         repeatCustomersGrowth: getGrowth(repThis, repLast),
         repeatCustomersPrev:   fmtMonth(preStart),
-
-        // Charts
         weeklyRevenue,
-
         statusPipeline: statusPipeline.map(s => ({
           status: s._id || 'Unknown',
           count:  s.count,
           value:  Math.round(s.value),
         })),
-
         topProducts: topProducts.map(p => ({
           productId:  p._id?.toString() || '',
           partName:   p.partName   || 'Unknown',
@@ -898,44 +811,30 @@ exports.getShopDashboardByShopId = async (req, res) => {
           qty:        p.qty,
           sales:      Math.round(p.sales),
         })),
-
-        // 🆕 NEW ANALYTICS
         conversionRate,
         conversionRateGrowth: getGrowth(conversionRate, conversionRateLast),
-        
         avgDeliveryTime,
-        
         customerSatisfaction: avgRating,
         reviewCount,
-        
         revenueByCategory: categoryData,
-        
         hourlyOrders: hourlyData,
-        
         recentActivity: activities,
-        
         topCustomers: customersData,
-        
         inventoryAlerts,
-        
         paymentMethods: paymentData,
       },
     });
   } catch (err) {
-    console.error('❌ Shop Dashboard Error:', err);
-    return res.status(500).json({ 
-      success: false, 
-      message: 'Failed to fetch shop dashboard', 
-      error: err.message 
+    logger.error('❌ Shop Dashboard Error:', err);
+    return res.status(500).json({
+      success: false,
+      message: 'Failed to fetch shop dashboard',
+      error: err.message,
     });
   }
 };
 
-
-
-
-
-// Helper: time ago formatter
+// Helper: time ago formatter (second declaration — kept as-is from original)
 function getTimeAgo(date) {
   const seconds = Math.floor((new Date() - new Date(date)) / 1000);
   if (seconds < 60) return `${seconds} sec ago`;
@@ -952,22 +851,18 @@ exports.getAgencyDashboardByAgencyId = async (req, res) => {
     }
 
     const agencyOid = new mongoose.Types.ObjectId(agencyId);
-    const now = new Date();
-    const curStart = new Date(now.getFullYear(), now.getMonth(), 1);
-    const preStart = new Date(now.getFullYear(), now.getMonth() - 1, 1);
-    const curR = { $gte: curStart };
-    const preR = { $gte: preStart, $lt: curStart };
+    const now       = new Date();
+    const curStart  = new Date(now.getFullYear(), now.getMonth(), 1);
+    const preStart  = new Date(now.getFullYear(), now.getMonth() - 1, 1);
+    const curR      = { $gte: curStart };
+    const preR      = { $gte: preStart, $lt: curStart };
 
-    console.log(`📊 Fetching agency dashboard for agencyId: ${agencyId}`);
+    logger.info(`📊 Fetching agency dashboard for agencyId: ${agencyId}`);
 
-    // Helper: sum deliveryEarning
     const sumEarning = {
       $sum: { $ifNull: ['$deliveryEarning', 0] }
     };
 
-    // ══════════════════════════════════════════════════════════════════════════
-    // PARALLEL DATA FETCHING - AGENCY SPECIFIC ONLY
-    // ══════════════════════════════════════════════════════════════════════════
     const [
       thisEarnings, lastEarnings,
       deliveriesThis, deliveriesLast,
@@ -976,49 +871,30 @@ exports.getAgencyDashboardByAgencyId = async (req, res) => {
       cancelThis, cancelLast,
       { DeliveryAgency },
     ] = await Promise.all([
-      // Total delivery earnings (what agency earns)
-      Order.aggregate([
-        { $match: { agencyId: agencyOid, status: 'Delivered', createdAt: curR } },
-        { $group: { _id: null, v: sumEarning } }
-      ]),
-      Order.aggregate([
-        { $match: { agencyId: agencyOid, status: 'Delivered', createdAt: preR } },
-        { $group: { _id: null, v: sumEarning } }
-      ]),
-      
-      // Completed deliveries count
+      Order.aggregate([{ $match: { agencyId: agencyOid, status: 'Delivered', createdAt: curR } }, { $group: { _id: null, v: sumEarning } }]),
+      Order.aggregate([{ $match: { agencyId: agencyOid, status: 'Delivered', createdAt: preR } }, { $group: { _id: null, v: sumEarning } }]),
       Order.countDocuments({ agencyId: agencyOid, status: 'Delivered', createdAt: curR }),
       Order.countDocuments({ agencyId: agencyOid, status: 'Delivered', createdAt: preR }),
-      
-      // Total assigned orders
       Order.countDocuments({ agencyId: agencyOid, createdAt: curR }),
       Order.countDocuments({ agencyId: agencyOid, createdAt: preR }),
-      
-      // Delivery success metrics
       Order.countDocuments({ agencyId: agencyOid, status: 'Delivered', createdAt: curR }),
       Order.countDocuments({ agencyId: agencyOid, status: 'Delivered', createdAt: preR }),
       Order.countDocuments({ agencyId: agencyOid, status: 'Cancelled', createdAt: curR }),
       Order.countDocuments({ agencyId: agencyOid, status: 'Cancelled', createdAt: preR }),
-      
       require('../models/DeliveryAgency'),
     ]);
 
     const earnThis = thisEarnings[0]?.v || 0;
     const earnLast = lastEarnings[0]?.v || 0;
-    
-    // Average earning per delivery
-    const avgThis = deliveriesThis > 0 ? Math.round(earnThis / deliveriesThis) : 0;
-    const avgLast = deliveriesLast > 0 ? Math.round(earnLast / deliveriesLast) : 0;
-    
-    // Delivery success rate
-    const closedThis = delivThis + cancelThis;
-    const closedLast = delivLast + cancelLast;
-    const delivRate = closedThis > 0 ? Math.round((delivThis / closedThis) * 100) : 0;
+    const avgThis  = deliveriesThis > 0 ? Math.round(earnThis / deliveriesThis) : 0;
+    const avgLast  = deliveriesLast > 0 ? Math.round(earnLast / deliveriesLast) : 0;
+
+    const closedThis   = delivThis + cancelThis;
+    const closedLast   = delivLast + cancelLast;
+    const delivRate    = closedThis > 0 ? Math.round((delivThis / closedThis) * 100) : 0;
     const delivRateLast = closedLast > 0 ? Math.round((delivLast / closedLast) * 100) : 0;
 
-    // ══════════════════════════════════════════════════════════════════════════
-    // COMMISSION EARNED (Agency's cut from deliveries)
-    // ══════════════════════════════════════════════════════════════════════════
+    // Commission Earned
     const AgencyPayout = require('../models/AgencyPayout');
     const [commissionAgg, commissionLastAgg] = await Promise.all([
       AgencyPayout.aggregate([
@@ -1031,12 +907,10 @@ exports.getAgencyDashboardByAgencyId = async (req, res) => {
       ])
     ]);
 
-    const commissionThis = Math.round(commissionAgg[0]?.total || 0);
+    const commissionThis = Math.round(commissionAgg[0]?.total     || 0);
     const commissionLast = Math.round(commissionLastAgg[0]?.total || 0);
 
-    // ══════════════════════════════════════════════════════════════════════════
-    // AVERAGE DELIVERY TIME
-    // ══════════════════════════════════════════════════════════════════════════
+    // Average Delivery Time
     const deliveredOrders = await Order.find({
       agencyId: agencyOid,
       status: 'Delivered',
@@ -1055,19 +929,17 @@ exports.getAgencyDashboardByAgencyId = async (req, res) => {
       avgDeliveryTime = parseFloat((totalDays / deliveredOrders.length).toFixed(1));
     }
 
-    // ══════════════════════════════════════════════════════════════════════════
-    // 7-DAY EARNINGS LINE CHART
-    // ══════════════════════════════════════════════════════════════════════════
-    const endDay = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate(), 23, 59, 59, 999));
+    // 7-Day Earnings Line Chart
+    const endDay   = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate(), 23, 59, 59, 999));
     const startDay = new Date(endDay.getTime() - 6 * 86400000);
     startDay.setUTCHours(0, 0, 0, 0);
 
     const wAgg = await Order.aggregate([
       { $match: { agencyId: agencyOid, status: 'Delivered', createdAt: { $gte: startDay, $lte: endDay } } },
-      { $group: { 
-        _id: { $dateToString: { format: '%Y-%m-%d', date: '$createdAt', timezone: 'UTC' } }, 
-        revenue: sumEarning, 
-        orders: { $sum: 1 } 
+      { $group: {
+        _id: { $dateToString: { format: '%Y-%m-%d', date: '$createdAt', timezone: 'UTC' } },
+        revenue: sumEarning,
+        orders: { $sum: 1 }
       }},
       { $sort: { _id: 1 } },
     ]);
@@ -1077,26 +949,21 @@ exports.getAgencyDashboardByAgencyId = async (req, res) => {
 
     const days = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
     const weeklyRevenue = Array.from({ length: 7 }, (_, i) => {
-      const d = new Date(startDay.getTime() + i * 86400000);
+      const d   = new Date(startDay.getTime() + i * 86400000);
       const key = d.toISOString().split('T')[0];
-      const e = wMap[key] || { revenue: 0, orders: 0 };
+      const e   = wMap[key] || { revenue: 0, orders: 0 };
       return { date: key, day: days[d.getDay()], revenue: e.revenue, orders: e.orders };
     });
 
-    // ══════════════════════════════════════════════════════════════════════════
-    // STATUS PIPELINE
-    // ══════════════════════════════════════════════════════════════════════════
+    // Status Pipeline
     const statusPipeline = await Order.aggregate([
       { $match: { agencyId: agencyOid, createdAt: curR } },
       { $group: { _id: '$status', count: { $sum: 1 }, value: sumEarning } },
       { $sort: { count: -1 } },
     ]);
 
-    // ══════════════════════════════════════════════════════════════════════════
-    // TOP 5 DELIVERY PARTNERS BY DELIVERIES
-    // ══════════════════════════════════════════════════════════════════════════
+    // Top 5 Delivery Partners
     const DeliveryBoy = require('../models/DeliveryBoy');
-    
     const topPartnersAgg = await Order.aggregate([
       { $match: { agencyId: agencyOid, status: 'Delivered', createdAt: curR } },
       {
@@ -1116,29 +983,27 @@ exports.getAgencyDashboardByAgencyId = async (req, res) => {
         try {
           const partner = await DeliveryBoy.findById(p._id).select('name phone').lean();
           return {
-            partnerId: p._id?.toString() || '',
-            partnerName: partner?.name || 'Unknown Partner',
+            partnerId:    p._id?.toString() || '',
+            partnerName:  partner?.name  || 'Unknown Partner',
             partnerPhone: partner?.phone || '-',
-            deliveries: p.deliveries,
-            earnings: Math.round(p.earnings),
-            avgDistance: p.deliveries > 0 ? (p.totalDistance / p.deliveries).toFixed(1) : 0,
+            deliveries:   p.deliveries,
+            earnings:     Math.round(p.earnings),
+            avgDistance:  p.deliveries > 0 ? (p.totalDistance / p.deliveries).toFixed(1) : 0,
           };
         } catch (err) {
           return {
-            partnerId: p._id?.toString() || '',
-            partnerName: 'Unknown Partner',
+            partnerId:    p._id?.toString() || '',
+            partnerName:  'Unknown Partner',
             partnerPhone: '-',
-            deliveries: p.deliveries,
-            earnings: Math.round(p.earnings),
-            avgDistance: 0,
+            deliveries:   p.deliveries,
+            earnings:     Math.round(p.earnings),
+            avgDistance:  0,
           };
         }
       })
     );
 
-    // ══════════════════════════════════════════════════════════════════════════
-    // HOURLY DELIVERIES DISTRIBUTION
-    // ══════════════════════════════════════════════════════════════════════════
+    // Hourly Deliveries Distribution
     const hourlyOrders = await Order.aggregate([
       { $match: { agencyId: agencyOid, status: 'Delivered', createdAt: curR } },
       {
@@ -1155,9 +1020,7 @@ exports.getAgencyDashboardByAgencyId = async (req, res) => {
       return { hour, count: data?.count || 0 };
     });
 
-    // ══════════════════════════════════════════════════════════════════════════
-    // RECENT DELIVERY ACTIVITY
-    // ══════════════════════════════════════════════════════════════════════════
+    // Recent Delivery Activity
     const recentActivity = await Order.find({ agencyId: agencyOid, status: 'Delivered' })
       .sort({ deliveredAt: -1 })
       .limit(5)
@@ -1169,75 +1032,54 @@ exports.getAgencyDashboardByAgencyId = async (req, res) => {
       return {
         orderNumber: order.orderNumber || 'N/A',
         partnerName: partner?.name || 'Unknown',
-        time: getTimeAgo(order.deliveredAt),
-        earning: order.deliveryEarning || 0,
-        distance: order.deliveryDistance || 0,
+        time:        getTimeAgo(order.deliveredAt),
+        earning:     order.deliveryEarning  || 0,
+        distance:    order.deliveryDistance || 0,
       };
     }));
 
-    // ══════════════════════════════════════════════════════════════════════════
-    // DELIVERY PARTNER STATS
-    // ══════════════════════════════════════════════════════════════════════════
-    const totalDeliveryPartners = await DeliveryBoy.countDocuments({ agencyId: agencyOid });
-    const activeDeliveryPartners = await DeliveryBoy.countDocuments({ 
-      agencyId: agencyOid, 
-      isOnline: true 
-    });
+    // Delivery Partner Stats
+    const totalDeliveryPartners  = await DeliveryBoy.countDocuments({ agencyId: agencyOid });
+    const activeDeliveryPartners = await DeliveryBoy.countDocuments({ agencyId: agencyOid, isOnline: true });
 
-    // ══════════════════════════════════════════════════════════════════════════
-    // FETCH AGENCY DETAILS
-    // ══════════════════════════════════════════════════════════════════════════
+    // Agency Details
     const agency = await DeliveryAgency.findById(agencyOid)
       .select('agencyDetails.agencyName agencyDetails.email')
       .lean();
 
-    console.log(`✅ Agency dashboard loaded for agencyId: ${agencyId}`);
+    logger.info(`✅ Agency dashboard loaded for agencyId: ${agencyId}`);
 
-    // ══════════════════════════════════════════════════════════════════════════
-    // FINAL RESPONSE
-    // ══════════════════════════════════════════════════════════════════════════
     return res.status(200).json({
       success: true,
       message: 'Agency Dashboard Analytics',
       data: {
-        // Agency Info
-        agencyName: agency?.agencyDetails?.agencyName || 'Agency',
-        agencyEmail: agency?.agencyDetails?.email || '',
-        
+        agencyName:  agency?.agencyDetails?.agencyName || 'Agency',
+        agencyEmail: agency?.agencyDetails?.email      || '',
         currentMonthLabel: fmtMonth(now),
-        lastMonthLabel: fmtMonth(preStart),
-
-        // KPI Cards (6 cards - all agency-specific)
-        totalEarnings: Math.round(earnThis).toString(),
-        totalEarningsGrowth: getGrowth(earnThis, earnLast),
-        totalEarningsPrev: fmtMonth(preStart),
-
-        completedDeliveries: deliveriesThis,
-        completedDeliveriesGrowth: getGrowth(deliveriesThis, deliveriesLast),
-        completedDeliveriesPrev: fmtMonth(preStart),
-
-        avgDeliveryEarning: avgThis.toString(),
-        avgDeliveryEarningGrowth: getGrowth(avgThis, avgLast),
-        avgDeliveryEarningPrev: fmtMonth(preStart),
-
+        lastMonthLabel:    fmtMonth(preStart),
+        totalEarnings:               Math.round(earnThis).toString(),
+        totalEarningsGrowth:         getGrowth(earnThis, earnLast),
+        totalEarningsPrev:           fmtMonth(preStart),
+        completedDeliveries:         deliveriesThis,
+        completedDeliveriesGrowth:   getGrowth(deliveriesThis, deliveriesLast),
+        completedDeliveriesPrev:     fmtMonth(preStart),
+        avgDeliveryEarning:          avgThis.toString(),
+        avgDeliveryEarningGrowth:    getGrowth(avgThis, avgLast),
+        avgDeliveryEarningPrev:      fmtMonth(preStart),
         totalDeliveryPartners,
         activeDeliveryPartners,
-        activePartnersGrowth: '+0%', // Can be calculated if needed
-
-        deliverySuccessRate: delivRate,
-        deliverySuccessRateGrowth: getGrowth(delivRate, delivRateLast),
-        deliverySuccessRatePrev: fmtMonth(preStart),
-
-        commissionEarned: commissionThis.toString(),
-        commissionEarnedGrowth: getGrowth(commissionThis, commissionLast),
-        commissionEarnedPrev: fmtMonth(preStart),
-
-        // Charts & Analytics
+        activePartnersGrowth:        '+0%',
+        deliverySuccessRate:         delivRate,
+        deliverySuccessRateGrowth:   getGrowth(delivRate, delivRateLast),
+        deliverySuccessRatePrev:     fmtMonth(preStart),
+        commissionEarned:            commissionThis.toString(),
+        commissionEarnedGrowth:      getGrowth(commissionThis, commissionLast),
+        commissionEarnedPrev:        fmtMonth(preStart),
         weeklyRevenue,
         statusPipeline: statusPipeline.map(s => ({
           status: s._id || 'Unknown',
-          count: s.count,
-          value: Math.round(s.value),
+          count:  s.count,
+          value:  Math.round(s.value),
         })),
         topDeliveryPartners: topPartners,
         avgDeliveryTime,
@@ -1246,7 +1088,7 @@ exports.getAgencyDashboardByAgencyId = async (req, res) => {
       },
     });
   } catch (err) {
-    console.error('❌ Agency Dashboard Error:', err);
+    logger.error('❌ Agency Dashboard Error:', err);
     return res.status(200).json({
       success: false,
       message: 'Failed to fetch agency dashboard',

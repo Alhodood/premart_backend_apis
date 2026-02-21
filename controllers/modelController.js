@@ -1,14 +1,16 @@
 const Model = require('../models/Model');
 const Product = require('../models/_deprecated/Product');
+const logger = require('../config/logger'); // ← Winston logger
+
 // Create a new model entry
 exports.createModel = async (req, res) => {
-
   try {
     const newModel = new Model(req.body);
     await newModel.save();
-    res.status(201).json({ message: 'Model created successfully', data: newModel, success:true });
+    res.status(201).json({ message: 'Model created successfully', data: newModel, success: true });
   } catch (error) {
-    res.status(500).json({ message: 'Error creating model', error: error.message, success:false });
+    logger.error('Error creating model: ' + error.message, { stack: error.stack });
+    res.status(500).json({ message: 'Error creating model', error: error.message, success: false });
   }
 };
 
@@ -19,7 +21,7 @@ exports.getAllModels = async (req, res) => {
       .populate({ path: 'brand', select: 'brandName brandImage' })
       .lean()
       .exec();
-    
+
     // ✅ Flatten brand into top-level fields AND include visibility
     const data = models.map(m => ({
       _id: m._id,
@@ -31,18 +33,20 @@ exports.getAllModels = async (req, res) => {
       createdAt: m.createdAt, // Optional: useful for sorting/display
       updatedAt: m.updatedAt  // Optional: useful for sorting/display
     }));
-    
-    console.log('Populated models:', models);
-    res.status(200).json({ 
-      data, 
-      success: true, 
-      message: "Fetched all models successfully" 
+
+    logger.info('Populated models: ' + JSON.stringify(models));
+
+    res.status(200).json({
+      data,
+      success: true,
+      message: "Fetched all models successfully"
     });
   } catch (error) {
-    res.status(500).json({ 
-      message: 'Error fetching models', 
-      error: error.message, 
-      success: false 
+    logger.error('Error fetching models: ' + error.message, { stack: error.stack });
+    res.status(500).json({
+      message: 'Error fetching models',
+      error: error.message,
+      success: false
     });
   }
 };
@@ -52,11 +56,12 @@ exports.getModelById = async (req, res) => {
   try {
     const model = await Model.findById(req.params.id);
     if (!model) {
-      return res.status(404).json({ message: 'Model not found', success:false });
+      return res.status(404).json({ message: 'Model not found', success: false });
     }
-    res.status(200).json({ data: model, success:true, message:"featched model by id" });
+    res.status(200).json({ data: model, success: true, message: "featched model by id" });
   } catch (error) {
-    res.status(500).json({ message: 'Error fetching model', error: error.message, success:false });
+    logger.error('Error fetching model: ' + error.message, { stack: error.stack });
+    res.status(500).json({ message: 'Error fetching model', error: error.message, success: false });
   }
 };
 
@@ -65,14 +70,15 @@ exports.updateModel = async (req, res) => {
   try {
     const updatedModel = await Model.findByIdAndUpdate(req.params.id, req.body, {
       new: true,
-      runValidators: true, 
+      runValidators: true,
     });
     if (!updatedModel) {
-      return res.status(404).json({ message: 'Model not found', success:false , data:[]});
+      return res.status(404).json({ message: 'Model not found', success: false, data: [] });
     }
-    res.status(200).json({ message: 'Model updated successfully', data: updatedModel , success:true});
+    res.status(200).json({ message: 'Model updated successfully', data: updatedModel, success: true });
   } catch (error) {
-    res.status(500).json({ message: 'Error updating model', data: error.message,  success:false });
+    logger.error('Error updating model: ' + error.message, { stack: error.stack });
+    res.status(500).json({ message: 'Error updating model', data: error.message, success: false });
   }
 };
 
@@ -81,15 +87,14 @@ exports.deleteModel = async (req, res) => {
   try {
     const deletedModel = await Model.findByIdAndDelete(req.params.id);
     if (!deletedModel) {
-      return res.status(404).json({ message: 'Model not found', success:false, data:[] });
+      return res.status(404).json({ message: 'Model not found', success: false, data: [] });
     }
-    res.status(200).json({ message: 'Model deleted successfully',  success:true , data:deletedModel});
+    res.status(200).json({ message: 'Model deleted successfully', success: true, data: deletedModel });
   } catch (error) {
-    res.status(500).json({ message: 'Error deleting model', data: error.message,  success:false });
+    logger.error('Error deleting model: ' + error.message, { stack: error.stack });
+    res.status(500).json({ message: 'Error deleting model', data: error.message, success: false });
   }
 };
-
-
 
 // Get products by model ID
 exports.getProductsByModel = async (req, res) => {
@@ -102,6 +107,7 @@ exports.getProductsByModel = async (req, res) => {
       data: products,
     });
   } catch (error) {
+    logger.error('Error fetching products by model: ' + error.message, { stack: error.stack });
     res.status(500).json({
       success: false,
       message: 'Error fetching products by model',
@@ -121,6 +127,7 @@ exports.getModelsByBrand = async (req, res) => {
       data: models,
     });
   } catch (error) {
+    logger.error('Error fetching models by brand: ' + error.message, { stack: error.stack });
     res.status(500).json({
       success: false,
       message: 'Error fetching models by brand',

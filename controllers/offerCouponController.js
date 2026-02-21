@@ -2,6 +2,7 @@ const Coupon = require('../models/Coupon');
 const Offer = require('../models/Offers');
 const mongoose = require('mongoose');
 const { Product } = require('../models/_deprecated/Product');
+const logger = require('../config/logger'); // ← Winston logger
 
 exports.createCoupon = async (req, res) => {
   try {
@@ -46,8 +47,6 @@ exports.updateCoupon = async (req, res) => {
   }
 };
 
-
-
 exports.deleteCoupon = async (req, res) => {
   try {
     await Coupon.findByIdAndDelete(req.params.id);
@@ -56,8 +55,6 @@ exports.deleteCoupon = async (req, res) => {
     res.status(500).json({ message: 'Failed to delete coupon', success: false, data: err.message });
   }
 };
-
-
 
 exports.applyCoupon = async (req, res) => {
   const { userId, code, orderAmount } = req.body;
@@ -70,7 +67,7 @@ exports.applyCoupon = async (req, res) => {
     const coupon = await Coupon.findOne({ code: code.toUpperCase(), isActive: true });
 
     if (!coupon) {
-      return res.status(200).json({ message: 'Invalid or inactive coupon code', success: false,data:[] });
+      return res.status(200).json({ message: 'Invalid or inactive coupon code', success: false, data: [] });
     }
 
     // ✅ Check if coupon has valid discount fields
@@ -92,7 +89,7 @@ exports.applyCoupon = async (req, res) => {
     // ✅ Check expiry
     const now = new Date();
     if (coupon.expiryDate && coupon.expiryDate < now) {
-      return res.status(200).json({ message: 'Coupon has expired', success: false,data:[] });
+      return res.status(200).json({ message: 'Coupon has expired', success: false, data: [] });
     }
 
     // ✅ Check if already used
@@ -110,7 +107,7 @@ exports.applyCoupon = async (req, res) => {
 
     // ✅ Check usage limit
     if (coupon.usageLimit && coupon.usedCount >= coupon.usageLimit) {
-      return res.status(200).json({ message: 'Coupon usage limit reached', success: false ,data:[]});
+      return res.status(200).json({ message: 'Coupon usage limit reached', success: false, data: [] });
     }
 
     // ✅ Calculate discount
@@ -136,13 +133,10 @@ exports.applyCoupon = async (req, res) => {
     });
 
   } catch (err) {
-    console.error('Coupon Error:', err);
-    return res.status(500).json({ message: 'Error applying coupon', success: false, error: err.message ,data:[]});
+    logger.error('Coupon Error: ' + err.message, { stack: err.stack });
+    return res.status(500).json({ message: 'Error applying coupon', success: false, error: err.message, data: [] });
   }
 };
-
-
-
 
 //----------------------------
 
@@ -157,8 +151,6 @@ exports.createOffer = async (req, res) => {
     res.status(500).json({ message: 'Failed to create offer', success: false, data: err.message });
   }
 };
-
-
 
 exports.getAllOffers = async (req, res) => {
   try {
@@ -277,7 +269,8 @@ exports.checkOfferValidity = async (req, res) => {
   if (!productId || !userId) {
     return res.status(200).json({
       message: 'productId and userId are required',
-      success: false,data:[]
+      success: false,
+      data: []
     });
   }
 
@@ -295,7 +288,8 @@ exports.checkOfferValidity = async (req, res) => {
     if (offers.length === 0) {
       return res.status(200).json({
         message: 'No valid offers available for this product',
-        success: false,data: []
+        success: false,
+        data: []
       });
     }
 
@@ -308,7 +302,7 @@ exports.checkOfferValidity = async (req, res) => {
       return res.status(200).json({
         message: 'User has already used available offers for this product',
         success: false,
-        data:[]
+        data: []
       });
     }
 
@@ -319,7 +313,7 @@ exports.checkOfferValidity = async (req, res) => {
     });
 
   } catch (err) {
-    console.error('Check Offer Error:', err);
+    logger.error('Check Offer Error: ' + err.message, { stack: err.stack });
     return res.status(500).json({
       message: 'Failed to check offer',
       success: false,

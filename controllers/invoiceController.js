@@ -1,6 +1,7 @@
 const PDFDocument = require('pdfkit');
 const Payment = require('../models/Payment');
 const Order = require('../models/Order');
+const logger = require('../config/logger'); // ← Winston logger
 
 exports.generateInvoice = async (req, res) => {
   try {
@@ -17,31 +18,29 @@ exports.generateInvoice = async (req, res) => {
     }
 
     const doc = new PDFDocument({ margin: 30 });
+
     res.setHeader('Content-Type', 'application/pdf');
     res.setHeader('Content-Disposition', `attachment; filename=invoice-${paymentId}.pdf`);
 
     doc.fontSize(20).text('PreMart Invoice', { align: 'center' });
     doc.moveDown();
-
     doc.fontSize(14).text(`Invoice ID: ${paymentId}`);
     doc.text(`Transaction ID: ${payment.transactionId || 'N/A'}`);
     doc.text(`Payment Method: ${payment.paymentMethod}`);
     doc.text(`Payment Status: ${payment.paymentStatus}`);
     doc.text(`Payment Date: ${new Date(payment.paymentDate).toLocaleDateString()}`);
     doc.moveDown();
-
     doc.text(`Order ID: ${order._id}`);
     doc.text(`Order Total Amount: ${payment.amount}`);
     doc.text(`Order Status: ${order.orderStatus}`);
     doc.moveDown();
-
     doc.text('Thank you for shopping with PreMart!', { align: 'center' });
 
     doc.end();
     doc.pipe(res);
 
   } catch (error) {
-    console.error('Generate Invoice Error:', error);
+    logger.error('Generate Invoice Error: ' + error.message, { stack: error.stack });
     res.status(500).json({
       message: 'Failed to generate invoice',
       success: false,

@@ -1,12 +1,21 @@
 // services/emailService.js
 const { Resend } = require('resend');
+const logger = require('../config/logger');
 
 const RESEND_API_KEY = process.env.RESEND_API_KEY;
 const resend = RESEND_API_KEY ? new Resend(RESEND_API_KEY) : null;
-
 const EMAIL_FROM = process.env.EMAIL_FROM || 'noreply@autopartsnow.uk';
 const APP_NAME = 'PreMart';
 
+const ensureResend = () => {
+  if (!resend) {
+    logger.warn('emailService: Resend client not initialized — RESEND_API_KEY missing');
+    return false;
+  }
+  return true;
+};
+
+// ─────────────────────────────────────────────────────────────────────────────
 const sendOTPEmail = async (toEmail, otp, appName = APP_NAME) => {
   if (!ensureResend()) return false;
   try {
@@ -28,30 +37,33 @@ const sendOTPEmail = async (toEmail, otp, appName = APP_NAME) => {
           <p style="color: #9CA3AF; font-size: 12px; text-align: center; margin-top: 24px;">© ${new Date().getFullYear()} ${appName}</p>
         </div>`,
     });
+
     if (error) {
-      console.error('❌ Resend OTP error:', error);
+      logger.error('sendOTPEmail: Resend returned an error', { toEmail, error });
       return false;
     }
-    console.log('✅ OTP email sent — ID:', data.id);
+
+    logger.info('sendOTPEmail: OTP email sent successfully', { toEmail, messageId: data.id });
     return true;
   } catch (err) {
-    console.error('❌ Failed to send OTP email:', err.message);
+    logger.error('sendOTPEmail: failed to send OTP email', { toEmail, error: err });
     return false;
   }
 };
 
+// ─────────────────────────────────────────────────────────────────────────────
 const sendOrderStatusEmail = async (toEmail, orderId, status, orderDetails) => {
   if (!ensureResend()) return false;
   try {
     const statusConfig = {
-      'Pending': { icon: '📦', color: '#6366F1', title: 'Order Confirmed!', message: 'We\'ve received your order' },
-      'Delivery Boy Assigned': { icon: '🚚', color: '#3B82F6', title: 'Delivery Partner Assigned', message: 'A delivery partner has been assigned' },
-      'Accepted by Delivery Boy': { icon: '✅', color: '#10B981', title: 'Order Accepted', message: 'Your delivery partner accepted the order' },
-      'Reached Pickup': { icon: '📍', color: '#8B5CF6', title: 'At Pickup Location', message: 'Partner reached the shop' },
-      'Waiting to Pick': { icon: '⏳', color: '#F59E0B', title: 'Waiting to Pick Up', message: 'Order is ready for pickup' },
-      'Order Picked': { icon: '🎒', color: '#06B6D4', title: 'Order Picked Up!', message: 'Order is on the way to you' },
-      'Reached Drop': { icon: '🏠', color: '#EC4899', title: 'Partner at Your Location', message: 'Partner reached your address' },
-      'Delivered': { icon: '🎉', color: '#10B981', title: 'Order Delivered!', message: 'Order delivered successfully!' },
+      'Pending':                    { icon: '📦', color: '#6366F1', title: 'Order Confirmed!',              message: 'We\'ve received your order' },
+      'Delivery Boy Assigned':      { icon: '🚚', color: '#3B82F6', title: 'Delivery Partner Assigned',     message: 'A delivery partner has been assigned' },
+      'Accepted by Delivery Boy':   { icon: '✅', color: '#10B981', title: 'Order Accepted',                message: 'Your delivery partner accepted the order' },
+      'Reached Pickup':             { icon: '📍', color: '#8B5CF6', title: 'At Pickup Location',            message: 'Partner reached the shop' },
+      'Waiting to Pick':            { icon: '⏳', color: '#F59E0B', title: 'Waiting to Pick Up',            message: 'Order is ready for pickup' },
+      'Order Picked':               { icon: '🎒', color: '#06B6D4', title: 'Order Picked Up!',              message: 'Order is on the way to you' },
+      'Reached Drop':               { icon: '🏠', color: '#EC4899', title: 'Partner at Your Location',      message: 'Partner reached your address' },
+      'Delivered':                  { icon: '🎉', color: '#10B981', title: 'Order Delivered!',              message: 'Order delivered successfully!' },
     }[status] || { icon: '📦', color: '#6366F1', title: `Order ${status}`, message: `Status: ${status}` };
 
     const orderShortId = orderId.slice(-8).toUpperCase();
@@ -95,17 +107,19 @@ const sendOrderStatusEmail = async (toEmail, orderId, status, orderDetails) => {
     });
 
     if (error) {
-      console.error('❌ Order status email error:', error);
+      logger.error('sendOrderStatusEmail: Resend returned an error', { toEmail, orderId, status, error });
       return false;
     }
-    console.log(`✅ Order status email sent (${status}) — ID:`, data.id);
+
+    logger.info('sendOrderStatusEmail: order status email sent successfully', { toEmail, orderId, status, messageId: data.id });
     return true;
   } catch (err) {
-    console.error('❌ Failed to send order status email:', err.message);
+    logger.error('sendOrderStatusEmail: failed to send order status email', { toEmail, orderId, status, error: err });
     return false;
   }
 };
 
+// ─────────────────────────────────────────────────────────────────────────────
 const sendShopVerificationEmail = async (toEmail, shopName, isVerified) => {
   if (!ensureResend()) return false;
   try {
@@ -148,18 +162,21 @@ const sendShopVerificationEmail = async (toEmail, shopName, isVerified) => {
     });
 
     if (error) {
-      console.error('❌ Resend shop verification error:', error);
+      logger.error('sendShopVerificationEmail: Resend returned an error', { toEmail, shopName, isVerified, error });
       return false;
     }
-    console.log('✅ Shop verification email sent — ID:', data.id);
+
+    logger.info('sendShopVerificationEmail: shop verification email sent successfully', { toEmail, shopName, isVerified, messageId: data.id });
     return true;
   } catch (err) {
-    console.error('❌ Shop verification email failed:', err.message);
+    logger.error('sendShopVerificationEmail: failed to send shop verification email', { toEmail, shopName, error: err });
     return false;
   }
 };
 
-const sendDeliveryBoyWelcomeEmail = async (toEmail, name, phone) => {  // ← add phone param
+// ─────────────────────────────────────────────────────────────────────────────
+const sendDeliveryBoyWelcomeEmail = async (toEmail, name, phone) => {
+  if (!ensureResend()) return false;
   try {
     const { data, error } = await resend.emails.send({
       from: EMAIL_FROM,
@@ -204,17 +221,19 @@ const sendDeliveryBoyWelcomeEmail = async (toEmail, name, phone) => {  // ← ad
     });
 
     if (error) {
-      console.error('❌ Delivery boy welcome email error:', error);
+      logger.error('sendDeliveryBoyWelcomeEmail: Resend returned an error', { toEmail, name, error });
       return false;
     }
-    console.log('✅ Delivery boy welcome email sent — ID:', data.id);
+
+    logger.info('sendDeliveryBoyWelcomeEmail: welcome email sent successfully', { toEmail, name, messageId: data.id });
     return true;
   } catch (err) {
-    console.error('❌ Delivery boy welcome email failed:', err.message);
+    logger.error('sendDeliveryBoyWelcomeEmail: failed to send welcome email', { toEmail, name, error: err });
     return false;
   }
 };
 
+// ─────────────────────────────────────────────────────────────────────────────
 const sendAgencyVerificationEmail = async (toEmail, agencyName, isVerified) => {
   if (!ensureResend()) return false;
   try {
@@ -257,18 +276,21 @@ const sendAgencyVerificationEmail = async (toEmail, agencyName, isVerified) => {
     });
 
     if (error) {
-      console.error('❌ Resend agency verification error:', error);
+      logger.error('sendAgencyVerificationEmail: Resend returned an error', { toEmail, agencyName, isVerified, error });
       return false;
     }
-    console.log('✅ Agency verification email sent — ID:', data.id);
+
+    logger.info('sendAgencyVerificationEmail: agency verification email sent successfully', { toEmail, agencyName, isVerified, messageId: data.id });
     return true;
   } catch (err) {
-    console.error('❌ Agency verification email failed:', err.message);
+    logger.error('sendAgencyVerificationEmail: failed to send agency verification email', { toEmail, agencyName, error: err });
     return false;
   }
 };
 
+// ─────────────────────────────────────────────────────────────────────────────
 const sendShopRejectionEmail = async (toEmail, shopName, rejectionReason) => {
+  if (!ensureResend()) return false;
   try {
     const { data, error } = await resend.emails.send({
       from: EMAIL_FROM,
@@ -280,19 +302,16 @@ const sendShopRejectionEmail = async (toEmail, shopName, rejectionReason) => {
             <div style="font-size: 64px;">❌</div>
             <h1 style="color: white; margin: 16px 0 0; font-size: 28px;">Registration Rejected</h1>
           </div>
-          
           <div style="padding: 24px; background: #FEF2F2; border-radius: 8px; margin: 24px 0;">
             <p style="color: #991B1B; font-size: 16px; line-height: 1.6; margin: 0;">
               Unfortunately, your shop registration for <strong>${shopName}</strong> has been rejected by the PreMart admin team.
             </p>
           </div>
-
           ${rejectionReason ? `
           <div style="background: #FFF7ED; border: 1px solid #FED7AA; border-radius: 8px; padding: 16px; margin-bottom: 24px;">
             <p style="color: #9A3412; font-size: 14px; margin: 0 0 8px; font-weight: 600;">📋 Rejection Reason:</p>
             <p style="color: #9A3412; font-size: 14px; margin: 0; line-height: 1.6;">${rejectionReason}</p>
           </div>` : ''}
-
           <div style="background: #EFF6FF; border: 1px solid #BFDBFE; border-radius: 8px; padding: 16px; margin-bottom: 24px;">
             <p style="color: #1E3A8A; font-size: 14px; margin: 0; font-weight: 600;">💡 What can you do?</p>
             <ul style="color: #1E3A8A; font-size: 14px; margin: 8px 0 0; padding-left: 20px; line-height: 1.8;">
@@ -301,41 +320,39 @@ const sendShopRejectionEmail = async (toEmail, shopName, rejectionReason) => {
               <li>Contact our support team if you need clarification</li>
             </ul>
           </div>
-
           <div style="text-align: center;">
             <a href="${process.env.ADMIN_PANEL_URL || 'https://admin.premart.ae'}/register" 
                style="display: inline-block; background: #6366F1; color: white; padding: 14px 32px; text-decoration: none; border-radius: 8px; font-weight: 600; font-size: 15px;">
               Register Again
             </a>
           </div>
-
           <div style="margin-top: 24px; padding-top: 24px; border-top: 1px solid #E5E7EB; text-align: center;">
             <p style="color: #6B7280; font-size: 13px; margin: 0;">Need help? Contact us at:</p>
             <p style="color: #6366F1; font-size: 14px; margin: 4px 0 0; font-weight: 600;">
               <a href="mailto:support@premart.ae" style="color: #6366F1; text-decoration: none;">support@premart.ae</a>
             </p>
           </div>
-
-          <p style="color: #9CA3AF; font-size: 12px; text-align: center; margin-top: 32px;">
-            © ${new Date().getFullYear()} ${APP_NAME}
-          </p>
+          <p style="color: #9CA3AF; font-size: 12px; text-align: center; margin-top: 32px;">© ${new Date().getFullYear()} ${APP_NAME}</p>
         </div>
       `,
     });
 
     if (error) {
-      console.error('❌ Shop rejection email error:', error);
+      logger.error('sendShopRejectionEmail: Resend returned an error', { toEmail, shopName, error });
       return false;
     }
-    console.log('✅ Shop rejection email sent — ID:', data.id);
+
+    logger.info('sendShopRejectionEmail: shop rejection email sent successfully', { toEmail, shopName, messageId: data.id });
     return true;
   } catch (err) {
-    console.error('❌ Shop rejection email failed:', err.message);
+    logger.error('sendShopRejectionEmail: failed to send shop rejection email', { toEmail, shopName, error: err });
     return false;
   }
 };
 
+// ─────────────────────────────────────────────────────────────────────────────
 const sendAgencyRejectionEmail = async (toEmail, agencyName, rejectionReason) => {
+  if (!ensureResend()) return false;
   try {
     const { data, error } = await resend.emails.send({
       from: EMAIL_FROM,
@@ -347,19 +364,16 @@ const sendAgencyRejectionEmail = async (toEmail, agencyName, rejectionReason) =>
             <div style="font-size: 64px;">❌</div>
             <h1 style="color: white; margin: 16px 0 0; font-size: 28px;">Registration Rejected</h1>
           </div>
-          
           <div style="padding: 24px; background: #FEF2F2; border-radius: 8px; margin: 24px 0;">
             <p style="color: #991B1B; font-size: 16px; line-height: 1.6; margin: 0;">
               Unfortunately, your agency registration for <strong>${agencyName}</strong> has been rejected by the PreMart admin team.
             </p>
           </div>
-
           ${rejectionReason ? `
           <div style="background: #FFF7ED; border: 1px solid #FED7AA; border-radius: 8px; padding: 16px; margin-bottom: 24px;">
             <p style="color: #9A3412; font-size: 14px; margin: 0 0 8px; font-weight: 600;">📋 Rejection Reason:</p>
             <p style="color: #9A3412; font-size: 14px; margin: 0; line-height: 1.6;">${rejectionReason}</p>
           </div>` : ''}
-
           <div style="background: #EFF6FF; border: 1px solid #BFDBFE; border-radius: 8px; padding: 16px; margin-bottom: 24px;">
             <p style="color: #1E3A8A; font-size: 14px; margin: 0; font-weight: 600;">💡 What can you do?</p>
             <ul style="color: #1E3A8A; font-size: 14px; margin: 8px 0 0; padding-left: 20px; line-height: 1.8;">
@@ -368,46 +382,43 @@ const sendAgencyRejectionEmail = async (toEmail, agencyName, rejectionReason) =>
               <li>Contact our support team if you need clarification</li>
             </ul>
           </div>
-
           <div style="text-align: center;">
             <a href="${process.env.ADMIN_PANEL_URL || 'https://admin.premart.ae'}/register" 
                style="display: inline-block; background: #6366F1; color: white; padding: 14px 32px; text-decoration: none; border-radius: 8px; font-weight: 600; font-size: 15px;">
               Register Again
             </a>
           </div>
-
           <div style="margin-top: 24px; padding-top: 24px; border-top: 1px solid #E5E7EB; text-align: center;">
             <p style="color: #6B7280; font-size: 13px; margin: 0;">Need help? Contact us at:</p>
             <p style="color: #6366F1; font-size: 14px; margin: 4px 0 0; font-weight: 600;">
               <a href="mailto:support@premart.ae" style="color: #6366F1; text-decoration: none;">support@premart.ae</a>
             </p>
           </div>
-
-          <p style="color: #9CA3AF; font-size: 12px; text-align: center; margin-top: 32px;">
-            © ${new Date().getFullYear()} ${APP_NAME}
-          </p>
+          <p style="color: #9CA3AF; font-size: 12px; text-align: center; margin-top: 32px;">© ${new Date().getFullYear()} ${APP_NAME}</p>
         </div>
       `,
     });
 
     if (error) {
-      console.error('❌ Agency rejection email error:', error);
+      logger.error('sendAgencyRejectionEmail: Resend returned an error', { toEmail, agencyName, error });
       return false;
     }
-    console.log('✅ Agency rejection email sent — ID:', data.id);
+
+    logger.info('sendAgencyRejectionEmail: agency rejection email sent successfully', { toEmail, agencyName, messageId: data.id });
     return true;
   } catch (err) {
-    console.error('❌ Agency rejection email failed:', err.message);
+    logger.error('sendAgencyRejectionEmail: failed to send agency rejection email', { toEmail, agencyName, error: err });
     return false;
   }
 };
 
+// ─────────────────────────────────────────────────────────────────────────────
 module.exports = {
   sendOTPEmail,
   sendOrderStatusEmail,
   sendShopVerificationEmail,
   sendAgencyVerificationEmail,
   sendDeliveryBoyWelcomeEmail,
-   sendShopRejectionEmail,      // ✅ ADD THIS
-  sendAgencyRejectionEmail,    // ✅ ADD THIS
+  sendShopRejectionEmail,
+  sendAgencyRejectionEmail,
 };

@@ -2,6 +2,7 @@ const mongoose = require('mongoose');
 const WishList = require('../models/WishList');
 const Product = require('../models/_deprecated/Product');
 const ShopProduct = require('../models/ShopProduct');
+const logger = require('../config/logger'); // ← only addition at top
 
 exports.addToWishList = async (req, res) => {
   try {
@@ -16,12 +17,10 @@ exports.addToWishList = async (req, res) => {
       });
     }
 
-    // Normalize to array
     if (productID) productIDs = [productID];
 
     let wishList = await WishList.findOne({ userId });
 
-    // Load product documents for the given IDs
     const productDetails = await Product.find({
       _id: { $in: productIDs.map(id => new mongoose.Types.ObjectId(id)) }
     }).lean();
@@ -41,7 +40,6 @@ exports.addToWishList = async (req, res) => {
       });
     }
 
-    // Toggle logic
     const added = [];
     const removed = [];
 
@@ -70,7 +68,6 @@ exports.addToWishList = async (req, res) => {
       _id: { $in: removed.map(id => new mongoose.Types.ObjectId(id)) }
     }).lean();
 
-    // Dynamic message
     let message = 'Wishlist updated successfully';
     if (added.length && !removed.length) {
       message = 'Products added to wishlist';
@@ -89,7 +86,7 @@ exports.addToWishList = async (req, res) => {
     });
 
   } catch (error) {
-    console.error('Wishlist Error:', error);
+    logger.error('addToWishList failed', { userId: req.params.userId, error: error.message, stack: error.stack }); // ← replaced console.error
     res.status(500).json({
       message: 'Wishlist operation failed',
       success: false,
@@ -97,8 +94,6 @@ exports.addToWishList = async (req, res) => {
     });
   }
 };
-
-
 
 exports.getWishList = async (req, res) => {
   try {
@@ -113,13 +108,11 @@ exports.getWishList = async (req, res) => {
       });
     }
 
-    // Load ShopProducts and filter out soft-deleted parts (isActive: false)
     const productIds = wishList.wishListProduct.map(id => new mongoose.Types.ObjectId(id));
     const shopProducts = await ShopProduct.find({ _id: { $in: productIds } })
       .populate({ path: 'part', select: 'isActive' })
       .lean();
 
-    // Filter only active products (where part exists and isActive is true)
     const activeProductIds = shopProducts
       .filter(sp => sp.part && sp.part.isActive === true)
       .map(sp => sp._id.toString());
@@ -131,7 +124,7 @@ exports.getWishList = async (req, res) => {
     });
 
   } catch (e) {
-    console.error('Error fetching wishlist:', e);
+    logger.error('getWishList failed', { userId: req.params.userId, error: e.message, stack: e.stack }); // ← replaced console.error
     return res.status(500).json({
       message: 'Internal server error',
       success: false
@@ -139,7 +132,6 @@ exports.getWishList = async (req, res) => {
   }
 };
 
-// CHECK IF PRODUCT IS IN WISHLIST
 exports.checkWishlistStatus = async (req, res) => {
   try {
     const userId = req.params.userId;
@@ -162,20 +154,18 @@ exports.checkWishlistStatus = async (req, res) => {
       });
     }
 
-    // Check if product ID is in wishlist (normalize to string for comparison)
     const productIdStr = productID.toString();
     const isInWishlist = wishList.wishListProduct.includes(productIdStr);
 
     return res.status(200).json({
       success: true,
       isInWishlist: isInWishlist,
-      // productID: productID,
       data: productID,
       message: isInWishlist ? 'Product is in wishlist' : 'Product is not in wishlist'
     });
 
   } catch (e) {
-    console.error('Error checking wishlist status:', e);
+    logger.error('checkWishlistStatus failed', { userId: req.params.userId, productID: req.query.productID, error: e.message, stack: e.stack }); // ← replaced console.error
     return res.status(500).json({
       success: false,
       message: 'Internal server error',
@@ -184,11 +174,6 @@ exports.checkWishlistStatus = async (req, res) => {
   }
 };
 
-/**
- * GET /api/wishlist/products/:userId
- * Returns wishlist with all products populated (ShopProduct + part + shop).
- * Wishlist stores ShopProduct IDs; fetches from ShopProduct, cart-like format.
- */
 function formatWishlistProduct(sp) {
   if (!sp) return null;
   const shop = sp.shopId;
@@ -231,7 +216,6 @@ exports.getWishListWithProducts = async (req, res) => {
       .populate({ path: 'shopId', select: 'shopeDetails' })
       .lean();
 
-    // Filter out soft-deleted parts (isActive: false)
     const activeShopProducts = shopProducts.filter(sp => sp.part && sp.part.isActive === true);
     const data = activeShopProducts.map(formatWishlistProduct).filter(Boolean);
 
@@ -242,7 +226,7 @@ exports.getWishListWithProducts = async (req, res) => {
       productIds: wishList.wishListProduct
     });
   } catch (e) {
-    console.error('Error fetching wishlist with products:', e);
+    logger.error('getWishListWithProducts failed', { userId: req.params.userId, error: e.message, stack: e.stack }); // ← replaced console.error
     res.status(500).json({
       message: 'Internal server error',
       success: false,
@@ -251,7 +235,6 @@ exports.getWishListWithProducts = async (req, res) => {
   }
 };
 
-// GET WISHLIST PRODUCT IDS ONLY (Lightweight endpoint for status checking)
 exports.getWishlistProductIds = async (req, res) => {
   try {
     const userId = req.params.userId;
@@ -260,34 +243,30 @@ exports.getWishlistProductIds = async (req, res) => {
     if (!wishList) {
       return res.status(200).json({
         success: true,
-        // productIds: [],
         data: [],
         count: 0,
         message: 'Wishlist not found'
       });
     }
 
-    // Load ShopProducts and filter out soft-deleted parts (isActive: false)
     const productIds = wishList.wishListProduct.map(id => new mongoose.Types.ObjectId(id));
     const shopProducts = await ShopProduct.find({ _id: { $in: productIds } })
       .populate({ path: 'part', select: 'isActive' })
       .lean();
 
-    // Filter only active products (where part exists and isActive is true)
     const activeProductIds = shopProducts
       .filter(sp => sp.part && sp.part.isActive === true)
       .map(sp => sp._id.toString());
 
     return res.status(200).json({
       success: true,
-      // productIds: activeProductIds,
       data: activeProductIds,
       count: activeProductIds.length,
       message: 'Wishlist product IDs retrieved'
     });
 
   } catch (e) {
-    console.error('Error fetching wishlist product IDs:', e);
+    logger.error('getWishlistProductIds failed', { userId: req.params.userId, error: e.message, stack: e.stack }); // ← replaced console.error
     return res.status(500).json({
       success: false,
       message: 'Internal server error',

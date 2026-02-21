@@ -3,6 +3,7 @@ const jwt = require('jsonwebtoken');
 const User = require('../../models/User');
 const twilio = require('twilio');
 const { ROLES } = require('../../constants/roles');
+const logger = require('../../config/logger');
 
 const client = twilio(process.env.TWILIO_ACCOUNT_SID, process.env.TWILIO_AUTHTOKEN);
 const JWT_SECRET = process.env.JWT_SECRET || 'secret';
@@ -12,51 +13,39 @@ const generateToken = (user) => {
   return jwt.sign({ id: user._id, role: user.role }, JWT_SECRET, { expiresIn: JWT_EXPIRE });
 };
 
-
-
 // ===========================
 // REGISTER
 // ===========================
 exports.registerUser = async (req, res) => {
   try {
     const { name, email, password, phone, role } = req.body;
+    logger.info('registerUser: request received', { email });
 
     if (!email || !password) {
+      logger.warn('registerUser: email or password missing');
       return res.status(400).json({ success: false, message: 'Email and password required' });
     }
 
     const exists = await User.findOne({ email });
     if (exists) {
+      logger.warn('registerUser: user already exists', { email });
       return res.status(400).json({ success: false, message: 'User already exists' });
     }
 
-    const user = await User.create({
-      name,
-      email,
-      phone,
-      password,
-       role: role || ROLES.CUSTOMER
-    });
-
+    const user = await User.create({ name, email, phone, password, role: role || ROLES.CUSTOMER });
     const token = generateToken(user);
 
+    logger.info('registerUser: user registered successfully', { id: user._id, email });
     res.status(201).json({
       success: true,
       message: 'User registered successfully',
-      data: {
-        id: user._id,
-        name: user.name,
-        email: user.email,
-        phone: user.phone,
-        role: user.role,
-        token
-      }
+      data: { id: user._id, name: user.name, email: user.email, phone: user.phone, role: user.role, token }
     });
   } catch (err) {
+    logger.error('registerUser: failed to register user', { error: err });
     res.status(500).json({ success: false, message: err.message });
   }
 };
-
 
 // ===========================
 // LOGIN
@@ -64,92 +53,96 @@ exports.registerUser = async (req, res) => {
 exports.loginUser = async (req, res) => {
   try {
     const { email, password } = req.body;
+    logger.info('loginUser: request received', { email });
 
     const user = await User.findOne({ email });
-    if (!user) return res.status(401).json({ success: false, message: 'Invalid credentials' });
+    if (!user) {
+      logger.warn('loginUser: invalid credentials - user not found', { email });
+      return res.status(401).json({ success: false, message: 'Invalid credentials' });
+    }
 
     const ok = await user.comparePassword(password);
-    if (!ok) return res.status(401).json({ success: false, message: 'Invalid credentials' });
+    if (!ok) {
+      logger.warn('loginUser: invalid credentials - wrong password', { email });
+      return res.status(401).json({ success: false, message: 'Invalid credentials' });
+    }
 
     const token = generateToken(user);
 
+    logger.info('loginUser: login successful', { id: user._id, email });
     res.status(200).json({
       success: true,
       message: 'Login successful',
-      data: {
-        id: user._id,
-        name: user.name,
-        email: user.email,
-        phone: user.phone,
-        role: user.role,
-        profileImage: user.profileImage,
-        token
-      }
+      data: { id: user._id, name: user.name, email: user.email, phone: user.phone, role: user.role, profileImage: user.profileImage, token }
     });
   } catch (err) {
+    logger.error('loginUser: failed to login', { error: err });
     res.status(500).json({ success: false, message: err.message });
   }
 };
-// delete Account
+
+// Delete Account
 exports.deletAddcount = async (req, res) => {
-  const  _id= req.params.userId;
+  const _id = req.params.userId;
   try {
-    const user = await User.findOne({_id});
+    logger.info('deletAddcount: request received', { userId: _id });
+
+    const user = await User.findOne({ _id });
     if (!user) {
-      // Auto-register new user
-      return res.status(200).json({ message: 'user not founded. please enter valid phone number', success:false, data:[] });
+      logger.warn('deletAddcount: user not found', { userId: _id });
+      return res.status(200).json({ message: 'user not founded. please enter valid phone number', success: false, data: [] });
     }
-user.accountVisibility=false;
-await user.save();
-    res.status(200).json({ message: "Your account is deleted ", success: true ,data:user});
+
+    user.accountVisibility = false;
+    await user.save();
+
+    logger.info('deletAddcount: account deleted successfully', { userId: _id });
+    res.status(200).json({ message: 'Your account is deleted', success: true, data: user });
   } catch (err) {
+    logger.error('deletAddcount: failed to delete account', { error: err });
     res.status(500).json({ message: 'Somthing went wrong', success: false, error: err.message });
   }
 };
 
-//// OTP
-
-
-
-
-
 exports.getProfile = async (req, res) => {
   try {
-    const userId = req.params.userId;                // <-- correct param
+    const userId = req.params.userId;
+    logger.info('getProfile: request received', { userId });
+
     if (!userId) {
+      logger.warn('getProfile: userId param missing');
       return res.status(400).json({ message: 'userId param is required', success: false });
     }
 
-    const user = await User.findById(userId).select('-password'); // <-- findById
+    const user = await User.findById(userId).select('-password');
     if (!user) {
+      logger.warn('getProfile: user not found', { userId });
       return res.status(404).json({ message: 'User not found', success: false });
     }
 
-    res.status(200).json({
-      message: 'Profile details successfully',
-      success: true,
-      data: user
-    });
+    logger.info('getProfile: profile fetched successfully', { userId });
+    res.status(200).json({ message: 'Profile details successfully', success: true, data: user });
   } catch (err) {
-    res.status(500).json({
-      message: 'Failed to fetch profile',
-      success: false,
-      error: err.message
-    });
+    logger.error('getProfile: failed to fetch profile', { error: err });
+    res.status(500).json({ message: 'Failed to fetch profile', success: false, error: err.message });
   }
 };
 
 exports.updateProfile = async (req, res) => {
   try {
-    const userId = req.params.userId;                // <-- correct param
+    const userId = req.params.userId;
+    logger.info('updateProfile: request received', { userId });
+
     if (!userId) {
+      logger.warn('updateProfile: userId param missing');
       return res.status(400).json({ message: 'userId param is required', success: false });
     }
 
     const { name, email, phone, dob, profileImage } = req.body;
 
-    const user = await User.findById(userId);        // <-- findById
+    const user = await User.findById(userId);
     if (!user) {
+      logger.warn('updateProfile: user not found', { userId });
       return res.status(404).json({ message: 'User not found', success: false });
     }
 
@@ -157,7 +150,6 @@ exports.updateProfile = async (req, res) => {
     if (email) user.email = email;
     if (dob) user.dob = dob;
     if (profileImage !== undefined) user.profileImage = profileImage;
-
     if (phone && phone !== user.phone) {
       user.accountVerify = false;
       user.phone = phone;
@@ -165,422 +157,336 @@ exports.updateProfile = async (req, res) => {
 
     await user.save();
 
+    logger.info('updateProfile: profile updated successfully', { userId });
     res.status(200).json({
       message: 'Profile updated successfully',
       success: true,
-      data: {
-        id: user._id,
-        name: user.name,
-        email: user.email,
-        phone: user.phone,
-        role: user.role,
-        accountStatus: user.accountVerify,
-        dob: user.dob,
-        profileImage: user.profileImage,
-      }
+      data: { id: user._id, name: user.name, email: user.email, phone: user.phone, role: user.role, accountStatus: user.accountVerify, dob: user.dob, profileImage: user.profileImage }
     });
   } catch (err) {
-    res.status(500).json({
-      message: 'Failed to update profile',
-      success: false,
-      error: err.message
-    });
+    logger.error('updateProfile: failed to update profile', { error: err });
+    res.status(500).json({ message: 'Failed to update profile', success: false, error: err.message });
   }
 };
 
+// ===========================
+// ADDRESS CRUD
+// ===========================
 exports.updateUserAddress = async (req, res) => {
   try {
-    const userId = req.params.id;
-    const addressId = req.params.addressId;
+    const { id: userId, addressId } = req.params;
     const updateData = req.body;
+    logger.info('updateUserAddress: request received', { userId, addressId });
 
     const user = await User.findById(userId);
     if (!user) {
+      logger.warn('updateUserAddress: user not found', { userId });
       return res.status(404).json({ message: 'User not found', success: false });
     }
 
     let addressFound = false;
-
     for (let i = 0; i < user.address.length; i++) {
       if (user.address[i]._id.toString() === addressId) {
-        // If this address is being set to default
         if (updateData.default === true) {
-          // Set all other addresses' default to false
-          user.address.forEach((addr, index) => {
-            user.address[index].default = false;
-          });
+          user.address.forEach((addr, index) => { user.address[index].default = false; });
         }
-
-        // Update the specific address
-        user.address[i] = {
-          ...user.address[i]._doc,
-          ...updateData
-        };
+        user.address[i] = { ...user.address[i]._doc, ...updateData };
         addressFound = true;
         break;
       }
     }
 
     if (!addressFound) {
+      logger.warn('updateUserAddress: address not found', { userId, addressId });
       return res.status(404).json({ message: 'Address not found', success: false });
     }
 
     const updatedUser = await user.save();
 
-    res.status(200).json({
-      message: 'Address updated successfully',
-      success: true,
-      data: updatedUser.address
-    });
+    logger.info('updateUserAddress: address updated successfully', { userId, addressId });
+    res.status(200).json({ message: 'Address updated successfully', success: true, data: updatedUser.address });
   } catch (error) {
-    res.status(500).json({
-      message: 'Failed to update address',
-      success: false,
-      error: error.message
-    });
+    logger.error('updateUserAddress: failed to update address', { error });
+    res.status(500).json({ message: 'Failed to update address', success: false, error: error.message });
   }
 };
-
 
 exports.addNewAddress = async (req, res) => {
   try {
     const userId = req.params.id;
-    const newAddress = req.body; // should match address schema
-console.log(newAddress);
+    const newAddress = req.body;
+    logger.info('addNewAddress: request received', { userId });
+
     const user = await User.findById(userId);
     if (!user) {
-      return res.status(200).json({ message: "User not found", success: false });
+      logger.warn('addNewAddress: user not found', { userId });
+      return res.status(200).json({ message: 'User not found', success: false });
     }
 
     user.address.push(newAddress);
     await user.save();
 
-    res.status(200).json({
-      success: true,
-      message: "Address added successfully",
-      data: user.address
-    });
+    logger.info('addNewAddress: address added successfully', { userId });
+    res.status(200).json({ success: true, message: 'Address added successfully', data: user.address });
   } catch (error) {
-    res.status(500).json({ message: "Failed to add address", success: false, error: error.message });
+    logger.error('addNewAddress: failed to add address', { error });
+    res.status(500).json({ message: 'Failed to add address', success: false, error: error.message });
   }
 };
 
 exports.deleteAddressById = async (req, res) => {
   try {
-    const userId = req.params.id;
-    const addressId = req.params.addressId;
+    const { id: userId, addressId } = req.params;
+    logger.info('deleteAddressById: request received', { userId, addressId });
 
     const user = await User.findById(userId);
     if (!user) {
-      return res.status(200).json({ message: "User not found", success: false });
+      logger.warn('deleteAddressById: user not found', { userId });
+      return res.status(200).json({ message: 'User not found', success: false });
     }
 
     const originalLength = user.address.length;
-    console.log(addressId);
-
-    user.address = user.address.filter(
-      (addr) => addr._id.toString() !== addressId
-    );
-    console.log(user.address);
+    user.address = user.address.filter((addr) => addr._id.toString() !== addressId);
 
     if (user.address.length === originalLength) {
-      return res.status(200).json({ message: "Address not found", success: false });
-    }
-    if (!user.address) {
-      return res.status(200).json({ message: "Address not found", success: false });
+      logger.warn('deleteAddressById: address not found', { userId, addressId });
+      return res.status(200).json({ message: 'Address not found', success: false });
     }
 
     await user.save();
 
-    res.status(200).json({
-      success: true,
-      message: "Address deleted successfully",
-      data: user.address
-    });
+    logger.info('deleteAddressById: address deleted successfully', { userId, addressId });
+    res.status(200).json({ success: true, message: 'Address deleted successfully', data: user.address });
   } catch (error) {
-    res.status(500).json({ message: "Failed to delete address", success: false, error: error.message });
+    logger.error('deleteAddressById: failed to delete address', { error });
+    res.status(500).json({ message: 'Failed to delete address', success: false, error: error.message });
   }
 };
-
 
 exports.getAllAddresses = async (req, res) => {
   try {
     const userId = req.params.id;
+    logger.info('getAllAddresses: request received', { userId });
 
     const user = await User.findById(userId).select('address');
-
     if (!user) {
-      return res.status(404).json({ message: "User not found", success: false });
+      logger.warn('getAllAddresses: user not found', { userId });
+      return res.status(404).json({ message: 'User not found', success: false });
     }
 
-    res.status(200).json({
-      success: true,
-      message: "Addresses fetched successfully",
-      data: user.address
-    });
+    logger.info('getAllAddresses: addresses fetched successfully', { userId, count: user.address.length });
+    res.status(200).json({ success: true, message: 'Addresses fetched successfully', data: user.address });
   } catch (error) {
-    res.status(500).json({ message: "Failed to fetch addresses", success: false, error: error.message });
+    logger.error('getAllAddresses: failed to fetch addresses', { error });
+    res.status(500).json({ message: 'Failed to fetch addresses', success: false, error: error.message });
   }
 };
 
 exports.getDefultAddress = async (req, res) => {
   try {
     const userId = req.params.id;
+    logger.info('getDefultAddress: request received', { userId });
 
     const user = await User.findById(userId);
-
     if (!user) {
-      return res.status(404).json({ message: "User not found", success: false });
+      logger.warn('getDefultAddress: user not found', { userId });
+      return res.status(404).json({ message: 'User not found', success: false });
     }
 
     const defaultAddress = user.address.find(addr => addr.default === true);
 
-    return res.status(200).json({
-      success: true,
-      message: "Default address fetched successfully",
-      data: defaultAddress ? defaultAddress : [] 
-       // return array or empty list
-    });
-
+    logger.info('getDefultAddress: default address fetched', { userId, found: !!defaultAddress });
+    return res.status(200).json({ success: true, message: 'Default address fetched successfully', data: defaultAddress ? defaultAddress : [] });
   } catch (error) {
-    res.status(500).json({ 
-      message: "Failed to fetch address", 
-      success: false, 
-      data: error.message 
-    });
+    logger.error('getDefultAddress: failed to fetch default address', { error });
+    res.status(500).json({ message: 'Failed to fetch address', success: false, data: error.message });
   }
 };
 
-
-// exports.deleteAddress = async (req, res) => {
-//   try {
-//     const { id: userId, addressId } = req.params;
-
-//     const user = await User.findById(userId);
-
-//     if (!user) {
-//       return res.status(404).json({ message: "User not found", success: false });
-//     }
-
-//     const originalLength = user.address.length;
-//     user.address = user.address.filter(addr => addr._id.toString() !== addressId);
-
-//     if (user.address.length === originalLength) {
-//       return res.status(404).json({ message: "Address not found", success: false });
-//     }
-
-//     await user.save();
-
-//     res.status(200).json({
-//       success: true,
-//       message: "Address deleted successfully",
-//       data: user.address
-//     });
-//   } catch (error) {
-//     res.status(500).json({ message: "Failed to delete address", success: false, error: error.message });
-//   }
-// };
-
-
-// card crud
-
-
-
+// ===========================
+// CARD CRUD
+// ===========================
 exports.updateUserCard = async (req, res) => {
   try {
-    const userId = req.params.id;
-    const cardId = req.params.cardId;
+    const { id: userId, cardId } = req.params;
     const updateData = req.body;
+    logger.info('updateUserCard: request received', { userId, cardId });
 
     const user = await User.findById(userId);
     if (!user) {
+      logger.warn('updateUserCard: user not found', { userId });
       return res.status(404).json({ message: 'User not found', success: false });
     }
 
-    let addressFound = false;
-
+    let cardFound = false;
     for (let i = 0; i < user.card.length; i++) {
       if (user.card[i]._id.toString() === cardId) {
-        user.card[i] = {
-          ...user.card[i]._doc,
-          ...updateData
-        };
-        addressFound = true;
+        user.card[i] = { ...user.card[i]._doc, ...updateData };
+        cardFound = true;
         break;
       }
     }
 
-    if (!addressFound) {
+    if (!cardFound) {
+      logger.warn('updateUserCard: card not found', { userId, cardId });
       return res.status(404).json({ message: 'Card not found', success: false });
     }
 
     const updatedUser = await user.save();
 
-    res.status(200).json({
-      message: 'Address updated successfully',
-      success: true,
-      data: updatedUser.card
-    });
+    logger.info('updateUserCard: card updated successfully', { userId, cardId });
+    res.status(200).json({ message: 'Address updated successfully', success: true, data: updatedUser.card });
   } catch (error) {
-    res.status(500).json({
-      message: 'Failed to update address',
-      success: false,
-      error: error.message
-    });
+    logger.error('updateUserCard: failed to update card', { error });
+    res.status(500).json({ message: 'Failed to update address', success: false, error: error.message });
   }
 };
 
 exports.addNewCard = async (req, res) => {
   try {
     const userId = req.params.id;
-    const newCard = req.body; // should match address schema
-console.log(newCard);
+    const newCard = req.body;
+    logger.info('addNewCard: request received', { userId });
+
     const user = await User.findById(userId);
     if (!user) {
-      return res.status(200).json({ message: "User not found", success: false });
+      logger.warn('addNewCard: user not found', { userId });
+      return res.status(200).json({ message: 'User not found', success: false });
     }
 
     user.card.push(newCard);
     await user.save();
 
-    res.status(200).json({
-      success: true,
-      message: "Card added successfully",
-      data: user.card
-    });
+    logger.info('addNewCard: card added successfully', { userId });
+    res.status(200).json({ success: true, message: 'Card added successfully', data: user.card });
   } catch (error) {
-    res.status(500).json({ message: "Failed to add card", success: false, error: error.message });
+    logger.error('addNewCard: failed to add card', { error });
+    res.status(500).json({ message: 'Failed to add card', success: false, error: error.message });
   }
 };
 
 exports.deleteCardById = async (req, res) => {
   try {
-    const userId = req.params.id;
-    const cardId = req.params.cardId;
+    const { id: userId, cardId } = req.params;
+    logger.info('deleteCardById: request received', { userId, cardId });
 
     const user = await User.findById(userId);
     if (!user) {
-      return res.status(200).json({ message: "User not found", success: false });
+      logger.warn('deleteCardById: user not found', { userId });
+      return res.status(200).json({ message: 'User not found', success: false });
     }
 
     const originalLength = user.card.length;
-    
-
-    user.card = user.card.filter(
-      (addr) => addr._id.toString() !== cardId
-    );
-    // console.log(user.card);
+    user.card = user.card.filter((card) => card._id.toString() !== cardId);
 
     if (user.card.length === originalLength) {
-      return res.status(200).json({ message: "Card not found", success: false });
-    }
-    if (!user.card) {
-      return res.status(200).json({ message: "Card not found", success: false });
+      logger.warn('deleteCardById: card not found', { userId, cardId });
+      return res.status(200).json({ message: 'Card not found', success: false });
     }
 
     await user.save();
 
-    res.status(200).json({
-      success: true,
-      message: "Card deleted successfully",
-      data: user.card
-    });
+    logger.info('deleteCardById: card deleted successfully', { userId, cardId });
+    res.status(200).json({ success: true, message: 'Card deleted successfully', data: user.card });
   } catch (error) {
-    res.status(500).json({ message: "Failed to delete card", success: false, error: error.message });
+    logger.error('deleteCardById: failed to delete card', { error });
+    res.status(500).json({ message: 'Failed to delete card', success: false, error: error.message });
   }
 };
-
 
 exports.getAllCard = async (req, res) => {
   try {
     const userId = req.params.id;
+    logger.info('getAllCard: request received', { userId });
 
     const user = await User.findById(userId).select('card');
-
     if (!user) {
-      return res.status(404).json({ message: "User not found", success: false });
+      logger.warn('getAllCard: user not found', { userId });
+      return res.status(404).json({ message: 'User not found', success: false });
     }
 
-    res.status(200).json({
-      success: true,
-      message: "Card fetched successfully",
-      data: user.card
-    });
+    logger.info('getAllCard: cards fetched successfully', { userId, count: user.card.length });
+    res.status(200).json({ success: true, message: 'Card fetched successfully', data: user.card });
   } catch (error) {
-    res.status(500).json({ message: "Failed to fetch card", success: false, error: error.message });
+    logger.error('getAllCard: failed to fetch cards', { error });
+    res.status(500).json({ message: 'Failed to fetch card', success: false, error: error.message });
   }
 };
 
-
-// Customer OTP flows
+// ===========================
+// OTP FLOWS
+// ===========================
 exports.sendOtpToCustomer = async (req, res) => {
   const { phone } = req.body;
+  logger.info('sendOtpToCustomer: request received', { phone });
+
   if (!phone) {
+    logger.warn('sendOtpToCustomer: phone missing');
     return res.status(400).json({ message: 'Phone is required', success: false });
   }
+
   try {
     await client.verify.v2.services(process.env.TWILIO_SERVICE_SID)
       .verifications
       .create({ to: phone, channel: 'sms' });
+
+    logger.info('sendOtpToCustomer: OTP sent successfully', { phone });
     return res.status(200).json({ message: 'OTP sent successfully', success: true });
   } catch (err) {
-    console.error('Send OTP Error:', err);
+    logger.error('sendOtpToCustomer: failed to send OTP', { error: err });
     res.status(500).json({ message: 'Failed to send OTP', success: false, error: err.message });
   }
 };
 
 exports.resendOtpToCustomer = async (req, res) => {
   const { phone } = req.body;
+  logger.info('resendOtpToCustomer: request received', { phone });
+
   if (!phone) {
+    logger.warn('resendOtpToCustomer: phone missing');
     return res.status(400).json({ message: 'Phone is required', success: false });
   }
+
   try {
     await client.verify.v2.services(process.env.TWILIO_SERVICE_SID)
       .verifications
       .create({ to: phone, channel: 'sms' });
+
+    logger.info('resendOtpToCustomer: OTP resent successfully', { phone });
     return res.status(200).json({ message: 'OTP resent successfully', success: true });
   } catch (err) {
-    console.error('Resend OTP Error:', err);
+    logger.error('resendOtpToCustomer: failed to resend OTP', { error: err });
     res.status(500).json({ message: 'Failed to resend OTP', success: false, error: err.message });
   }
 };
 
 exports.verifyOtpForCustomer = async (req, res) => {
   const { phone, code } = req.body;
+  logger.info('verifyOtpForCustomer: request received', { phone });
+
   if (!phone || !code) {
+    logger.warn('verifyOtpForCustomer: phone or code missing');
     return res.status(400).json({ message: 'Phone and OTP code are required', success: false });
   }
 
   try {
     // ✅ 1. Bypass Twilio if fallback OTP is used
     if (code === '311299') {
+      logger.warn('verifyOtpForCustomer: fallback OTP used', { phone });
       let user = await User.findOne({ phone });
       if (!user) {
-        user = new User({
-          phone,
-          accountVerify: true,
-          role: 'customer',
-          password: phone
-        });
+        user = new User({ phone, accountVerify: true, role: 'customer', password: phone });
         await user.save();
       } else {
         user.accountVerify = true;
         await user.save();
       }
       const token = generateToken(user);
+      logger.info('verifyOtpForCustomer: verified via fallback OTP', { userId: user._id });
       return res.status(200).json({
         message: 'OTP verified successfully (test override)',
         success: true,
-        data: {
-          id: user._id,
-          name: user.name,
-          email: user.email,
-          phone: user.phone,
-          role: user.role,
-          accountStatus: user.accountVerify,
-          dob: user.dob,
-          token
-        }
+        data: { id: user._id, name: user.name, email: user.email, phone: user.phone, role: user.role, accountStatus: user.accountVerify, dob: user.dob, token }
       });
     }
 
@@ -593,45 +499,37 @@ exports.verifyOtpForCustomer = async (req, res) => {
     if (verification.status === 'approved') {
       let user = await User.findOne({ phone });
       if (!user) {
-        user = new User({
-          phone,
-          accountVerify: true,
-          role: 'customer',
-          password: phone
-        });
+        user = new User({ phone, accountVerify: true, role: 'customer', password: phone });
         await user.save();
       } else {
         user.accountVerify = true;
         await user.save();
       }
       const token = generateToken(user);
+      logger.info('verifyOtpForCustomer: OTP verified successfully', { userId: user._id, phone });
       return res.status(200).json({
         message: 'OTP verified successfully',
         success: true,
-        data: {
-          id: user._id,
-          name: user.name,
-          email: user.email,
-          phone: user.phone,
-          role: user.role,
-          accountStatus: user.accountVerify,
-          dob: user.dob,
-          token
-        }
+        data: { id: user._id, name: user.name, email: user.email, phone: user.phone, role: user.role, accountStatus: user.accountVerify, dob: user.dob, token }
       });
     } else {
+      logger.warn('verifyOtpForCustomer: invalid OTP', { phone });
       return res.status(401).json({ message: 'Invalid OTP', success: false });
     }
   } catch (err) {
-    console.error('Verify OTP Error:', err);
+    logger.error('verifyOtpForCustomer: OTP verification failed', { error: err });
     res.status(500).json({ message: 'OTP verification failed', success: false, error: err.message });
   }
 };
-// Get all users (without password)
+
+// ===========================
+// GET ALL USERS
+// ===========================
 exports.getAllUsers = async (req, res) => {
   try {
-    const users = await User.find().select('-password');
+    logger.info('getAllUsers: request received');
 
+    const users = await User.find().select('-password');
     const simplifiedUsers = users.map(user => {
       const defaultAddress = user.address?.find(addr => addr.default === true);
       return {
@@ -648,17 +546,10 @@ exports.getAllUsers = async (req, res) => {
       };
     });
 
-    res.status(200).json({
-      success: true,
-      message: 'Users fetched successfully',
-      data: simplifiedUsers
-    });
+    logger.info('getAllUsers: users fetched successfully', { count: simplifiedUsers.length });
+    res.status(200).json({ success: true, message: 'Users fetched successfully', data: simplifiedUsers });
   } catch (error) {
-    res.status(500).json({
-      success: false,
-      message: 'Failed to fetch users',
-      error: error.message
-    });
+    logger.error('getAllUsers: failed to fetch users', { error });
+    res.status(500).json({ success: false, message: 'Failed to fetch users', error: error.message });
   }
 };
-
