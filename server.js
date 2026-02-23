@@ -113,9 +113,9 @@ app.use(cors({
 app.use('/api/payment/webhook',              webhookLimiter);
 
 // OTP — tightest limits, applied before the broader authLimiter
-app.use('/api/auth/send-otp',               );
-app.use('/api/auth/resend-otp',             );
-app.use('/api/auth/verify-otp',             );
+app.use('/api/auth/send-otp',           authLimiter     );
+app.use('/api/auth/resend-otp',            authLimiter  );
+app.use('/api/auth/verify-otp',             authLimiter );
 
 // Auth — brute-force protection on login/register
 app.use('/api/auth',                        authLimiter);
