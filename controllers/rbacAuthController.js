@@ -18,7 +18,6 @@ const JWT_SECRET = process.env.JWT_SECRET;
 const JWT_EXPIRE = '7d';
 
 const generateToken = (payload) => jwt.sign(payload, JWT_SECRET, { expiresIn: JWT_EXPIRE });
-const generateOTP = () => crypto.randomInt(100000, 999999).toString();
 function generateOtp() { return String(Math.floor(100000 + Math.random() * 900000)); }
 
 // ─────────────────────────────────────────────────────────────────────────────
