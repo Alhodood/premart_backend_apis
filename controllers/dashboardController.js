@@ -470,8 +470,8 @@ exports.getShopDashboardByShopId = async (req, res) => {
     ] = await Promise.all([
       Order.aggregate([{ $match: { shopId: shopOid, paymentStatus: 'Paid', createdAt: curR } }, { $group: { _id: null, v: sumPayable } }]),
       Order.aggregate([{ $match: { shopId: shopOid, paymentStatus: 'Paid', createdAt: preR } }, { $group: { _id: null, v: sumPayable } }]),
-      Order.countDocuments({ shopId: shopOid, paymentStatus: 'Paid', createdAt: curR }),
-      Order.countDocuments({ shopId: shopOid, paymentStatus: 'Paid', createdAt: preR }),
+  Order.countDocuments({ shopId: shopOid, createdAt: curR }),
+Order.countDocuments({ shopId: shopOid, createdAt: preR }),
       Order.countDocuments({ shopId: shopOid, createdAt: curR }),
       Order.countDocuments({ shopId: shopOid, createdAt: preR }),
       Order.aggregate([
@@ -834,14 +834,7 @@ exports.getShopDashboardByShopId = async (req, res) => {
   }
 };
 
-// Helper: time ago formatter (second declaration — kept as-is from original)
-function getTimeAgo(date) {
-  const seconds = Math.floor((new Date() - new Date(date)) / 1000);
-  if (seconds < 60) return `${seconds} sec ago`;
-  if (seconds < 3600) return `${Math.floor(seconds / 60)} min ago`;
-  if (seconds < 86400) return `${Math.floor(seconds / 3600)} hour${Math.floor(seconds / 3600) > 1 ? 's' : ''} ago`;
-  return `${Math.floor(seconds / 86400)} day${Math.floor(seconds / 86400) > 1 ? 's' : ''} ago`;
-}
+
 
 exports.getAgencyDashboardByAgencyId = async (req, res) => {
   try {
