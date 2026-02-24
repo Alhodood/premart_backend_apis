@@ -3,7 +3,7 @@ const Order = require('../models/Order');
 const MasterOrder = require('../models/MasterOrder');
 const { v4: uuidv4 } = require('uuid');
 const { notifyPayment } = require('./bellNotifications');
-const logger = require('../config/logger'); // ← only addition at top
+const logger = require('../config/logger');
 
 exports.createPayment = async (req, res) => {
   try {
@@ -21,18 +21,43 @@ exports.createPayment = async (req, res) => {
 
     let deliveryAddress = null;
     if (firstOrder.deliveryAddress) {
-      deliveryAddress = { name: firstOrder.deliveryAddress.name || 'N/A', contact: firstOrder.deliveryAddress.contact || 'N/A', address: firstOrder.deliveryAddress.address || 'N/A', area: firstOrder.deliveryAddress.area || 'N/A', place: firstOrder.deliveryAddress.place || 'N/A', latitude: firstOrder.deliveryAddress.latitude || null, longitude: firstOrder.deliveryAddress.longitude || null, addressType: firstOrder.deliveryAddress.addressType || 'Home' };
+      deliveryAddress = {
+        name: firstOrder.deliveryAddress.name || 'N/A',
+        contact: firstOrder.deliveryAddress.contact || 'N/A',
+        address: firstOrder.deliveryAddress.address || 'N/A',
+        area: firstOrder.deliveryAddress.area || 'N/A',
+        place: firstOrder.deliveryAddress.place || 'N/A',
+        latitude: firstOrder.deliveryAddress.latitude || null,
+        longitude: firstOrder.deliveryAddress.longitude || null,
+        addressType: firstOrder.deliveryAddress.addressType || 'Home'
+      };
     }
 
     const toPlainObject = (obj) => { if (!obj) return null; return obj.toObject ? obj.toObject() : obj; };
     let couponCode = null, couponDetails = null;
     if (firstOrder.coupon) {
       const orderCoupon = toPlainObject(firstOrder.coupon);
-      if (orderCoupon && orderCoupon.code) { couponCode = orderCoupon.code; couponDetails = { code: orderCoupon.code, discountType: orderCoupon.discountType || null, discountValue: orderCoupon.discountValue || null, discountAmount: orderCoupon.discountAmount || null }; }
+      if (orderCoupon && orderCoupon.code) {
+        couponCode = orderCoupon.code;
+        couponDetails = {
+          code: orderCoupon.code,
+          discountType: orderCoupon.discountType || null,
+          discountValue: orderCoupon.discountValue || null,
+          discountAmount: orderCoupon.discountAmount || null
+        };
+      }
     }
     if (!couponDetails && masterOrder.couponApplied) {
       const masterCoupon = toPlainObject(masterOrder.couponApplied);
-      if (masterCoupon && masterCoupon.code) { couponCode = masterCoupon.code; couponDetails = { code: masterCoupon.code, discountType: masterCoupon.discountType || null, discountValue: masterCoupon.discountValue || null, discountAmount: masterCoupon.discountAmount || null }; }
+      if (masterCoupon && masterCoupon.code) {
+        couponCode = masterCoupon.code;
+        couponDetails = {
+          code: masterCoupon.code,
+          discountType: masterCoupon.discountType || null,
+          discountValue: masterCoupon.discountValue || null,
+          discountAmount: masterCoupon.discountAmount || null
+        };
+      }
     }
 
     let finalTransactionId = transactionId;
@@ -48,7 +73,15 @@ exports.createPayment = async (req, res) => {
       }
     }
 
-    const paymentData = { orderId: masterOrderId, userId, shopId: null, amount, paymentMethod: paymentMethod.toUpperCase(), transactionId: finalTransactionId, paymentStatus };
+    const paymentData = {
+      orderId: masterOrderId,
+      userId,
+      shopId: null,
+      amount,
+      paymentMethod: paymentMethod.toUpperCase(),
+      transactionId: finalTransactionId,
+      paymentStatus
+    };
     if (deliveryAddress) paymentData.deliveryAddress = deliveryAddress;
     if (couponCode) paymentData.couponCode = couponCode;
     if (couponDetails) paymentData.couponDetails = couponDetails;
@@ -60,41 +93,32 @@ exports.createPayment = async (req, res) => {
       const orderForNotif = await Order.findById(masterOrder.orderIds[0]);
       if (orderForNotif) await notifyPayment(payment, orderForNotif);
     } catch (notifErr) {
-      logger.warn('Payment notification failed', { paymentId: payment._id, error: notifErr.message }); // ← replaced console.warn
+      logger.warn('Payment notification failed', { paymentId: payment._id, error: notifErr.message });
     }
 
-    const orders = await Order.find({ _id: { $in: masterOrder.orderIds } });
-    const DeliveryBoy = require('../models/DeliveryBoy');
-    const availableDeliveryBoys = await DeliveryBoy.find({ availability: true });
-
-    if (availableDeliveryBoys.length === 0) {
-      return res.status(200).json({ message: 'Payment recorded but no available delivery boys at the moment', success: true, data: { payment: { _id: payment._id, transactionId: payment.transactionId, amount: payment.amount, paymentMethod: payment.paymentMethod, paymentStatus: payment.paymentStatus, deliveryAddress: payment.deliveryAddress || null, couponCode: payment.couponCode || null, couponDetails: payment.couponDetails || null }, ordersProcessed: 0, ordersPending: orders.length } });
-    }
-
-    const { autoAssignDeliveryBoyWithin5kmHelper } = require('../helper/autoAssignHelper');
-    const assignmentResults = [];
-    for (const order of orders) {
-      try {
-        if (order.assignedDeliveryBoy) { assignmentResults.push({ orderId: order._id, status: 'already_assigned', message: 'Order already has a delivery boy' }); continue; }
-        const result = await autoAssignDeliveryBoyWithin5kmHelper(order._id);
-        assignmentResults.push({ orderId: order._id, status: result.success ? 'assigned' : 'failed', message: result.message, deliveryBoysNotified: result.data?.nearbyDeliveryBoys?.length || 0 });
-        await new Promise(resolve => setTimeout(resolve, 500));
-      } catch (assignError) {
-        logger.error('Order auto-assignment failed', { orderId: order._id, error: assignError.message }); // ← replaced console.error
-        assignmentResults.push({ orderId: order._id, status: 'error', message: assignError.message });
-      }
-    }
-
-    const successCount = assignmentResults.filter(r => r.status === 'assigned').length;
-    const failedCount = assignmentResults.filter(r => r.status === 'failed' || r.status === 'error').length;
-    const alreadyAssignedCount = assignmentResults.filter(r => r.status === 'already_assigned').length;
-
+    // ✅ Auto-assign already runs in createOrder (fire-and-forget) — no assignment needed here
     return res.status(201).json({
-      message: 'Payment recorded and orders assignment initiated', success: true,
-      data: { payment: { _id: payment._id, masterOrderId: payment.orderId, userId: payment.userId, amount: payment.amount, paymentMethod: payment.paymentMethod, paymentStatus: payment.paymentStatus, transactionId: payment.transactionId, deliveryAddress: payment.deliveryAddress || null, couponCode: payment.couponCode || null, couponDetails: payment.couponDetails || null, createdAt: payment.createdAt }, masterOrderId: masterOrder._id, totalOrders: orders.length, summary: { successfullyAssigned: successCount, failed: failedCount, alreadyAssigned: alreadyAssignedCount }, assignmentResults }
+      message: 'Payment recorded successfully',
+      success: true,
+      data: {
+        payment: {
+          _id: payment._id,
+          masterOrderId: payment.orderId,
+          userId: payment.userId,
+          amount: payment.amount,
+          paymentMethod: payment.paymentMethod,
+          paymentStatus: payment.paymentStatus,
+          transactionId: payment.transactionId,
+          deliveryAddress: payment.deliveryAddress || null,
+          couponCode: payment.couponCode || null,
+          couponDetails: payment.couponDetails || null,
+          createdAt: payment.createdAt
+        }
+      }
     });
+
   } catch (error) {
-    logger.error('createPayment failed', { masterOrderId: req.body.masterOrderId, userId: req.body.userId, error: error.message, stack: error.stack }); // ← replaced console.error
+    logger.error('createPayment failed', { masterOrderId: req.body.masterOrderId, userId: req.body.userId, error: error.message, stack: error.stack });
     res.status(500).json({ message: 'Failed to record payment', success: false, data: error.message });
   }
 };
@@ -117,18 +141,37 @@ exports.updatePaymentStatus = async (req, res) => {
 
     return res.status(200).json({ message: 'Payment status and linked order updated successfully', success: true, data: payment });
   } catch (error) {
-    logger.error('updatePaymentStatus failed', { paymentId: req.params.paymentId, error: error.message, stack: error.stack }); // ← replaced console.error
+    logger.error('updatePaymentStatus failed', { paymentId: req.params.paymentId, error: error.message, stack: error.stack });
     res.status(500).json({ message: 'Failed to update payment status', success: false, data: error.message });
   }
 };
 
 exports.getAllPayments = async (req, res) => {
   try {
-    const payments = await Payment.find().populate({ path: 'userId', select: 'name address' }).populate({ path: 'shopId', select: 'shopeDetails.shopName shopeDetails.shopAddress' }).populate({ path: 'orderId', select: 'orderNumber' });
-    const flatData = payments.map(p => ({ paymentId: p._id, userName: p.userId?.name || null, shopName: p.shopId?.shopeDetails?.shopName || null, orderId: p.orderId?._id || null, amount: p.amount, paymentMethod: p.paymentMethod, paymentStatus: p.paymentStatus, transactionId: p.transactionId || null, paymentDate: p.paymentDate || null, createdAt: p.createdAt || null, userContact: p.userId?.address?.[0]?.contact || null, shopAddress: p.shopId?.shopeDetails?.shopAddress || null, __sortDate: new Date(p.paymentDate || p.createdAt || 0) })).sort((a, b) => b.__sortDate - a.__sortDate).map(({ __sortDate, ...rest }) => rest);
+    const payments = await Payment.find()
+      .populate({ path: 'userId', select: 'name address' })
+      .populate({ path: 'shopId', select: 'shopeDetails.shopName shopeDetails.shopAddress' })
+      .populate({ path: 'orderId', select: 'orderNumber' });
+    const flatData = payments.map(p => ({
+      paymentId: p._id,
+      userName: p.userId?.name || null,
+      shopName: p.shopId?.shopeDetails?.shopName || null,
+      orderId: p.orderId?._id || null,
+      amount: p.amount,
+      paymentMethod: p.paymentMethod,
+      paymentStatus: p.paymentStatus,
+      transactionId: p.transactionId || null,
+      paymentDate: p.paymentDate || null,
+      createdAt: p.createdAt || null,
+      userContact: p.userId?.address?.[0]?.contact || null,
+      shopAddress: p.shopId?.shopeDetails?.shopAddress || null,
+      __sortDate: new Date(p.paymentDate || p.createdAt || 0)
+    }))
+      .sort((a, b) => b.__sortDate - a.__sortDate)
+      .map(({ __sortDate, ...rest }) => rest);
     return res.status(200).json({ success: true, message: 'All payments fetched successfully', data: flatData });
   } catch (error) {
-    logger.error('getAllPayments failed', { error: error.message, stack: error.stack }); // ← replaced console.error
+    logger.error('getAllPayments failed', { error: error.message, stack: error.stack });
     res.status(500).json({ success: false, message: 'Failed to fetch payments', data: error.message });
   }
 };
@@ -139,7 +182,7 @@ exports.getShopPayments = async (req, res) => {
     const payments = await Payment.find({ shopId }).sort({ createdAt: -1 });
     return res.status(200).json({ message: 'Shop payments fetched successfully', success: true, data: payments });
   } catch (error) {
-    logger.error('getShopPayments failed', { shopId: req.params.shopId, error: error.message, stack: error.stack }); // ← replaced console.error
+    logger.error('getShopPayments failed', { shopId: req.params.shopId, error: error.message, stack: error.stack });
     res.status(500).json({ message: 'Failed to fetch shop payments', success: false, data: error.message });
   }
 };
@@ -150,7 +193,7 @@ exports.getUserPayments = async (req, res) => {
     const payments = await Payment.find({ userId }).sort({ createdAt: -1 });
     return res.status(200).json({ message: 'User payment history fetched successfully', success: true, data: payments });
   } catch (error) {
-    logger.error('getUserPayments failed', { userId: req.params.userId, error: error.message, stack: error.stack }); // ← replaced console.error
+    logger.error('getUserPayments failed', { userId: req.params.userId, error: error.message, stack: error.stack });
     res.status(500).json({ message: 'Failed to fetch user payments', success: false, data: error.message });
   }
 };
@@ -161,9 +204,18 @@ exports.paymentSummary = async (req, res) => {
     const totalPaid = payments.filter(p => p.paymentStatus === 'Paid').reduce((sum, p) => sum + p.amount, 0);
     const totalFailed = payments.filter(p => p.paymentStatus === 'Failed').reduce((sum, p) => sum + p.amount, 0);
     const totalRefunded = payments.filter(p => p.paymentStatus === 'Refunded').reduce((sum, p) => sum + p.amount, 0);
-    return res.status(200).json({ message: 'Payment summary', success: true, data: { totalTransactions: payments.length, totalPaid: totalPaid.toFixed(2), totalFailed: totalFailed.toFixed(2), totalRefunded: totalRefunded.toFixed(2) } });
+    return res.status(200).json({
+      message: 'Payment summary',
+      success: true,
+      data: {
+        totalTransactions: payments.length,
+        totalPaid: totalPaid.toFixed(2),
+        totalFailed: totalFailed.toFixed(2),
+        totalRefunded: totalRefunded.toFixed(2)
+      }
+    });
   } catch (error) {
-    logger.error('paymentSummary failed', { error: error.message, stack: error.stack }); // ← replaced console.error
+    logger.error('paymentSummary failed', { error: error.message, stack: error.stack });
     res.status(500).json({ message: 'Failed to fetch payment summary', success: false, data: error.message });
   }
 };
@@ -182,11 +234,14 @@ exports.searchPaymentsSuperAdmin = async (req, res) => {
     else if (minAmount) filter.amount = { $gte: parseFloat(minAmount) };
     else if (maxAmount) filter.amount = { $lte: parseFloat(maxAmount) };
 
-    const payments = await Payment.find(filter).sort({ createdAt: sort === 'asc' ? 1 : -1 }).skip((page - 1) * limit).limit(parseInt(limit));
+    const payments = await Payment.find(filter)
+      .sort({ createdAt: sort === 'asc' ? 1 : -1 })
+      .skip((page - 1) * limit)
+      .limit(parseInt(limit));
     const total = await Payment.countDocuments(filter);
     return res.status(200).json({ message: 'Payments fetched successfully', success: true, total, page: parseInt(page), limit: parseInt(limit), data: payments });
   } catch (error) {
-    logger.error('searchPaymentsSuperAdmin failed', { error: error.message, stack: error.stack }); // ← replaced console.error
+    logger.error('searchPaymentsSuperAdmin failed', { error: error.message, stack: error.stack });
     res.status(500).json({ message: 'Failed to search payments', success: false, data: error.message });
   }
 };
@@ -208,11 +263,14 @@ exports.searchPaymentsShopAdmin = async (req, res) => {
     else if (minAmount) filter.amount = { $gte: parseFloat(minAmount) };
     else if (maxAmount) filter.amount = { $lte: parseFloat(maxAmount) };
 
-    const payments = await Payment.find(filter).sort({ createdAt: sort === 'asc' ? 1 : -1 }).skip((page - 1) * limit).limit(parseInt(limit));
+    const payments = await Payment.find(filter)
+      .sort({ createdAt: sort === 'asc' ? 1 : -1 })
+      .skip((page - 1) * limit)
+      .limit(parseInt(limit));
     const total = await Payment.countDocuments(filter);
     return res.status(200).json({ message: 'Shop Payments fetched successfully', success: true, total, page: parseInt(page), limit: parseInt(limit), data: payments });
   } catch (error) {
-    logger.error('searchPaymentsShopAdmin failed', { shopId: req.params.shopId, error: error.message, stack: error.stack }); // ← replaced console.error
+    logger.error('searchPaymentsShopAdmin failed', { shopId: req.params.shopId, error: error.message, stack: error.stack });
     res.status(500).json({ message: 'Failed to search shop payments', success: false, data: error.message });
   }
 };

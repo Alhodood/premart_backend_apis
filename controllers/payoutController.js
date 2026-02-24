@@ -164,7 +164,7 @@ exports.getAllShopPayouts = async (req, res) => {
       totalOrders: payout.totalOrders, totalSales: payout.totalSales,
       platformCommission: payout.platformCommission, netPayable: payout.netPayable,
       from: payout.from, to: payout.to, status: payout.status,
-      transactionId: payout.transactionId, paidAt: payout.paidAt, paymentMethod: payout.paymentMethod, createdAt: payout.createdAt
+      transactionId: payout.transactionId, paidAt: payout.paidAt, paymentMethod: 'COD', createdAt: payout.createdAt
     }));
     return res.status(200).json({ message: 'Shop payouts fetched successfully', success: true, count: formatted.length, data: formatted });
   } catch (error) {

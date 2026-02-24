@@ -33,8 +33,8 @@ exports.getSuperAdminDashboard = async (req, res) => {
 
     // ── Total Orders (paid only) ─────────────────────────────────────────
     const [totalOrders, previousOrders] = await Promise.all([
-      Order.countDocuments({ createdAt: { $gte: currentMonthStart }, paymentStatus: 'Paid' }),
-      Order.countDocuments({ createdAt: { $gte: lastMonthStart, $lt: currentMonthStart }, paymentStatus: 'Paid' }),
+      Order.countDocuments({ createdAt: { $gte: currentMonthStart } }),
+      Order.countDocuments({ createdAt: { $gte: lastMonthStart, $lt: currentMonthStart } }),
     ]);
 
     // ── Total Sales (paid only) ──────────────────────────────────────────
@@ -668,35 +668,39 @@ Order.countDocuments({ shopId: shopOid, createdAt: preR }),
       })
     );
 
-    // Inventory Alerts
-    let inventoryAlerts = [];
-    try {
-      const Product = require('../models/Product');
-      const lowStock = await Product.find({
-        shopId: shopOid,
-        $expr: { $lte: ['$stock', '$reorderPoint'] },
-      })
-        .select('partName stock reorderPoint')
-        .sort({ stock: 1 })
-        .limit(5)
-        .lean();
+   // Inventory Alerts - replace the existing try/catch block
+let inventoryAlerts = [];
+try {
+  const ShopProduct = require('../models/ShopProduct');
 
-      inventoryAlerts = lowStock.map(p => ({
-        name: p.partName,
-        stock: p.stock,
-        reorderPoint: p.reorderPoint || 20,
-        status: p.stock === 0 ? 'critical' : p.stock < (p.reorderPoint || 20) / 2 ? 'low' : 'warning',
-      }));
-    } catch (err) {
-      logger.warn('⚠️ Product model not available, using mock inventory alerts');
-      inventoryAlerts = [
-        { name: 'Brake Pads - Front', stock: 5,  reorderPoint: 20, status: 'critical' },
-        { name: 'Oil Filter',         stock: 8,  reorderPoint: 30, status: 'low'      },
-        { name: 'Air Filter',         stock: 12, reorderPoint: 25, status: 'warning'  },
-        { name: 'Spark Plugs',        stock: 15, reorderPoint: 40, status: 'warning'  },
-        { name: 'Wiper Blades',       stock: 18, reorderPoint: 35, status: 'warning'  },
-      ];
-    }
+  const lowStock = await ShopProduct.find({
+    shopId: shopOid,
+    stock: { $lte: 10 },   // threshold — adjust as needed
+    isAvailable: true,
+  })
+    .populate('part', 'partName')
+    .select('stock part')
+    .sort({ stock: 1 })
+    .limit(5)
+    .lean();
+
+  inventoryAlerts = lowStock.map(p => {
+    const reorderPoint = 20; // default since ShopProduct has no reorderPoint field
+    return {
+      name:         p.part?.partName || 'Unknown Product',
+      stock:        p.stock,
+      reorderPoint,
+      status:       p.stock === 0
+                      ? 'critical'
+                      : p.stock < reorderPoint / 2
+                        ? 'low'
+                        : 'warning',
+    };
+  });
+} catch (err) {
+  logger.warn('⚠️ Inventory alerts failed: ' + err.message);
+  inventoryAlerts = [];
+}
 
     // Payment Method Distribution
     const paymentMethods = await Order.aggregate([
