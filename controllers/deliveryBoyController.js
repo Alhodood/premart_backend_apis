@@ -554,6 +554,14 @@ exports.getNearbyAssignedOrders = async (req, res) => {
     const deliveryBoyId = req.params.deliveryBoyId;
 
     const { DeliveryAgency } = require('../models/DeliveryAgency');
+    const mongoose = require('mongoose');
+    const Shop = mongoose.model('Shop');
+    const geolib = require('geolib');
+    const { getEmirateFromCoordinates } = require('../helper/autoAssignHelper');
+
+    // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+    // STEP 1: VALIDATE DELIVERY BOY & GET LOCATION
+    // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
     const deliveryBoy = await DeliveryBoy.findById(deliveryBoyId);
     if (!deliveryBoy || !deliveryBoy.latitude || !deliveryBoy.longitude) {
@@ -567,89 +575,78 @@ exports.getNearbyAssignedOrders = async (req, res) => {
     const { latitude: boyLat, longitude: boyLng } = deliveryBoy;
     const RANGE_KM = 20;
 
+    // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+    // STEP 2: GET AGENCY EMIRATES FOR THIS DELIVERY BOY
+    // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
     let agencyEmirates = [];
     if (deliveryBoy.agencyId) {
       const agency = await DeliveryAgency.findById(deliveryBoy.agencyId)
         .select('agencyDetails.emirates')
         .lean();
       agencyEmirates = agency?.agencyDetails?.emirates || [];
-      logger.info(
-        `🏢 Agency emirates filter: ${agencyEmirates.length > 0 ? agencyEmirates.join(', ') : 'none (no restriction)'}`
-      );
     }
 
-    const activeStatuses = [
-      'Pending',
-      'Delivery Boy Assigned',
-      'Accepted by Delivery Boy',
-      'Reached Pickup',
-      'Waiting to Pick',
-      'Order Picked',
-      'On the way',
-      'Reached Drop'
-    ];
+    // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+    // STEP 3: FETCH AVAILABLE ORDERS
+    // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
-    const assignedOrders = await Order.find({
-      status: { $in: activeStatuses }
+    const availableOrders = await Order.find({
+      $or: [
+        {
+          status: 'Pending',
+          assignedDeliveryBoy: { $in: [null, undefined] },
+          $or: [
+            { notifiedDeliveryBoys: deliveryBoyId },
+            { notifiedDeliveryBoys: { $exists: false } },
+            { notifiedDeliveryBoys: { $size: 0 } }
+          ]
+        },
+        {
+          status: 'Delivery Boy Assigned',
+          assignedDeliveryBoy: deliveryBoyId
+        }
+      ]
     });
 
-    logger.info(`📦 Found ${assignedOrders.length} orders (including Pending)`);
+    // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+    // STEP 4: PROCESS & FILTER EACH ORDER
+    // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
     const formattedNearbyOrders = [];
 
-    const mongoose = require('mongoose');
-    const Shop = mongoose.model('Shop');
-    const geolib = require('geolib');
-
-    const { getEmirateFromCoordinates } = require('../helper/autoAssignHelper');
-
-    for (const order of assignedOrders) {
+    for (const order of availableOrders) {
       try {
         const shop = await Shop.findById(order.shopId);
+        if (!shop?.shopeDetails?.shopLocation) continue;
 
-        if (!shop?.shopeDetails?.shopLocation) {
-          logger.warn(`⚠️ Skipping order ${order._id} - no shop location`);
-          continue;
-        }
-
-        const shopLocation = shop.shopeDetails.shopLocation;
-        const coords = shopLocation.split(',').map(str => parseFloat(str.trim()));
-
-        if (coords.length !== 2 || isNaN(coords[0]) || isNaN(coords[1])) {
-          logger.warn(`⚠️ Skipping order ${order._id} - invalid shop coordinates`);
-          continue;
-        }
+        const coords = shop.shopeDetails.shopLocation
+          .split(',')
+          .map(str => parseFloat(str.trim()));
+        if (coords.length !== 2 || isNaN(coords[0]) || isNaN(coords[1])) continue;
 
         const [shopLat, shopLng] = coords;
 
+        // ── EMIRATE FILTER ──────────────────────────────────────────────
         if (agencyEmirates.length > 0) {
           const shopEmirate =
             shop.shopeDetails?.emirates ||
             getEmirateFromCoordinates(shopLat, shopLng);
-
           const coversEmirate = agencyEmirates.some(
             e => e.toLowerCase() === shopEmirate.toLowerCase()
           );
-
-          if (!coversEmirate) {
-            logger.info(
-              `🚫 Skipping order ${order._id} - shop in ${shopEmirate}, agency covers [${agencyEmirates.join(', ')}]`
-            );
-            continue;
-          }
+          if (!coversEmirate) continue;
         }
 
-        const pickupDistance =
+        // ── PROXIMITY FILTER ────────────────────────────────────────────
+        const pickupDistanceKm =
           geolib.getDistance(
             { latitude: boyLat, longitude: boyLng },
             { latitude: shopLat, longitude: shopLng }
           ) / 1000;
+        if (order.status === 'Pending' && pickupDistanceKm > RANGE_KM) continue;
 
-        if (pickupDistance > RANGE_KM) {
-          logger.info(`⚠️ Skipping order ${order._id} - too far (${pickupDistance.toFixed(2)} km)`);
-          continue;
-        }
-
+        const pickupDistance = pickupDistanceKm;
         const pickupTime = `${Math.ceil((pickupDistance / 30) * 60)} mins`;
 
         let dropDistance = 0;
@@ -657,7 +654,7 @@ exports.getNearbyAssignedOrders = async (req, res) => {
         const customerLat = order?.deliveryAddress?.latitude;
         const customerLng = order?.deliveryAddress?.longitude;
 
-        if (shopLat && shopLng && customerLat && customerLng) {
+        if (customerLat && customerLng) {
           dropDistance =
             geolib.getDistance(
               { latitude: shopLat, longitude: shopLng },
@@ -666,56 +663,137 @@ exports.getNearbyAssignedOrders = async (req, res) => {
           dropTime = `${Math.ceil((dropDistance / 30) * 60)} mins`;
         }
 
-        const shopDetails = {
-          shopName:     shop?.shopeDetails?.shopName     || '',
-          shopAddress:  shop?.shopeDetails?.shopAddress  || '',
-          shopContact:  shop?.shopeDetails?.shopContact  || '',
-          shopLocation: shop?.shopeDetails?.shopLocation || '',
-        };
-
-        const deliveryDetails = {
-          deliveryBoyId:    order.assignedDeliveryBoy || null,
-          orderStatus:      order.status,
-          pickupDistance:   pickupDistance.toFixed(2),
-          pickupTime,
-          dropDistance:     dropDistance.toFixed(2),
-          dropTime,
-          deliveryEarnings: order.deliveryEarning || 0,
-        };
-
-        const deliveryAddress = {
-          name:      order?.deliveryAddress?.name      || 'N/A',
-          address:   order?.deliveryAddress?.address   || 'N/A',
-          contact:   order?.deliveryAddress?.contact   || 'N/A',
-          area:      order?.deliveryAddress?.area      || 'N/A',
-          place:     order?.deliveryAddress?.place     || 'N/A',
-          latitude:  order?.deliveryAddress?.latitude  || null,
-          longitude: order?.deliveryAddress?.longitude || null,
-        };
+        // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+        // RESPONSE SHAPE
+        //
+        // Flat fields  → used by NearbyOrderCard in order_screen.dart
+        //                and by new_order_dialog.dart nearbyOrders branch
+        //                via order['shopDetails'], order['deliveryDetails'],
+        //                order['deliveryAddress'], order['orderId']
+        //
+        // data block   → used by all dialog screens (DropOrderScreen,
+        //                ReachedPickupDialog, OrderDropDialog etc.)
+        //                via filteredData['data']['order'],
+        //                filteredData['data']['shop']['shopeDetails'],
+        //                filteredData['data']['nearbyDeliveryBoys'][0]
+        // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
         formattedNearbyOrders.push({
-          orderId: order._id,
-          shopDetails,
-          deliveryDetails,
-          deliveryAddress,
+
+          // ── FLAT FIELDS (for card UI & new_order_dialog nearbyOrders branch) ──
+
+          orderId:     order._id,
+          orderStatus: order.status,
+
+          shopDetails: {
+            shopName:     shop?.shopeDetails?.shopName     || '',
+            shopAddress:  shop?.shopeDetails?.shopAddress  || '',
+            shopContact:  shop?.shopeDetails?.shopContact  || '',
+            shopLocation: shop?.shopeDetails?.shopLocation || '',
+          },
+
+          deliveryDetails: {
+            deliveryBoyId:    order.assignedDeliveryBoy || null,
+            orderStatus:      order.status,
+            pickupDistance:   pickupDistance.toFixed(2),
+            pickupTime,
+            dropDistance:     dropDistance.toFixed(2),
+            dropTime,
+            deliveryEarnings: order.deliveryEarning || 0,
+          },
+
+          deliveryAddress: {
+            name:      order?.deliveryAddress?.name      || 'N/A',
+            address:   order?.deliveryAddress?.address   || 'N/A',
+            contact:   order?.deliveryAddress?.contact   || 'N/A',
+            area:      order?.deliveryAddress?.area      || 'N/A',
+            place:     order?.deliveryAddress?.place     || 'N/A',
+            latitude:  order?.deliveryAddress?.latitude  || null,
+            longitude: order?.deliveryAddress?.longitude || null,
+          },
+
+          // Payment fields at top level (for _transformOngoingOrder)
+          finalPayable:  order.totalPayable  || 0,
+          totalPayable:  order.totalPayable  || 0,
+          paymentType:   order.paymentType   || 'N/A',
+          transactionId: order.transactionId || '',
+
           createdAt: order.createdAt,
           updatedAt: order.updatedAt,
+
+          // ── NESTED DATA BLOCK (for all dialog screens) ──────────────────
+          // Matches: filteredData['data'] used by DropOrderScreen,
+          //          ReachedPickupDialog, OrderPickingDialog, etc.
+
+          data: {
+            order: {
+              _id:             order._id,
+              orderStatus:     order.status,
+              deliveryEarning: order.deliveryEarning || 0,
+              finalPayable:    order.totalPayable    || 0,
+              totalPayable:    order.totalPayable    || 0,
+              paymentType:     order.paymentType     || 'N/A',
+              transactionId:   order.transactionId   || '',
+              deliveryAddress: {
+                name:      order?.deliveryAddress?.name      || 'N/A',
+                address:   order?.deliveryAddress?.address   || 'N/A',
+                contact:   order?.deliveryAddress?.contact   || 'N/A',
+                area:      order?.deliveryAddress?.area      || 'N/A',
+                place:     order?.deliveryAddress?.place     || 'N/A',
+                latitude:  order?.deliveryAddress?.latitude  || null,
+                longitude: order?.deliveryAddress?.longitude || null,
+              },
+            },
+
+            shop: {
+              id: shop._id,
+              shopeDetails: {
+                shopName:     shop?.shopeDetails?.shopName     || '',
+                shopAddress:  shop?.shopeDetails?.shopAddress  || '',
+                shopContact:  shop?.shopeDetails?.shopContact  || '',
+                shopLocation: shop?.shopeDetails?.shopLocation || '',
+              },
+              location: {
+                latitude:  shopLat,
+                longitude: shopLng,
+              },
+            },
+
+            nearbyDeliveryBoys: [
+              {
+                _id:             order.assignedDeliveryBoy || deliveryBoyId,
+                pickupDistance:  pickupDistance.toFixed(2),
+                pickupTime,
+                dropDistance:    dropDistance.toFixed(2),
+                dropTime,
+                deliveryEarning: order.deliveryEarning || 0,
+                earning:         order.deliveryEarning || 0,
+              },
+            ],
+
+            customer: {
+              location: {
+                latitude:  customerLat || null,
+                longitude: customerLng || null,
+              },
+              address: order.deliveryAddress,
+            },
+          },
+
         });
 
-        logger.info(`✅ Added order ${order._id} (${order.status}) - ${pickupDistance.toFixed(2)} km away`);
       } catch (orderError) {
         logger.error(`❌ Error processing order ${order._id}: ${orderError.message}`);
         continue;
       }
     }
 
-    logger.info(`📊 Returning ${formattedNearbyOrders.length} nearby orders`);
-
     return res.status(200).json({
       message: 'Nearby orders fetched successfully',
       success: true,
       data: formattedNearbyOrders,
     });
+
   } catch (error) {
     logger.error('Get Nearby Assigned Orders Error:', error);
     return res.status(500).json({
@@ -737,78 +815,211 @@ exports.getOngoingOrdersForDeliveryBoy = async (req, res) => {
       });
     }
 
-    logger.info(`🔍 Fetching ongoing orders for delivery boy: ${deliveryBoyId}`);
+    const mongoose = require('mongoose');
+    const Shop = mongoose.model('Shop');
+    const geolib = require('geolib');
+
+    // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+    // STEP 1: VALIDATE DELIVERY BOY & GET LOCATION
+    // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+    const deliveryBoy = await DeliveryBoy.findById(deliveryBoyId);
+    if (!deliveryBoy) {
+      return res.status(404).json({
+        success: false,
+        message: 'Delivery Boy not found',
+        data: []
+      });
+    }
+
+    const boyLat = deliveryBoy.latitude;
+    const boyLng = deliveryBoy.longitude;
+
+    // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+    // STEP 2: FETCH ONGOING ORDERS FOR THIS DELIVERY BOY
+    // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
     const ongoingOrders = await Order.find({
       assignedDeliveryBoy: deliveryBoyId,
       status: { $nin: ['Delivered', 'Cancelled'] }
     }).sort({ updatedAt: -1 });
 
-    logger.info(`📦 Found ${ongoingOrders.length} ongoing orders`);
+    // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+    // STEP 3: FORMAT EACH ORDER
+    // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
-    const ordersWithDetails = await Promise.all(
-      ongoingOrders.map(async (order) => {
+    const formattedOrders = [];
+
+    for (const order of ongoingOrders) {
+      try {
         const shop = await Shop.findById(order.shopId);
-        
-        const deliveryBoy = await DeliveryBoy.findById(deliveryBoyId);
-        
-        let pickupDistance = 'N/A';
+        if (!shop?.shopeDetails?.shopLocation) continue;
+
+        const coords = shop.shopeDetails.shopLocation
+          .split(',')
+          .map(str => parseFloat(str.trim()));
+        if (coords.length !== 2 || isNaN(coords[0]) || isNaN(coords[1])) continue;
+
+        const [shopLat, shopLng] = coords;
+
+        // ── PICKUP DISTANCE (delivery boy → shop) ───────────────────────
+        let pickupDistance = 0;
         let pickupTime = 'N/A';
-        let dropDistance = 'N/A';
-        let dropTime = 'N/A';
-
-        if (shop && shop.shopeDetails && shop.shopeDetails.shopLocation && deliveryBoy) {
-          const [shopLat, shopLng] = shop.shopeDetails.shopLocation.split(',').map(Number);
-          const boyLat = deliveryBoy.latitude;
-          const boyLng = deliveryBoy.longitude;
-
-          if (!isNaN(shopLat) && !isNaN(shopLng) && boyLat && boyLng) {
-            const pickupDist = geolib.getDistance(
+        if (boyLat && boyLng) {
+          pickupDistance =
+            geolib.getDistance(
               { latitude: boyLat, longitude: boyLng },
               { latitude: shopLat, longitude: shopLng }
             ) / 1000;
-
-            pickupDistance = `${pickupDist.toFixed(2)} km`;
-            pickupTime = `${Math.ceil((pickupDist / 30) * 60)} mins`;
-
-            const customerLat = order.deliveryAddress?.latitude;
-            const customerLng = order.deliveryAddress?.longitude;
-
-            if (customerLat && customerLng) {
-              const dropDist = geolib.getDistance(
-                { latitude: shopLat, longitude: shopLng },
-                { latitude: customerLat, longitude: customerLng }
-              ) / 1000;
-
-              dropDistance = `${dropDist.toFixed(2)} km`;
-              dropTime = `${Math.ceil((dropDist / 30) * 60)} mins`;
-            }
-          }
+          pickupTime = `${Math.ceil((pickupDistance / 30) * 60)} mins`;
         }
 
-        return {
-          ...order._doc,
-          shopDetails: shop ? {
-            shopeDetails: {
-              shopName: shop.shopeDetails?.shopName || 'Unknown Shop',
-              shopAddress: shop.shopeDetails?.shopAddress || '',
-              shopContact: shop.shopeDetails?.shopContact || '',
-              shopLocation: shop.shopeDetails?.shopLocation || '',
-            }
-          } : null,
-          pickupDistance,
-          pickupTime,
-          dropDistance,
-          dropTime
-        };
-      })
-    );
+        // ── DROP DISTANCE (shop → customer) ─────────────────────────────
+        let dropDistance = 0;
+        let dropTime = 'N/A';
+        const customerLat = order?.deliveryAddress?.latitude;
+        const customerLng = order?.deliveryAddress?.longitude;
+        if (customerLat && customerLng) {
+          dropDistance =
+            geolib.getDistance(
+              { latitude: shopLat, longitude: shopLng },
+              { latitude: customerLat, longitude: customerLng }
+            ) / 1000;
+          dropTime = `${Math.ceil((dropDistance / 30) * 60)} mins`;
+        }
+
+        // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+        // RESPONSE SHAPE
+        //
+        // Flat fields  → used by ActiveOrderCard in order_screen.dart
+        //                via _transformOngoingOrder which reads:
+        //                order['deliveryDetails'], order['shopDetails'],
+        //                order['deliveryAddress'], order['totalPayable'],
+        //                order['paymentType'], order['transactionId']
+        //
+        // data block   → used by all dialog screens via filteredData
+        //                passed from _buildOrderStatusButton which now
+        //                passes order['data'] directly — no rebuild needed
+        // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+        formattedOrders.push({
+
+          // ── FLAT FIELDS (for ActiveOrderCard & _transformOngoingOrder) ──
+
+          orderId:     order._id,
+          orderStatus: order.status,
+
+          shopDetails: {
+            shopName:     shop?.shopeDetails?.shopName     || '',
+            shopAddress:  shop?.shopeDetails?.shopAddress  || '',
+            shopContact:  shop?.shopeDetails?.shopContact  || '',
+            shopLocation: shop?.shopeDetails?.shopLocation || '',
+          },
+
+          deliveryDetails: {
+            deliveryBoyId:    order.assignedDeliveryBoy || null,
+            orderStatus:      order.status,
+            pickupDistance:   pickupDistance.toFixed(2),
+            pickupTime,
+            dropDistance:     dropDistance.toFixed(2),
+            dropTime,
+            deliveryEarnings: order.deliveryEarning || 0,
+          },
+
+          deliveryAddress: {
+            name:      order?.deliveryAddress?.name      || 'N/A',
+            address:   order?.deliveryAddress?.address   || 'N/A',
+            contact:   order?.deliveryAddress?.contact   || 'N/A',
+            area:      order?.deliveryAddress?.area      || 'N/A',
+            place:     order?.deliveryAddress?.place     || 'N/A',
+            latitude:  order?.deliveryAddress?.latitude  || null,
+            longitude: order?.deliveryAddress?.longitude || null,
+          },
+
+          // Payment fields at top level (for _transformOngoingOrder)
+          finalPayable:  order.totalPayable  || 0,
+          totalPayable:  order.totalPayable  || 0,
+          paymentType:   order.paymentType   || 'N/A',
+          transactionId: order.transactionId || '',
+
+          createdAt: order.createdAt,
+          updatedAt: order.updatedAt,
+
+          // ── NESTED DATA BLOCK (for all dialog screens) ──────────────────
+          // Matches: filteredData['data'] used by DropOrderScreen,
+          //          ReachedPickupDialog, OrderPickingDialog, etc.
+          // _buildOrderStatusButton should pass this directly:
+          //   final filteredData = { 'data': order['data'] }
+
+          data: {
+            order: {
+              _id:             order._id,
+              orderStatus:     order.status,
+              deliveryEarning: order.deliveryEarning || 0,
+              finalPayable:    order.totalPayable    || 0,
+              totalPayable:    order.totalPayable    || 0,
+              paymentType:     order.paymentType     || 'N/A',
+              transactionId:   order.transactionId   || '',
+              deliveryAddress: {
+                name:      order?.deliveryAddress?.name      || 'N/A',
+                address:   order?.deliveryAddress?.address   || 'N/A',
+                contact:   order?.deliveryAddress?.contact   || 'N/A',
+                area:      order?.deliveryAddress?.area      || 'N/A',
+                place:     order?.deliveryAddress?.place     || 'N/A',
+                latitude:  order?.deliveryAddress?.latitude  || null,
+                longitude: order?.deliveryAddress?.longitude || null,
+              },
+            },
+
+            shop: {
+              id: shop._id,
+              shopeDetails: {
+                shopName:     shop?.shopeDetails?.shopName     || '',
+                shopAddress:  shop?.shopeDetails?.shopAddress  || '',
+                shopContact:  shop?.shopeDetails?.shopContact  || '',
+                shopLocation: shop?.shopeDetails?.shopLocation || '',
+              },
+              location: {
+                latitude:  shopLat,
+                longitude: shopLng,
+              },
+            },
+
+            nearbyDeliveryBoys: [
+              {
+                _id:             deliveryBoyId,
+                pickupDistance:  pickupDistance.toFixed(2),
+                pickupTime,
+                dropDistance:    dropDistance.toFixed(2),
+                dropTime,
+                deliveryEarning: order.deliveryEarning || 0,
+                earning:         order.deliveryEarning || 0,
+              },
+            ],
+
+            customer: {
+              location: {
+                latitude:  customerLat || null,
+                longitude: customerLng || null,
+              },
+              address: order.deliveryAddress,
+            },
+          },
+
+        });
+
+      } catch (orderError) {
+        logger.error(`❌ Error processing order ${order._id}: ${orderError.message}`);
+        continue;
+      }
+    }
 
     return res.status(200).json({
       success: true,
       message: 'Ongoing orders fetched successfully',
-      data: ordersWithDetails
+      data: formattedOrders
     });
+
   } catch (err) {
     logger.error('❌ Get Ongoing Orders Error:', err);
     return res.status(500).json({
@@ -865,6 +1076,35 @@ exports.deliveryBoyAcceptOrReject = async (req, res) => {
     }
 
     if (action === "accept") {
+
+      // ✅ Check if delivery boy already has an active order
+      const activeStatuses = [
+        'Accepted by Delivery Boy',
+        'Reached Pickup',
+        'Waiting to Pick',
+        'Order Picked',
+        'Reached Drop',
+      ];
+
+      const activeOrder = await Order.findOne({
+        assignedDeliveryBoy: deliveryBoyId,
+        status: { $in: activeStatuses },
+        _id: { $ne: orderId },
+      }).select('_id status');
+
+      if (activeOrder) {
+        logger.warn(`⚠️ Delivery boy ${deliveryBoyId} has active order ${activeOrder._id} (${activeOrder.status})`);
+        return res.status(423).json({
+          message: 'You have an active order in progress. Please complete it before accepting a new one.',
+          success: false,
+          data: {
+            hasActiveOrder: true,
+            activeOrderId: activeOrder._id,
+            activeOrderStatus: activeOrder.status,
+          }
+        });
+      }
+
       if (order.assignedDeliveryBoy && 
           order.assignedDeliveryBoy.toString() !== deliveryBoyId.toString()) {
         return res.status(409).json({

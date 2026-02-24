@@ -13,8 +13,7 @@ const fs = require('fs');
 const { Shop } = require('../models/Shop');
 const MasterOrder = require('../models/MasterOrder');
 const PDFDocument = require('pdfkit');
-const logger = require('../config/logger'); // ← Winston logger
-// Create Order and auto-reduce stock
+const logger = require('../config/logger');
 const Coupon = require('../models/Coupon');
 const Offer = require('../models/Offers');
 const GOOGLE_API_KEY = process.env.GOOGLE_MAPS_API_KEY;
@@ -48,7 +47,6 @@ const getLatLngFromAddress = async (addressString) => {
 
 exports.createOrder = async (req, res) => {
   try {
-    // ✅ STEP 2: Get settings at start
     const settings = await getSuperAdminSettings();
     logger.info('⚙️ Settings: ' + JSON.stringify({
       perKmRate: settings.perKmRate,
@@ -170,7 +168,6 @@ exports.createOrder = async (req, res) => {
     const totalDiscount = couponDiscount;
     const totalAmount = +(originalTotal - totalDiscount).toFixed(2);
 
-    // ✅ STEP 3: Use settings
     const deliverycharge = originalTotal < settings.freeDeliveryThreshold;
     const masterDeliveryCharge = deliverycharge ? settings.deliveryCharge : 0;
     const finalPayable = totalAmount + masterDeliveryCharge;
@@ -197,7 +194,6 @@ exports.createOrder = async (req, res) => {
         shopDiscount = +(couponDiscount * (shopTotal / originalTotal)).toFixed(2);
       }
 
-      // ✅ STEP 4: Use settings for delivery
       const shopLatLng = shop?.shopeDetails?.shopLocation?.split(',').map(Number);
       let deliveryDistance = 0;
       let deliveryEarning = 0;
@@ -295,8 +291,15 @@ exports.createOrder = async (req, res) => {
           shopId,
           shopName: shop?.shopeDetails?.shopName || 'Unknown'
         });
-        // ✅ ADD THIS: Send notification
         await notifyNewOrder(createdOrder, shop);
+
+        // ✅ ADDED: Trigger auto-assign immediately — fire and forget, does not block response
+        const { autoAssignDeliveryBoyWithin5kmHelper } = require('../helper/autoAssignHelper');
+        logger.info(`🚀 Triggering auto-assign for order ${createdOrder._id} (${paymentType})`);
+        autoAssignDeliveryBoyWithin5kmHelper(createdOrder._id).catch(err => {
+          logger.error(`❌ Auto-assign failed for order ${createdOrder._id}: ${err.message}`);
+        });
+
       } catch (socketError) {
         logger.error('Socket/Notification error: ' + socketError.message);
       }
@@ -1011,7 +1014,6 @@ exports.viewOrdersByShopAdmin = async (req, res) => {
   try {
     const { shopId } = req.params;
     const { status, startDate, endDate } = req.query;
-
     const filter = { shopId };
     if (status) filter.status = status;
     if (startDate || endDate) {
@@ -1035,6 +1037,7 @@ exports.viewOrdersByShopAdmin = async (req, res) => {
         })
         .populate({
           path: 'items.shopProductId',
+          select: 'price discountedPrice part',   // ✅ added select (was missing)
           populate: {
             path: 'part',
             select: 'partName images'
@@ -1044,6 +1047,21 @@ exports.viewOrdersByShopAdmin = async (req, res) => {
         .lean(),
       Order.countDocuments(filter)
     ]);
+
+    // ✅ Same resolvePrice helper as all-orders
+    const resolvePrice = (snapshot, shopProduct) => {
+      const snapPrice = snapshot?.price || 0;
+      const snapDisc = snapshot?.discountedPrice;
+      const spPrice = shopProduct?.price || 0;
+      const spDisc = shopProduct?.discountedPrice;
+      if (snapDisc != null) {
+        return { price: snapPrice, discountedPrice: snapDisc };
+      }
+      if (spDisc != null && spPrice > snapPrice) {
+        return { price: spPrice, discountedPrice: snapPrice };
+      }
+      return { price: spPrice || snapPrice, discountedPrice: snapPrice };
+    };
 
     const formattedOrders = orders.map(order => {
       const orderCount = order.shopId?.orders?.length || 0;
@@ -1070,6 +1088,27 @@ exports.viewOrdersByShopAdmin = async (req, res) => {
         deliveryCharge: order.deliveryCharge || 0,
         deliveryChargeAmount: order.deliveryCharge || 0,
         couponDiscount: order.coupon?.discountAmount || 0,
+        // ✅ items array added — was the only missing field
+        items: order.items?.map(item => {
+          const sp = item.shopProductId;
+          const { price, discountedPrice } = resolvePrice(item.snapshot, sp);
+          return {
+            shopProductId: sp?._id,
+            quantity: item.quantity,
+            partName: item.snapshot?.partName || sp?.part?.partName || 'Product',
+            partNumber: item.snapshot?.partNumber,
+            price,
+            discountedPrice,
+            finalPrice: discountedPrice,
+            hasDiscount: price > discountedPrice,
+            images: item.snapshot?.image
+              ? [item.snapshot.image]
+              : (sp?.part?.images || []),
+            brand: item.snapshot?.brand,
+            model: item.snapshot?.model,
+            category: item.snapshot?.category
+          };
+        }) || [],
         deliveryAddress: order.deliveryAddress,
         deliveryBoy: deliveryBoyName,
         agencyName: agencyName,
