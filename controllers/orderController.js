@@ -2290,153 +2290,203 @@ async function getInvoicePdfBuffer(order) {
       doc.on('end', () => resolve(Buffer.concat(buffers)));
       doc.on('error', reject);
 
-      const pageW = doc.page.width - 80;
+      const pageW = doc.page.width - 80;  // 515
       const margin = 40;
       let y = 40;
 
-      const logoPath = process.env.PREMART_LOGO_PATH || path.join(__dirname, '..', 'public', 'logo.png');
-      if (fs.existsSync(logoPath)) {
-        doc.image(logoPath, margin, y, { width: 100 });
-        y += 42;
-      } else {
-        doc.fontSize(22).font('Helvetica-Bold').text('PREMART', margin, y, { align: 'left' });
-        y += 32;
+      // ── Helper: right-aligned label+value row ──────────────────────────────
+      function drawSummaryRow(label, value, bold = false) {
+        const labelW = 140;
+        const valueW = 100;
+        const labelX = margin + pageW - labelW - valueW;
+        const valueX = margin + pageW - valueW;
+        doc.font(bold ? 'Helvetica-Bold' : 'Helvetica').fontSize(10);
+        doc.text(label, labelX, y, { width: labelW, align: 'left' });
+        doc.text(value, valueX, y, { width: valueW, align: 'right' });
+        y += 16;
       }
 
-      doc.font('Helvetica');
-      doc.fontSize(18).text('TAX INVOICE', margin, y, { align: 'center', width: pageW });
-      y += 36;
+      // ── HEADER: logo (left) + TAX INVOICE (right) ─────────────────────────
+      const logoPath = process.env.PREMART_LOGO_PATH || path.join(__dirname, '..', 'public', 'logo.png');
+      if (fs.existsSync(logoPath)) {
+        doc.image(logoPath, margin, y, { width: 110 });
+      } else {
+        doc.fontSize(22).font('Helvetica-Bold').fillColor('#000').text('PREMART', margin, y + 4);
+      }
 
+      // "TAX INVOICE" block on the right
+      doc.fontSize(22).font('Helvetica-Bold').fillColor('#333')
+        .text('TAX INVOICE', margin, y + 4, { width: pageW, align: 'right' });
+      doc.fontSize(9).font('Helvetica').fillColor('#666')
+        .text(`Invoice #: ${String(order._id).slice(-8).toUpperCase()}`, margin, y + 30, { width: pageW, align: 'right' });
+      y += 60;
+
+      doc.strokeColor('#cccccc').lineWidth(0.5)
+        .moveTo(margin, y).lineTo(margin + pageW, y).stroke();
+      y += 12;
+
+      // ── TWO-COLUMN SECTION: Bill To (left) | Invoice Details (right) ──────
       const sd = order.shopId?.shopeDetails || order.shopId || {};
       const shopName = sd.shopName || 'N/A';
       const shopAddress = sd.shopAddress || '';
       const shopContact = sd.shopContact || sd.shopMail || '';
-      const shopTRN = sd.taxRegistrationNumber || process.env.PREMART_TRN || '';
 
+      const colW = pageW / 2 - 10;
       const col1X = margin;
-      const col2X = margin + pageW / 2;
+      const col2X = margin + pageW / 2 + 10;
+      const sectionStartY = y;
 
-      doc.fontSize(10).font('Helvetica-Bold').text('Bill To:', col1X, y);
-      doc.font('Helvetica');
+      // Left column – Bill To
+      doc.fontSize(9).font('Helvetica-Bold').fillColor('#555')
+        .text('BILL TO', col1X, y);
       y += 14;
-
       const addr = order.deliveryAddress || {};
-      doc.fontSize(10).text(addr.name || 'Customer', col1X, y);
-      y += 12;
-      doc.text(addr.address || '—', col1X, y, { width: pageW / 2 - 10 });
-      y += 12;
-      doc.text(`Contact: ${addr.contact || '—'}`, col1X, y);
-      y += 12;
-      if (shopTRN) {
-        doc.text(`TRN: ${shopTRN}`, col1X, y);
-        y += 12;
-      }
+      doc.fontSize(10).font('Helvetica-Bold').fillColor('#000')
+        .text(addr.name || 'Customer', col1X, y);
+      y += 13;
+      doc.fontSize(9).font('Helvetica').fillColor('#333')
+        .text(addr.address || '—', col1X, y, { width: colW });
+      y += 13;
+      doc.text(`Contact: +971${addr.contact || '—'}`, col1X, y);
+      const leftBottom = y + 12;
 
-      const billToBottom = y;
-      y = billToBottom - (12 * 3 + 14);
-
-      doc.fontSize(10).font('Helvetica-Bold').text('Invoice Details', col2X, y);
-      doc.font('Helvetica');
-      y += 14;
+      // Right column – Invoice Details (draw at sectionStartY, independent of left y)
+      let ry = sectionStartY;
+      doc.fontSize(9).font('Helvetica-Bold').fillColor('#555')
+        .text('INVOICE DETAILS', col2X, ry);
+      ry += 14;
 
       const invDate = new Date(order.createdAt || Date.now());
-      const dueDate = new Date(invDate);
-      dueDate.setDate(dueDate.getDate() + 15);
+      const labelCol = col2X;
+      const valueCol = col2X + colW / 2;
+      const detailLabelW = colW / 2 - 4;
+      const detailValueW = colW / 2;
 
-      doc.text(`Tax Invoice #: ${order._id}`, col2X, y);
-      y += 12;
-      doc.text(`Invoice Date: ${invDate.toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric' })}`, col2X, y);
-      y += 12;
-      doc.text(`Due Date: ${dueDate.toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric' })}`, col2X, y);
-      y += 12;
-      doc.text(`Payment: ${order.paymentType || 'N/A'}`, col2X, y);
-      y = Math.max(y, billToBottom) + 16;
+      function detailRow(label, value) {
+        doc.fontSize(9).font('Helvetica').fillColor('#555')
+          .text(label, labelCol, ry, { width: detailLabelW });
+        doc.font('Helvetica-Bold').fillColor('#000')
+          .text(value, valueCol, ry, { width: detailValueW, align: 'right' });
+        ry += 13;
+      }
 
-      doc.fontSize(10).font('Helvetica-Bold').text('Shop / Seller Details', margin, y);
-      doc.font('Helvetica');
-      y += 14;
-      doc.text(shopName, margin, y);
+      detailRow('Invoice Date:', invDate.toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric' }));
+      detailRow('Payment Method:', order.paymentType || 'N/A');
+      detailRow('Order Status:', order.status || order.orderStatus || 'N/A');
+
+      y = Math.max(leftBottom, ry) + 16;
+
+      doc.strokeColor('#cccccc').lineWidth(0.5)
+        .moveTo(margin, y).lineTo(margin + pageW, y).stroke();
       y += 12;
-      if (shopAddress) { doc.text(shopAddress, margin, y, { width: pageW }); y += 12; }
-      if (shopContact) { doc.text(`Contact: ${shopContact}`, margin, y); y += 12; }
-      if (shopTRN) { doc.text(`TRN: ${shopTRN}`, margin, y); y += 12; }
+
+      // ── SHOP / SELLER DETAILS ──────────────────────────────────────────────
+      doc.fontSize(9).font('Helvetica-Bold').fillColor('#555').text('SELLER DETAILS', margin, y);
+      y += 13;
+      doc.fontSize(10).font('Helvetica-Bold').fillColor('#000').text(shopName, margin, y, { width: colW });
+      y += 13;
+      doc.fontSize(9).font('Helvetica').fillColor('#333');
+      if (shopAddress) {
+        const addrHeight = doc.heightOfString(shopAddress, { width: colW });
+        doc.text(shopAddress, margin, y, { width: colW });
+        y += addrHeight + 4;
+      }
+      if (shopContact) { doc.text(`Contact: ${shopContact}`, margin, y, { width: colW }); y += 12; }
       y += 10;
 
-      const tableTop = y;
-      const colDesc = margin;
-      const colQty = margin + pageW * 0.45;
-      const colUnit = margin + pageW * 0.58;
-      const colSub = margin + pageW * 0.75;
+      doc.fillColor('#000');
 
-      doc.font('Helvetica-Bold').fontSize(9);
-      doc.rect(margin, tableTop, pageW, 18).fillAndStroke('#f0f0f0', '#333');
-      doc.fillColor('#000').text('Description', colDesc + 4, tableTop + 4, { width: colQty - colDesc - 4 });
-      doc.text('Qty', colQty + 4, tableTop + 4);
-      doc.text('Unit Price', colUnit + 4, tableTop + 4);
-      doc.text('Subtotal', colSub + 4, tableTop + 4);
-      doc.font('Helvetica').fillColor('#000');
+      // ── ITEMS TABLE ────────────────────────────────────────────────────────
+      const tableTop = y;
+      const colDesc  = margin;
+      const colQty   = margin + pageW * 0.50;
+      const colUnit  = margin + pageW * 0.65;
+      const colSub   = margin + pageW * 0.82;
+      const colSubW  = margin + pageW - colSub;
+
+      // Header row
+      doc.rect(margin, tableTop, pageW, 18).fill('#d4d4d4');
+      doc.font('Helvetica-Bold').fontSize(9).fillColor('#000000');
+      doc.text('Description',  colDesc + 4,  tableTop + 4, { width: colQty - colDesc - 8 });
+      doc.text('Qty',          colQty + 4,   tableTop + 4, { width: colUnit - colQty - 8, align: 'center' });
+      doc.text('Unit Price',   colUnit + 4,  tableTop + 4, { width: colSub - colUnit - 8, align: 'right' });
+      doc.text('Subtotal',     colSub + 4,   tableTop + 4, { width: colSubW - 4, align: 'right' });
+      doc.fillColor('#000000');
       y = tableTop + 20;
 
       const items = order.items || [];
-      let subtotal = 0;
+      let computedSubtotal = 0;
+      let rowShade = false;
 
       items.forEach((item) => {
         const snap = item.snapshot || {};
         const name = snap.partName || 'Item';
         const partNo = snap.partNumber || '';
         const qty = item.quantity || 1;
-        const unitPrice = snap.discountedPrice != null ? snap.discountedPrice : snap.price || 0;
+        const unitPrice = snap.discountedPrice != null ? snap.discountedPrice : (snap.price || 0);
         const lineTotal = qty * unitPrice;
-        subtotal += lineTotal;
+        computedSubtotal += lineTotal;
 
-        const desc = (partNo ? `${name} (${partNo})` : name).substring(0, 35);
-        doc.fontSize(9).text(desc, colDesc + 4, y, { width: colQty - colDesc - 4 });
-        doc.text(String(qty), colQty + 4, y);
-        doc.text(`AED ${Number(unitPrice).toFixed(2)}`, colUnit + 4, y);
-        doc.text(`AED ${Number(lineTotal).toFixed(2)}`, colSub + 4, y);
+        if (rowShade) {
+          doc.rect(margin, y, pageW, 16).fill('#f9f9f9');
+        }
+        rowShade = !rowShade;
+
+        const desc = (partNo ? `${name} (${partNo})` : name).substring(0, 50);
+        doc.font('Helvetica').fontSize(9).fillColor('#000');
+        doc.text(desc,                             colDesc + 4, y + 2, { width: colQty - colDesc - 8 });
+        doc.text(String(qty),                      colQty + 4,  y + 2, { width: colUnit - colQty - 8, align: 'center' });
+        doc.text(`AED ${Number(unitPrice).toFixed(2)}`, colUnit + 4, y + 2, { width: colSub - colUnit - 8, align: 'right' });
+        doc.text(`AED ${Number(lineTotal).toFixed(2)}`, colSub + 4, y + 2, { width: colSubW - 4, align: 'right' });
         y += 16;
       });
 
-      y += 8;
-
-      const deliveryCharge = Number(order.deliveryCharge || 0);
-      const discount = Number(order.discount || 0);
-      const totalPayable = Number(order.totalPayable ?? order.finalPayable ?? 0);
-      const totalBeforeVat = Number(order.subtotal ?? order.totalAmount ?? 0) + deliveryCharge - discount;
-      const vatAmount = Math.max(0, Math.round((totalPayable - totalBeforeVat) * 100) / 100);
-
-      doc.fontSize(10);
-      doc.text(`Subtotal: AED ${Number(order.subtotal ?? order.totalAmount ?? 0).toFixed(2)}`, margin, y);
+      // Bottom border of table
+      doc.strokeColor('#aaaaaa').lineWidth(0.5)
+        .moveTo(margin, y).lineTo(margin + pageW, y).stroke();
       y += 14;
 
-      if (deliveryCharge > 0) {
-        doc.text(`Delivery: AED ${deliveryCharge.toFixed(2)}`, margin, y);
-        y += 14;
-      }
-      if (order.coupon?.code) {
-        doc.text(`Coupon (${order.coupon.code}): -AED ${discount.toFixed(2)}`, margin, y);
-        y += 14;
-      }
-      if (vatAmount > 0) doc.text(`VAT (5%): AED ${vatAmount.toFixed(2)}`, margin, y);
-      if (vatAmount > 0) y += 14;
+      // ── SUMMARY TOTALS (right-aligned) ─────────────────────────────────────
+      const deliveryCharge = Number(order.deliveryCharge || 0);
+      const discount       = Number(order.discount || 0);
+      const totalPayable   = Number(order.totalPayable ?? order.finalPayable ?? 0);
+      const storedSubtotal = Number(order.subtotal ?? order.totalAmount ?? 0);
+      const totalBeforeVat = storedSubtotal + deliveryCharge - discount;
+      const vatAmount      = Math.max(0, Math.round((totalPayable - totalBeforeVat) * 100) / 100);
 
-      doc.font('Helvetica-Bold').text(`Total: AED ${totalPayable.toFixed(2)}`, margin, y);
-      doc.font('Helvetica');
+      drawSummaryRow('Subtotal:', `AED ${storedSubtotal.toFixed(2)}`);
+      if (deliveryCharge > 0) drawSummaryRow('Delivery:', `AED ${deliveryCharge.toFixed(2)}`);
+      if (order.coupon?.code) drawSummaryRow(`Coupon (${order.coupon.code}):`, `-AED ${discount.toFixed(2)}`);
+      if (vatAmount > 0)      drawSummaryRow('VAT (5%):', `AED ${vatAmount.toFixed(2)}`);
+
+      // Divider above grand total
+      const totalLabelX = margin + pageW - 140 - 100;
+      doc.strokeColor('#444').lineWidth(0.5)
+        .moveTo(totalLabelX, y - 2).lineTo(margin + pageW, y - 2).stroke();
+
+      drawSummaryRow('TOTAL PAYABLE:', `AED ${totalPayable.toFixed(2)}`, true);
+      y += 4;
+
+      // Amount in words
+      const whole = Math.floor(totalPayable);
+      const fils  = Math.round((totalPayable - whole) * 100);
+      const words = numberToWords(whole);
+      doc.fontSize(8).font('Helvetica').fillColor('#555')
+        .text(`Amount in words: ${words} AED AND ${String(fils).padStart(2, '0')} FILS`,
+          margin, y, { width: pageW });
       y += 20;
 
-      const whole = Math.floor(totalPayable);
-      const fils = Math.round((totalPayable - whole) * 100);
-      const words = numberToWords(whole);
-      doc.fontSize(9).text(`${words} AED AND ${String(fils).padStart(2, '0')} FILS`, margin, y, { width: pageW, height: 28 });
-      y += 24;
-
+      // ── FOOTER ─────────────────────────────────────────────────────────────
       const footerY = doc.page.height - 70;
-      doc.strokeColor('#ccc').lineWidth(0.5).moveTo(margin, footerY).lineTo(margin + pageW, footerY).stroke();
-      doc.fontSize(9).fillColor('#555');
-      doc.font('Helvetica-Bold').text('PREMART', margin, footerY + 10);
-      doc.font('Helvetica');
+      doc.strokeColor('#cccccc').lineWidth(0.5)
+        .moveTo(margin, footerY).lineTo(margin + pageW, footerY).stroke();
+      doc.fontSize(8).font('Helvetica-Bold').fillColor('#333')
+        .text('PREMART', margin, footerY + 10);
+      doc.fontSize(8).font('Helvetica').fillColor('#666')
+        .text('Thank you for your business.', margin + 60, footerY + 10);
       doc.fillColor('#000');
 
+      // ── CANCELLED STAMP ────────────────────────────────────────────────────
       const isCancelled = (order.status || order.orderStatus || '').toString() === 'Cancelled';
       if (isCancelled) {
         const stampFontSize = 44;
