@@ -1,4 +1,3 @@
-// helper/autoAssignHelper.js
 const Order = require('../models/Order');
 const DeliveryBoy = require('../models/DeliveryBoy');
 const mongoose = require('mongoose');
@@ -8,10 +7,6 @@ const { getSuperAdminSettings } = require('./settingsHelper');
 // UTILITY FUNCTIONS
 // ══════════════════════════════════════════════════════════════════════════
 
-/**
- * Calculate distance between two GPS coordinates (Haversine formula)
- * Returns distance in kilometers
- */
 function calculateDistance(lat1, lon1, lat2, lon2) {
   const R = 6371;
   const dLat = toRad(lat2 - lat1);
@@ -30,26 +25,21 @@ function toRad(degrees) {
   return degrees * (Math.PI / 180);
 }
 
-/**
- * Determine emirate from coordinates using approximate bounding boxes
- */
 function getEmirateFromCoordinates(latitude, longitude) {
   const emiratesBoundaries = {
-    Dubai: { minLat: 24.8, maxLat: 25.4, minLng: 54.9, maxLng: 55.6 },
-    Sharjah: { minLat: 25.2, maxLat: 25.5, minLng: 55.3, maxLng: 55.7 },
-    'Abu Dhabi': { minLat: 24.2, maxLat: 24.6, minLng: 54.3, maxLng: 54.8 },
-    Ajman: { minLat: 25.3, maxLat: 25.5, minLng: 55.4, maxLng: 55.6 },
+    Dubai:            { minLat: 24.8, maxLat: 25.4, minLng: 54.9, maxLng: 55.6 },
+    Sharjah:          { minLat: 25.2, maxLat: 25.5, minLng: 55.3, maxLng: 55.7 },
+    'Abu Dhabi':      { minLat: 24.2, maxLat: 24.6, minLng: 54.3, maxLng: 54.8 },
+    Ajman:            { minLat: 25.3, maxLat: 25.5, minLng: 55.4, maxLng: 55.6 },
     'Ras Al Khaimah': { minLat: 25.6, maxLat: 26.0, minLng: 55.7, maxLng: 56.2 },
-    Fujairah: { minLat: 25.1, maxLat: 25.5, minLng: 56.3, maxLng: 56.4 },
-    'Umm Al Quwain': { minLat: 25.5, maxLat: 25.6, minLng: 55.5, maxLng: 55.7 },
+    Fujairah:         { minLat: 25.1, maxLat: 25.5, minLng: 56.3, maxLng: 56.4 },
+    'Umm Al Quwain':  { minLat: 25.5, maxLat: 25.6, minLng: 55.5, maxLng: 55.7 },
   };
 
   for (const [emirate, bounds] of Object.entries(emiratesBoundaries)) {
     if (
-      latitude >= bounds.minLat &&
-      latitude <= bounds.maxLat &&
-      longitude >= bounds.minLng &&
-      longitude <= bounds.maxLng
+      latitude  >= bounds.minLat && latitude  <= bounds.maxLat &&
+      longitude >= bounds.minLng && longitude <= bounds.maxLng
     ) {
       return emirate;
     }
@@ -72,7 +62,7 @@ exports.autoAssignDeliveryBoyWithin5kmHelper = async (orderId) => {
     // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
     const settings = await getSuperAdminSettings();
-    const PER_KM_RATE = settings.perKmRate || 5;
+    const PER_KM_RATE    = settings.perKmRate || 5;
     const RADIUS_OPTIONS = settings.deliveryAssignmentRadius || [3, 5, 10, 50];
 
     const { Shop } = require('../models/Shop');
@@ -90,14 +80,11 @@ exports.autoAssignDeliveryBoyWithin5kmHelper = async (orderId) => {
 
     const order = await Order.findById(orderId);
     if (!order) {
-      // This is a real error — order must exist
       throw new Error('❌ Order not found');
     }
 
     if (order.assignedDeliveryBoy) {
-      console.log(
-        `⚠️ Order ${orderId} already assigned to delivery boy: ${order.assignedDeliveryBoy}`
-      );
+      console.log(`⚠️ Order ${orderId} already assigned to: ${order.assignedDeliveryBoy}`);
       return { success: false, message: 'Order already assigned' };
     }
 
@@ -109,7 +96,6 @@ exports.autoAssignDeliveryBoyWithin5kmHelper = async (orderId) => {
     const shop = await Shop.findById(order.shopId);
 
     if (!shop || !shop.shopeDetails?.shopLocation) {
-      // Shop data issue — throw so we know it's a config problem
       throw new Error(`❌ Shop ${order.shopId} has no location data`);
     }
 
@@ -144,7 +130,6 @@ exports.autoAssignDeliveryBoyWithin5kmHelper = async (orderId) => {
     const customerLng = order.deliveryAddress?.longitude;
 
     if (!customerLat || !customerLng) {
-      // Order data issue — throw so we know it's a config problem
       throw new Error(`❌ Invalid customer coordinates`);
     }
 
@@ -152,20 +137,25 @@ exports.autoAssignDeliveryBoyWithin5kmHelper = async (orderId) => {
 
     // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
     // STEP 6: FETCH AVAILABLE DELIVERY BOYS
-    // Resilient query — handles missing/inconsistent field types in DB
+    //
+    // ✅ REMOVED: isOnline: true filter
+    //    Delivery boys should receive order notifications regardless of
+    //    online status. They can go online and accept when they see it.
+    //
+    // ✅ REMOVED: accountVerify filter
+    //    Verification should not block order assignment. Admins manage
+    //    verification separately; delivery boys still need to work.
     // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
     console.log(`\n🔍 Searching for available delivery boys...`);
 
     const deliveryBoys = await DeliveryBoy.find({
-  isOnline: true,
-  latitude:  { $exists: true, $ne: null },
-  longitude: { $exists: true, $ne: null },
-}).populate('agencyId', 'agencyDetails.emirates agencyDetails.agencyName');
+      latitude:  { $exists: true, $ne: null },
+      longitude: { $exists: true, $ne: null },
+    }).populate('agencyId', 'agencyDetails.emirates agencyDetails.agencyName');
 
-    // ✅ GRACEFUL: No delivery boys is a business case, not an error
     if (deliveryBoys.length === 0) {
-      console.log(`⚠️ No available delivery boys found — order ${orderId} remains Pending`);
+      console.log(`⚠️ No delivery boys found — order ${orderId} remains Pending`);
       return {
         success: false,
         message: 'No delivery boys available. Order kept as Pending.',
@@ -189,40 +179,34 @@ exports.autoAssignDeliveryBoyWithin5kmHelper = async (orderId) => {
 
       const agencyEmirates = boy.agencyId.agencyDetails.emirates;
 
-      // No emirates set on agency = no restriction, include them
       if (!agencyEmirates || !Array.isArray(agencyEmirates) || agencyEmirates.length === 0) {
-        console.log(
-          `✅ ${boy.name} (${boy.agencyId.agencyDetails.agencyName}) - No emirate restriction`
-        );
+        console.log(`✅ ${boy.name} (${boy.agencyId.agencyDetails.agencyName}) - No emirate restriction`);
         return true;
       }
 
+      // ✅ FIX: shopEmirate could be array (from shop.shopeDetails.emirates)
+      //         Normalise to string before comparison
+      const shopEmirateStr = Array.isArray(shopEmirate)
+        ? shopEmirate[0] || ''
+        : shopEmirate;
+
       const operates = agencyEmirates.some(
-        (emirate) => emirate.toLowerCase() === shopEmirate.toLowerCase()
+        (emirate) => emirate.toLowerCase() === shopEmirateStr.toLowerCase()
       );
 
       if (operates) {
-        console.log(
-          `✅ ${boy.name} (${boy.agencyId.agencyDetails.agencyName}) - Operates in ${shopEmirate}`
-        );
+        console.log(`✅ ${boy.name} (${boy.agencyId.agencyDetails.agencyName}) - Operates in ${shopEmirateStr}`);
       } else {
-        console.log(
-          `❌ ${boy.name} (${boy.agencyId.agencyDetails.agencyName}) - Doesn't operate in ${shopEmirate}`
-        );
+        console.log(`❌ ${boy.name} (${boy.agencyId.agencyDetails.agencyName}) - Doesn't operate in ${shopEmirateStr}`);
       }
 
       return operates;
     });
 
-    console.log(
-      `\n📊 After emirate filter: ${emiratesFilteredBoys.length}/${deliveryBoys.length} delivery boys`
-    );
+    console.log(`\n📊 After emirate filter: ${emiratesFilteredBoys.length}/${deliveryBoys.length} delivery boys`);
 
-    // ✅ GRACEFUL: No boys in emirate is a business case, not an error
     if (emiratesFilteredBoys.length === 0) {
-      console.log(
-        `⚠️ No delivery boys cover emirate '${shopEmirate}' — order ${orderId} remains Pending`
-      );
+      console.log(`⚠️ No delivery boys cover emirate '${shopEmirate}' — order ${orderId} remains Pending`);
       return {
         success: false,
         message: `No delivery boys available for ${shopEmirate}. Order kept as Pending.`,
@@ -244,24 +228,20 @@ exports.autoAssignDeliveryBoyWithin5kmHelper = async (orderId) => {
         }
 
         const pickupDistance = calculateDistance(
-          boy.latitude,
-          boy.longitude,
-          shopLatitude,
-          shopLongitude
+          boy.latitude, boy.longitude,
+          shopLatitude,  shopLongitude
         );
 
         const dropDistance = calculateDistance(
-          shopLatitude,
-          shopLongitude,
-          customerLat,
-          customerLng
+          shopLatitude,  shopLongitude,
+          customerLat,   customerLng
         );
 
         const totalDistance = pickupDistance + dropDistance;
-        const earning = +(dropDistance * PER_KM_RATE).toFixed(2);
-        const pickupTime = Math.ceil((pickupDistance / 30) * 60);
-        const dropTime = Math.ceil((dropDistance / 30) * 60);
-        const totalTime = pickupTime + dropTime;
+        const earning       = +(dropDistance * PER_KM_RATE).toFixed(2);
+        const pickupTime    = Math.ceil((pickupDistance / 30) * 60);
+        const dropTime      = Math.ceil((dropDistance / 30) * 60);
+        const totalTime     = pickupTime + dropTime;
 
         console.log(`  📍 ${boy.name}:`);
         console.log(`     Pickup: ${pickupDistance.toFixed(2)} km (${pickupTime} mins)`);
@@ -272,11 +252,11 @@ exports.autoAssignDeliveryBoyWithin5kmHelper = async (orderId) => {
         return {
           ...boy._doc,
           pickupDistance: +pickupDistance.toFixed(2),
-          dropDistance: +dropDistance.toFixed(2),
-          totalDistance: +totalDistance.toFixed(2),
-          pickupTime: `${pickupTime} mins`,
-          dropTime: `${dropTime} mins`,
-          totalTime: `${totalTime} mins`,
+          dropDistance:   +dropDistance.toFixed(2),
+          totalDistance:  +totalDistance.toFixed(2),
+          pickupTime:     `${pickupTime} mins`,
+          dropTime:       `${dropTime} mins`,
+          totalTime:      `${totalTime} mins`,
           earning,
         };
       })
@@ -285,11 +265,8 @@ exports.autoAssignDeliveryBoyWithin5kmHelper = async (orderId) => {
 
     console.log(`\n✅ Calculated distances for ${deliveryBoysWithDistances.length} delivery boys`);
 
-    // ✅ GRACEFUL: All boys had missing coordinates — keep order Pending
     if (deliveryBoysWithDistances.length === 0) {
-      console.log(
-        `⚠️ All filtered delivery boys have no coordinates — order ${orderId} remains Pending`
-      );
+      console.log(`⚠️ All filtered delivery boys have no coordinates — order ${orderId} remains Pending`);
       return {
         success: false,
         message: 'Delivery boys found but none have valid coordinates. Order kept as Pending.',
@@ -320,12 +297,11 @@ exports.autoAssignDeliveryBoyWithin5kmHelper = async (orderId) => {
       }
     }
 
-    // ✅ GRACEFUL: No boys within any radius — keep order Pending
     if (nearbyDeliveryBoys.length === 0) {
       const closestDistance = deliveryBoysWithDistances[0]?.pickupDistance ?? 'N/A';
       console.log(
         `⚠️ No delivery boy within ${RADIUS_OPTIONS[RADIUS_OPTIONS.length - 1]}km ` +
-          `(closest: ${closestDistance}km) — order ${orderId} remains Pending`
+        `(closest: ${closestDistance}km) — order ${orderId} remains Pending`
       );
       return {
         success: false,
@@ -345,19 +321,16 @@ exports.autoAssignDeliveryBoyWithin5kmHelper = async (orderId) => {
 
     if (firstDeliveryBoy.agencyId) {
       order.agencyId = firstDeliveryBoy.agencyId._id;
-      console.log(
-        `🏢 Agency: ${firstDeliveryBoy.agencyId.agencyDetails.agencyName} (${firstDeliveryBoy.agencyId._id})`
-      );
+      console.log(`🏢 Agency: ${firstDeliveryBoy.agencyId.agencyDetails.agencyName} (${firstDeliveryBoy.agencyId._id})`);
     } else {
       console.warn(`⚠️ Warning: ${firstDeliveryBoy.name} has no agencyId!`);
     }
 
-    order.deliveryEarning = firstDeliveryBoy.earning;
+    order.deliveryEarning  = firstDeliveryBoy.earning;
     order.deliveryDistance = firstDeliveryBoy.dropDistance;
-    order.searchRadius = usedRadius;
+    order.searchRadius     = usedRadius;
 
-    // ✅ Store notified delivery boys so they can see this order
-    // Status intentionally stays 'Pending' until a boy accepts
+    // ✅ Store notified delivery boys — schema now has this field so it persists
     order.notifiedDeliveryBoys = nearbyDeliveryBoys.map((b) => b._id);
 
     console.log(`💰 Delivery earning: ${order.deliveryEarning} AED`);
@@ -381,7 +354,7 @@ exports.autoAssignDeliveryBoyWithin5kmHelper = async (orderId) => {
     const { getIO, isUserConnected } = socketModule;
 
     let successfulEmissions = 0;
-    let failedEmissions = 0;
+    let failedEmissions     = 0;
 
     try {
       const io = getIO();
@@ -398,19 +371,19 @@ exports.autoAssignDeliveryBoyWithin5kmHelper = async (orderId) => {
           shop: {
             id: shop._id,
             shopeDetails: {
-              shopName: shop.shopeDetails.shopName,
-              shopAddress: shop.shopeDetails.shopAddress || '',
-              shopContact: shop.shopeDetails.shopContact || '',
+              shopName:     shop.shopeDetails.shopName,
+              shopAddress:  shop.shopeDetails.shopAddress  || '',
+              shopContact:  shop.shopeDetails.shopContact  || '',
               shopLocation: shop.shopeDetails.shopLocation || '',
             },
             location: {
-              latitude: shopLatitude,
+              latitude:  shopLatitude,
               longitude: shopLongitude,
             },
           },
           customer: {
             location: {
-              latitude: customerLat,
+              latitude:  customerLat,
               longitude: customerLng,
             },
             address: order.deliveryAddress,
@@ -421,14 +394,12 @@ exports.autoAssignDeliveryBoyWithin5kmHelper = async (orderId) => {
       console.log(`📤 Notifying ${nearbyDeliveryBoys.length} delivery boys...`);
 
       for (let index = 0; index < nearbyDeliveryBoys.length; index++) {
-        const boy = nearbyDeliveryBoys[index];
+        const boy           = nearbyDeliveryBoys[index];
         const deliveryBoyId = boy._id.toString();
 
         console.log(`\n  [${index + 1}/${nearbyDeliveryBoys.length}] ${boy.name || 'Unknown'}`);
         console.log(`     ID: ${deliveryBoyId}`);
-        console.log(
-          `     Distance: ${boy.pickupDistance} km (pickup), ${boy.dropDistance} km (drop)`
-        );
+        console.log(`     Distance: ${boy.pickupDistance} km (pickup), ${boy.dropDistance} km (drop)`);
         console.log(`     Earning: ${boy.earning} AED`);
         console.log(`     Est. Time: ${boy.totalTime}`);
 
@@ -440,10 +411,7 @@ exports.autoAssignDeliveryBoyWithin5kmHelper = async (orderId) => {
             deliveryBoyId,
             'New Order Available',
             `Pickup: ${boy.pickupDistance}km away. Earning: ${boy.earning} AED`,
-            {
-              route: 'order_assigned',
-              order_id: order._id.toString(),
-            }
+            { route: 'order_assigned', order_id: order._id.toString() }
           ).catch(() => {});
 
           if (isUserConnected(deliveryBoyId)) {
@@ -480,12 +448,12 @@ exports.autoAssignDeliveryBoyWithin5kmHelper = async (orderId) => {
         shop,
         successfulEmissions,
         failedEmissions,
-        emirate: shopEmirate,
+        emirate:    shopEmirate,
         radiusUsed: usedRadius,
       },
     };
+
   } catch (error) {
-    // Only true unexpected errors reach here (missing order, invalid shop data, etc.)
     console.error('\n' + '═'.repeat(70));
     console.error('❌ AUTO-ASSIGNMENT FAILED');
     console.error('═'.repeat(70));

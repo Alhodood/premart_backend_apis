@@ -7,25 +7,20 @@ const orderItemSchema = new mongoose.Schema(
       ref: 'ShopProduct',
       required: true
     },
-
     quantity: {
       type: Number,
       required: true,
       min: 1
     },
-
     // Immutable snapshot (price must NEVER change even if product updates later)
     snapshot: {
       partNumber: String,
       partName: String,
-
       brand: { type: mongoose.Schema.Types.ObjectId, ref: 'Brand' },
       model: { type: mongoose.Schema.Types.ObjectId, ref: 'Model' },
       category: { type: mongoose.Schema.Types.ObjectId, ref: 'Category' },
-
       price: { type: Number, required: true },
       discountedPrice: Number,
-
       image: String
     }
   },
@@ -55,69 +50,84 @@ const orderStatusSchema = new mongoose.Schema(
 
 const orderSchema = new mongoose.Schema(
   {
-    // Relations
-    userId: { type: mongoose.Schema.Types.ObjectId, ref: 'User', required: true },
-    shopId: { type: mongoose.Schema.Types.ObjectId, ref: 'Shop', required: true },
+    // ── Relations ──────────────────────────────────────────────────────────
+    userId:        { type: mongoose.Schema.Types.ObjectId, ref: 'User',           required: true },
+    shopId:        { type: mongoose.Schema.Types.ObjectId, ref: 'Shop',           required: true },
     masterOrderId: { type: mongoose.Schema.Types.ObjectId, ref: 'MasterOrder' },
-    agencyId: { 
-      type: mongoose.Schema.Types.ObjectId, 
-      ref: 'DeliveryAgency',
-      default: null 
-    },
+    agencyId:      { type: mongoose.Schema.Types.ObjectId, ref: 'DeliveryAgency', default: null },
 
-    // Items
+    // ── Items ──────────────────────────────────────────────────────────────
     items: [orderItemSchema],
 
-    // Address
+    // ── Address ────────────────────────────────────────────────────────────
     deliveryAddress: deliveryAddressSchema,
 
-    // Amounts (ALL NUMBERS)
-    subtotal: { type: Number, required: true },
-    discount: { type: Number, default: 0 },
-    deliveryCharge: { type: Number, default: 0 },
-    totalPayable: { type: Number, required: true },
+    // ── Amounts ────────────────────────────────────────────────────────────
+    subtotal:      { type: Number, required: true },
+    discount:      { type: Number, default: 0 },
+    deliveryCharge:{ type: Number, default: 0 },
+    totalPayable:  { type: Number, required: true },
 
-    // Coupon
+    // ── Coupon ─────────────────────────────────────────────────────────────
     coupon: {
-      code: String,
-      discountType: String,
-      discountValue: Number,
+      code:           String,
+      discountType:   String,
+      discountValue:  Number,
       discountAmount: Number
     },
 
-    // Payment
-    paymentType: { type: String, enum: ['COD', 'CARD', 'WALLET'], required: true },
+    // ── Payment ────────────────────────────────────────────────────────────
+    paymentType:   { type: String, enum: ['COD', 'CARD', 'WALLET'], required: true },
     paymentStatus: { type: String, default: 'Pending' },
     transactionId: String,
-     paymentMethod: String,
+    paymentMethod: String,
 
-    // Delivery
+    // ── Delivery ───────────────────────────────────────────────────────────
     assignedDeliveryBoy: { type: mongoose.Schema.Types.ObjectId, ref: 'DeliveryBoy' },
-    deliveryDistance: { type: Number, default: 0 },
-    deliveryEarning: { type: Number, default: 0 },
-    deliveredAt: { type: Date },
+    deliveryDistance:    { type: Number, default: 0 },
+    deliveryEarning:     { type: Number, default: 0 },
+    deliveredAt:         { type: Date },
 
-    // Status
+    // ✅ FIX: notifiedDeliveryBoys — stores ObjectIds of boys notified by auto-assign
+    //         Was missing from schema → Mongoose silently dropped it on save
+    //         → delivery boys could never see pending orders in nearby tab
+    notifiedDeliveryBoys: [
+      {
+        type: mongoose.Schema.Types.ObjectId,
+        ref: 'DeliveryBoy'
+      }
+    ],
+
+    // ✅ FIX: searchRadius — set by autoAssignDeliveryBoyWithin5kmHelper
+    //         Was missing from schema → also silently dropped on save
+    searchRadius: { type: Number, default: 0 },
+
+    // ── Status ─────────────────────────────────────────────────────────────
     status: { type: String, default: 'Pending' },
     statusHistory: {
       type: [orderStatusSchema],
       default: [{ status: 'Pending', date: new Date() }]
     },
 
-    // Cancellation details
+    // ── Cancellation ───────────────────────────────────────────────────────
     cancellation: {
-      isCancelled: { type: Boolean, default: false },
-      cancelledAt: Date,
-      cancelledBy: { type: String, enum: ['customer', 'shop', 'admin'] },
-      reason: { type: String },
+      isCancelled:        { type: Boolean, default: false },
+      cancelledAt:        Date,
+      cancelledBy:        { type: String, enum: ['customer', 'shop', 'admin'] },
+      reason:             { type: String },
       additionalComments: { type: String }
     }
   },
   { timestamps: true }
 );
 
+// ── Indexes ────────────────────────────────────────────────────────────────
 orderSchema.index({ agencyId: 1, createdAt: -1 });
 orderSchema.index({ agencyId: 1, status: 1 });
 orderSchema.index({ agencyId: 1, paymentStatus: 1 });
+
+// ✅ NEW: index for fast nearby-orders lookup
+orderSchema.index({ status: 1, notifiedDeliveryBoys: 1 });
+orderSchema.index({ status: 1, assignedDeliveryBoy: 1 });
 
 module.exports = mongoose.model('Order', orderSchema);

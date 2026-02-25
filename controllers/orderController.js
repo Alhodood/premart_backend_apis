@@ -1266,14 +1266,13 @@ exports.cancelOrder = async (req, res) => {
       });
     }
 
-    const nonCancellableStatuses = ['Delivered', 'Out for Delivery'];
-    if (nonCancellableStatuses.includes(order.status)) {
-      return res.status(400).json({
-        message: `Cannot cancel order with status: ${order.status}`,
-        success: false,
-        data: []
-      });
-    }
+    if (order.status !== 'Pending') {
+  return res.status(400).json({
+    message: `Order can only be cancelled when status is Pending. Current status: ${order.status}`,
+    success: false,
+    data: []
+  });
+}
 
     const updatedOrder = await Order.findByIdAndUpdate(
       orderId,

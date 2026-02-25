@@ -470,8 +470,9 @@ exports.getShopDashboardByShopId = async (req, res) => {
     ] = await Promise.all([
       Order.aggregate([{ $match: { shopId: shopOid, paymentStatus: 'Paid', createdAt: curR } }, { $group: { _id: null, v: sumPayable } }]),
       Order.aggregate([{ $match: { shopId: shopOid, paymentStatus: 'Paid', createdAt: preR } }, { $group: { _id: null, v: sumPayable } }]),
-  Order.countDocuments({ shopId: shopOid, createdAt: curR }),
-Order.countDocuments({ shopId: shopOid, createdAt: preR }),
+  Order.countDocuments({ shopId: shopOid, paymentStatus: 'Paid', createdAt: curR }),
+  Order.countDocuments({ shopId: shopOid, paymentStatus: 'Paid', createdAt: preR }),
+
       Order.countDocuments({ shopId: shopOid, createdAt: curR }),
       Order.countDocuments({ shopId: shopOid, createdAt: preR }),
       Order.aggregate([

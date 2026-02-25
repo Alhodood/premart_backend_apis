@@ -87,6 +87,7 @@ const allowedOrigins = [
   "http://www.autopartsnow.uk",
   "http://premart2026.s3-website-us-east-1.amazonaws.com",
   "https://n8fd2gwd-3005.inc1.devtunnels.ms/",
+  "http://localhost:5050"
 ];
 
 app.use(cors({

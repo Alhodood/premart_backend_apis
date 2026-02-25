@@ -560,10 +560,27 @@ exports.getNearbyAssignedOrders = async (req, res) => {
     const { getEmirateFromCoordinates } = require('../helper/autoAssignHelper');
 
     // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+    // STEP 0: VALIDATE & CAST deliveryBoyId
+    // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+    if (!mongoose.Types.ObjectId.isValid(deliveryBoyId)) {
+      return res.status(400).json({
+        message: 'Invalid delivery boy ID',
+        success: false,
+        data: []
+      });
+    }
+
+    // ✅ FIX: Cast to ObjectId ONCE — reuse everywhere in query and response
+    //         notifiedDeliveryBoys stores ObjectIds; comparing a plain string
+    //         against them always returns false in MongoDB
+    const deliveryBoyObjectId = new mongoose.Types.ObjectId(deliveryBoyId);
+
+    // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
     // STEP 1: VALIDATE DELIVERY BOY & GET LOCATION
     // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
-    const deliveryBoy = await DeliveryBoy.findById(deliveryBoyId);
+    const deliveryBoy = await DeliveryBoy.findById(deliveryBoyObjectId);
     if (!deliveryBoy || !deliveryBoy.latitude || !deliveryBoy.longitude) {
       return res.status(404).json({
         message: 'Delivery Boy not found or location unavailable',
@@ -573,7 +590,7 @@ exports.getNearbyAssignedOrders = async (req, res) => {
     }
 
     const { latitude: boyLat, longitude: boyLng } = deliveryBoy;
-    const RANGE_KM = 20;
+    const RANGE_KM = 30;
 
     // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
     // STEP 2: GET AGENCY EMIRATES FOR THIS DELIVERY BOY
@@ -589,23 +606,49 @@ exports.getNearbyAssignedOrders = async (req, res) => {
 
     // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
     // STEP 3: FETCH AVAILABLE ORDERS
+    //
+    // ✅ FIX 1: Duplicate $or key bug
+    //    Old code had TWO $or keys at the same object level:
+    //      { status:'Pending', assignedDeliveryBoy:{...}, $or:[...notified] }
+    //    JS silently drops the first $or, so notifiedDeliveryBoys filter
+    //    was completely ignored. Fixed by wrapping in $and.
+    //
+    // ✅ FIX 2: assignedDeliveryBoy missing field
+    //    {$in:[null,undefined]} → MongoDB ignores undefined, only matches null.
+    //    Added $exists:false to also catch orders where the field is absent.
+    //
+    // ✅ FIX 3: ObjectId casting
+    //    deliveryBoyObjectId (ObjectId) used instead of raw string deliveryBoyId
     // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
     const availableOrders = await Order.find({
       $or: [
+        // ── Branch A: Pending orders visible to this delivery boy ──────────
         {
-          status: 'Pending',
-          assignedDeliveryBoy: { $in: [null, undefined] },
-          $or: [
-            { notifiedDeliveryBoys: deliveryBoyId },
-            { notifiedDeliveryBoys: { $exists: false } },
-            { notifiedDeliveryBoys: { $size: 0 } }
+          $and: [
+            { status: 'Pending' },
+
+            // assignedDeliveryBoy is null OR the field doesn't exist at all
+            {
+              $or: [
+                { assignedDeliveryBoy: null },
+                { assignedDeliveryBoy: { $exists: false } }
+              ]
+            },
+
+            // This boy is in notifiedDeliveryBoys,
+            // OR notifiedDeliveryBoys field is missing/empty (legacy orders)
+            {
+              $or: [
+                { notifiedDeliveryBoys: deliveryBoyObjectId },
+                { notifiedDeliveryBoys: { $exists: false } },
+                { notifiedDeliveryBoys: { $size: 0 } }
+              ]
+            }
           ]
         },
-        {
-          status: 'Delivery Boy Assigned',
-          assignedDeliveryBoy: deliveryBoyId
-        }
+
+       
       ]
     });
 
@@ -627,37 +670,45 @@ exports.getNearbyAssignedOrders = async (req, res) => {
 
         const [shopLat, shopLng] = coords;
 
-        // ── EMIRATE FILTER ──────────────────────────────────────────────
+        // ── EMIRATE FILTER ─────────────────────────────────────────────────
+        // Only apply if the agency has emirates configured.
+        // ✅ FIX: shopEmirate could be an array (from shop.shopeDetails.emirates)
+        //         or a string (from getEmirateFromCoordinates). Normalise to string.
         if (agencyEmirates.length > 0) {
-          const shopEmirate =
-            shop.shopeDetails?.emirates ||
-            getEmirateFromCoordinates(shopLat, shopLng);
+          const rawShopEmirate = shop.shopeDetails?.emirates;
+
+          // Normalise: if it's an array take first element; otherwise use string
+          const shopEmirate = Array.isArray(rawShopEmirate)
+            ? (rawShopEmirate[0] || getEmirateFromCoordinates(shopLat, shopLng))
+            : (rawShopEmirate || getEmirateFromCoordinates(shopLat, shopLng));
+
           const coversEmirate = agencyEmirates.some(
             e => e.toLowerCase() === shopEmirate.toLowerCase()
           );
           if (!coversEmirate) continue;
         }
 
-        // ── PROXIMITY FILTER ────────────────────────────────────────────
+        // ── PROXIMITY FILTER ───────────────────────────────────────────────
         const pickupDistanceKm =
           geolib.getDistance(
-            { latitude: boyLat, longitude: boyLng },
+            { latitude: boyLat,  longitude: boyLng  },
             { latitude: shopLat, longitude: shopLng }
           ) / 1000;
+
         if (order.status === 'Pending' && pickupDistanceKm > RANGE_KM) continue;
 
         const pickupDistance = pickupDistanceKm;
-        const pickupTime = `${Math.ceil((pickupDistance / 30) * 60)} mins`;
+        const pickupTime     = `${Math.ceil((pickupDistance / 30) * 60)} mins`;
 
         let dropDistance = 0;
-        let dropTime = 'N/A';
+        let dropTime     = 'N/A';
         const customerLat = order?.deliveryAddress?.latitude;
         const customerLng = order?.deliveryAddress?.longitude;
 
         if (customerLat && customerLng) {
           dropDistance =
             geolib.getDistance(
-              { latitude: shopLat, longitude: shopLng },
+              { latitude: shopLat,    longitude: shopLng    },
               { latitude: customerLat, longitude: customerLng }
             ) / 1000;
           dropTime = `${Math.ceil((dropDistance / 30) * 60)} mins`;
@@ -680,7 +731,7 @@ exports.getNearbyAssignedOrders = async (req, res) => {
 
         formattedNearbyOrders.push({
 
-          // ── FLAT FIELDS (for card UI & new_order_dialog nearbyOrders branch) ──
+          // ── FLAT FIELDS (card UI + new_order_dialog nearbyOrders branch) ──
 
           orderId:     order._id,
           orderStatus: order.status,
@@ -712,7 +763,7 @@ exports.getNearbyAssignedOrders = async (req, res) => {
             longitude: order?.deliveryAddress?.longitude || null,
           },
 
-          // Payment fields at top level (for _transformOngoingOrder)
+          // Payment fields at top level (for _transformOngoingOrder in Flutter)
           finalPayable:  order.totalPayable  || 0,
           totalPayable:  order.totalPayable  || 0,
           paymentType:   order.paymentType   || 'N/A',
@@ -721,9 +772,9 @@ exports.getNearbyAssignedOrders = async (req, res) => {
           createdAt: order.createdAt,
           updatedAt: order.updatedAt,
 
-          // ── NESTED DATA BLOCK (for all dialog screens) ──────────────────
-          // Matches: filteredData['data'] used by DropOrderScreen,
-          //          ReachedPickupDialog, OrderPickingDialog, etc.
+          // ── NESTED DATA BLOCK (for all dialog/screen widgets) ─────────────
+          // Matches filteredData['data'] used by DropOrderScreen,
+          // ReachedPickupDialog, OrderPickingDialog, OrderDropDialog etc.
 
           data: {
             order: {
@@ -1293,10 +1344,12 @@ exports.deliveryBoyUpdateOrderStatus = async (req, res) => {
     if (!updatedOrder.statusHistory) {
       updatedOrder.statusHistory = [];
     }
-    updatedOrder.statusHistory.push({
-      status: newStatus,
-      date: new Date()
-    });
+    const existingEntry = updatedOrder.statusHistory.find(h => h.status === newStatus);
+if (existingEntry) {
+  existingEntry.date = new Date(); // overwrite timestamp
+} else {
+  updatedOrder.statusHistory.push({ status: newStatus, date: new Date() });
+}
 
     const currentMonth = new Date().toLocaleString('default', {
       month: 'long',
