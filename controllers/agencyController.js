@@ -405,6 +405,10 @@ exports.updateAgencySettings = async (req, res) => {
       'agencyName', 'agencyAddress', 'agencyMail', 'agencyContact',
       'city', 'emirates', 'licenseAuthority', 'trn', 'supportMail',
       'supportNumber', 'agencyLicenseNumber', 'agencyLicenseExpiry', 'payoutType',
+      'emiratesId',        // ✅ ADD
+  'emiratesIdImage',   // ✅ ADD
+  'agencyLicenseImage', // ✅ ADD (also missing)
+  'agencyLocation',    // ✅ ADD (also missing)
     ];
 
     allowedFields.forEach(field => {
