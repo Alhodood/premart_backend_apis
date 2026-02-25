@@ -137,14 +137,7 @@ exports.autoAssignDeliveryBoyWithin5kmHelper = async (orderId) => {
 
     // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
     // STEP 6: FETCH AVAILABLE DELIVERY BOYS
-    //
-    // ✅ REMOVED: isOnline: true filter
-    //    Delivery boys should receive order notifications regardless of
-    //    online status. They can go online and accept when they see it.
-    //
-    // ✅ REMOVED: accountVerify filter
-    //    Verification should not block order assignment. Admins manage
-    //    verification separately; delivery boys still need to work.
+    // ✅ FIX: explicitly select activeDeviceToken so push works
     // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
     console.log(`\n🔍 Searching for available delivery boys...`);
@@ -152,7 +145,9 @@ exports.autoAssignDeliveryBoyWithin5kmHelper = async (orderId) => {
     const deliveryBoys = await DeliveryBoy.find({
       latitude:  { $exists: true, $ne: null },
       longitude: { $exists: true, $ne: null },
-    }).populate('agencyId', 'agencyDetails.emirates agencyDetails.agencyName');
+    })
+      .select('name latitude longitude availability isOnline agencyId activeDeviceToken activeDeviceInfo') // ✅ FIXED
+      .populate('agencyId', 'agencyDetails.emirates agencyDetails.agencyName');
 
     if (deliveryBoys.length === 0) {
       console.log(`⚠️ No delivery boys found — order ${orderId} remains Pending`);
@@ -184,8 +179,6 @@ exports.autoAssignDeliveryBoyWithin5kmHelper = async (orderId) => {
         return true;
       }
 
-      // ✅ FIX: shopEmirate could be array (from shop.shopeDetails.emirates)
-      //         Normalise to string before comparison
       const shopEmirateStr = Array.isArray(shopEmirate)
         ? shopEmirate[0] || ''
         : shopEmirate;
@@ -248,6 +241,7 @@ exports.autoAssignDeliveryBoyWithin5kmHelper = async (orderId) => {
         console.log(`     Drop: ${dropDistance.toFixed(2)} km (${dropTime} mins)`);
         console.log(`     Total: ${totalDistance.toFixed(2)} km (${totalTime} mins)`);
         console.log(`     Earning: ${earning} AED`);
+        console.log(`     FCM Token: ${boy.activeDeviceToken ? boy.activeDeviceToken.substring(0, 20) + '...' : '⚠️ MISSING'}`);
 
         return {
           ...boy._doc,
@@ -312,7 +306,6 @@ exports.autoAssignDeliveryBoyWithin5kmHelper = async (orderId) => {
 
     // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
     // STEP 10: UPDATE ORDER WITH DELIVERY DETAILS
-    // Status stays Pending — delivery boy must ACCEPT to confirm assignment
     // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
     console.log(`\n💾 Updating order...`);
@@ -321,7 +314,7 @@ exports.autoAssignDeliveryBoyWithin5kmHelper = async (orderId) => {
 
     if (firstDeliveryBoy.agencyId) {
       order.agencyId = firstDeliveryBoy.agencyId._id;
-      console.log(`🏢 Agency: ${firstDeliveryBoy.agencyId.agencyDetails.agencyName} (${firstDeliveryBoy.agencyId._id})`);
+      console.log(`🏢 Agency: ${firstDeliveryBoy.agencyId.agencyDetails?.agencyName} (${firstDeliveryBoy.agencyId._id})`);
     } else {
       console.warn(`⚠️ Warning: ${firstDeliveryBoy.name} has no agencyId!`);
     }
@@ -329,22 +322,21 @@ exports.autoAssignDeliveryBoyWithin5kmHelper = async (orderId) => {
     order.deliveryEarning  = firstDeliveryBoy.earning;
     order.deliveryDistance = firstDeliveryBoy.dropDistance;
     order.searchRadius     = usedRadius;
-
-    // ✅ Store notified delivery boys — schema now has this field so it persists
     order.notifiedDeliveryBoys = nearbyDeliveryBoys.map((b) => b._id);
 
     console.log(`💰 Delivery earning: ${order.deliveryEarning} AED`);
     console.log(`📏 Delivery distance: ${order.deliveryDistance} km`);
     console.log(`🎯 Search radius used: ${usedRadius} km`);
-    console.log(`📋 Status: Pending (awaiting delivery boy acceptance)`);
     console.log(`👥 Notified ${order.notifiedDeliveryBoys.length} delivery boys`);
 
     await order.save();
-
     console.log(`✅ Order updated successfully`);
 
     // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
     // STEP 11: NOTIFY ALL NEARBY DELIVERY BOYS
+    // ✅ FIX: Use sendPushToToken with boy.activeDeviceToken directly
+    //         instead of sendPushOnly(userId) which looked up DeviceToken
+    //         collection (customer tokens, not delivery boy tokens)
     // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
     console.log(`\n🔔 Sending notifications...`);
@@ -352,6 +344,7 @@ exports.autoAssignDeliveryBoyWithin5kmHelper = async (orderId) => {
 
     const socketModule = require('../sockets/socket');
     const { getIO, isUserConnected } = socketModule;
+    const { sendPushToToken } = require('../helper/fcmPushHelper'); // ✅ FIXED import
 
     let successfulEmissions = 0;
     let failedEmissions     = 0;
@@ -399,38 +392,56 @@ exports.autoAssignDeliveryBoyWithin5kmHelper = async (orderId) => {
 
         console.log(`\n  [${index + 1}/${nearbyDeliveryBoys.length}] ${boy.name || 'Unknown'}`);
         console.log(`     ID: ${deliveryBoyId}`);
-        console.log(`     Distance: ${boy.pickupDistance} km (pickup), ${boy.dropDistance} km (drop)`);
+        console.log(`     Distance: ${boy.pickupDistance} km pickup | ${boy.dropDistance} km drop`);
         console.log(`     Earning: ${boy.earning} AED`);
-        console.log(`     Est. Time: ${boy.totalTime}`);
+        console.log(`     FCM Token: ${boy.activeDeviceToken ? boy.activeDeviceToken.substring(0, 20) + '...' : '⚠️ MISSING — push skipped'}`);
 
         try {
+          // ✅ Socket emission (works when app is open/foreground)
           io.to(deliveryBoyId).emit('new_order_assigned', emissionData);
-
-          const { sendPushOnly } = require('../helper/notificationHelper');
-          sendPushOnly(
-            deliveryBoyId,
-            'New Order Available',
-            `Pickup: ${boy.pickupDistance}km away. Earning: ${boy.earning} AED`,
-            { route: 'order_assigned', order_id: order._id.toString() }
-          ).catch(() => {});
 
           if (isUserConnected(deliveryBoyId)) {
             successfulEmissions++;
-            console.log(`     ✅ Notification sent (online)`);
+            console.log(`     ✅ Socket delivered (online)`);
           } else {
             failedEmissions++;
-            console.log(`     ⚠️ Notification queued (offline)`);
+            console.log(`     ⚠️ Offline — socket queued, push is primary`);
           }
+
+          // ✅ Push notification (works when app is background/killed)
+          // Uses boy.activeDeviceToken directly — no DB lookup needed
+          if (boy.activeDeviceToken) {
+            const pushResult = await sendPushToToken(
+              boy.activeDeviceToken,
+              'New Order Available 🛵',
+              `Pickup: ${boy.pickupDistance}km away. Earn AED ${boy.earning}`,
+              {
+                route:            'order_assigned',
+                order_id:         order._id.toString(),
+                pickup_distance:  String(boy.pickupDistance),
+                drop_distance:    String(boy.dropDistance),
+                earning:          String(boy.earning),
+                pickup_time:      String(boy.pickupTime),
+                drop_time:        String(boy.dropTime),
+              }
+            );
+            console.log(`     📱 Push result: ${JSON.stringify(pushResult)}`);
+          } else {
+            console.warn(`     ⚠️ No FCM token for ${boy.name} — push skipped`);
+            console.warn(`     💡 Delivery boy must log in again to register FCM token`);
+          }
+
         } catch (emitError) {
           failedEmissions++;
-          console.error(`     ❌ Emission failed: ${emitError.message}`);
+          console.error(`     ❌ Notification failed: ${emitError.message}`);
         }
       }
 
       console.log(`\n📊 Notification Summary:`);
-      console.log(`   ✅ Successful: ${successfulEmissions}`);
-      console.log(`   ⚠️ Failed/Queued: ${failedEmissions}`);
-      console.log(`   📱 Total notified: ${nearbyDeliveryBoys.length}`);
+      console.log(`   ✅ Socket delivered: ${successfulEmissions}`);
+      console.log(`   ⚠️ Offline (push only): ${failedEmissions}`);
+      console.log(`   📱 Total attempted: ${nearbyDeliveryBoys.length}`);
+
     } catch (err) {
       console.error('❌ Socket.IO error:', err.message);
     }

@@ -62,4 +62,7 @@ router.get('/getById/:deliveryBoyId', deliveryBoyController.getDeliveryBoyById);
 
 router.get('/:deliveryBoyId/report', deliveryBoyController.getDeliveryBoyReport);
 
+// Add this line anywhere in your router file:
+router.patch('/force-logout/:deliveryBoyId', deliveryBoyController.forceLogoutDeliveryBoy);
+
 module.exports = router;

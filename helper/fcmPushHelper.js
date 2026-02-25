@@ -19,6 +19,8 @@ function initFirebase() {
     const pathModule = require('path');
     const fs = require('fs');
     const path = process.env.FIREBASE_SERVICE_ACCOUNT_PATH;
+    console.log('🔥 FCM init - PATH from env:', path);      // ← ADD THIS
+    console.log('🔥 FCM init - CWD:', process.cwd());       // ← ADD THIS
     const jsonEnv = process.env.FIREBASE_SERVICE_ACCOUNT_JSON;
     let credential;
     if (path) {
@@ -100,25 +102,35 @@ async function sendPushToToken(token, title, body, data) {
   initFirebase();
   if (!messaging) return;
   const dataStr = stringifyData(data || {});
-  const notifTitle = title || 'Notification';
-  const notifBody = body || '';
+
   try {
     await messaging.send({
       token,
-      notification: { title: notifTitle, body: notifBody },
       data: dataStr,
-      android: { priority: 'high' },
       apns: {
+        headers: {
+          'apns-priority': '10',
+          'apns-push-type': 'alert',
+        },
         payload: {
           aps: {
-            alert: { title: notifTitle, body: notifBody },
+            alert: {
+              title: '🛵 New Order Available!',         // ✅ Custom title
+              subtitle: `Earn AED ${dataStr.earning}`,  // ✅ Subtitle (iOS only)
+              body: `📍 Pickup: ${dataStr.pickup_distance}km away\n⏱️ Est. ${dataStr.pickup_time}`, // ✅ Custom body
+            },
             sound: 'default',
             badge: 1,
+            'content-available': 1,
+            'mutable-content': 1,                      // ✅ Required for image
           },
+        },
+        fcmOptions: {
+          imageUrl: 'https://premart2026.s3.us-east-1.amazonaws.com/db.png',
         },
       },
     });
-    console.log('FCM push sent to token');
+    console.log('✅ FCM push sent to token');
   } catch (err) {
     console.error('FCM send error (token):', err.message);
   }

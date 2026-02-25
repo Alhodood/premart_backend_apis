@@ -2349,3 +2349,69 @@ exports.getDeliveryBoyReport = async (req, res) => {
     });
   }
 };
+
+// ── Force Logout: clear activeDeviceInfo, activeDeviceToken, lastLoginAt ──
+exports.forceLogoutDeliveryBoy = async (req, res) => {
+  try {
+    const { deliveryBoyId } = req.params;
+
+    if (!deliveryBoyId || !mongoose.Types.ObjectId.isValid(deliveryBoyId)) {
+      return res.status(400).json({
+        success: false,
+        message: 'Invalid delivery boy ID',
+      });
+    }
+
+    const updated = await DeliveryBoy.findByIdAndUpdate(
+      deliveryBoyId,
+      {
+        $unset: {
+          activeDeviceInfo: '',
+          activeDeviceToken: '',
+          lastLoginAt: '',
+        },
+        $set: {
+          isOnline: false,
+          availability: false,
+        },
+      },
+      { new: true }
+    );
+
+    if (!updated) {
+      return res.status(404).json({
+        success: false,
+        message: 'Delivery boy not found',
+      });
+    }
+
+    logger.info(`✅ Force logout: cleared device info for deliveryBoyId=${deliveryBoyId}`);
+
+    // Notify via socket so the app gets kicked out in real-time
+    try {
+      const io = require('../sockets/socket').getIO();
+      io.to(deliveryBoyId.toString()).emit('force_logout', {
+        message: 'You have been logged out by an administrator.',
+      });
+    } catch (e) {
+      logger.warn(`⚠️ Could not emit force_logout socket: ${e.message}`);
+    }
+
+    return res.status(200).json({
+      success: true,
+      message: 'Delivery boy force-logged out successfully',
+      data: {
+        _id: updated._id,
+        name: updated.name,
+        isOnline: updated.isOnline,
+      },
+    });
+  } catch (error) {
+    logger.error('❌ Force Logout Error:', error);
+    return res.status(500).json({
+      success: false,
+      message: 'Failed to force logout delivery boy',
+      error: error.message,
+    });
+  }
+};

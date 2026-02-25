@@ -79,7 +79,7 @@ exports.getNotifications = async (req, res) => {
     const page  = parseInt(req.query.page)  || 1;
     const limit = parseInt(req.query.limit) || 50;
     const skip  = (page - 1) * limit;
-    logger.info('getNotifications: request received', { role, userId, page, limit });
+    // logger.info('getNotifications: request received', { role, userId, page, limit });
 
     if (!role) {
       logger.warn('getNotifications: role parameter missing');
@@ -114,7 +114,7 @@ exports.getNotifications = async (req, res) => {
       ? notifications.filter(n => !n.readBy?.some(id => id.toString() === userId))
       : notifications;
 
-    logger.info('getNotifications: fetched successfully', { count: notifications.length, unreadCount: unreadNotifications.length });
+    //logger.info('getNotifications: fetched successfully', { count: notifications.length, unreadCount: unreadNotifications.length });
     return res.status(200).json({
       success: true,
       message: 'Notifications fetched successfully',
