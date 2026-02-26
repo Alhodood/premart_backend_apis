@@ -64,5 +64,6 @@ router.get('/:deliveryBoyId/report', deliveryBoyController.getDeliveryBoyReport)
 
 // Add this line anywhere in your router file:
 router.patch('/force-logout/:deliveryBoyId', deliveryBoyController.forceLogoutDeliveryBoy);
+router.post('/force-logout-by-phone', deliveryBoyController.forceLogoutByPhone);
 
 module.exports = router;

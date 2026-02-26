@@ -44,3 +44,5 @@ Thumbs.db
 # ─── Temporary Files ────────────────────────────────────────
 *.tmp
 *.temp
+
+/premart-52ca5-firebase-adminsdk-fbsvc-58d7565da6.json

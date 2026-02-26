@@ -1935,6 +1935,7 @@ exports.getDeliveryOrderHistory = async (req, res) => {
       });
     }
 
+    // ✅ FIX: totalDistance only sums Delivered orders
     const statistics = {
       totalOrders: orders.length,
       delivered: orders.filter(o => o.status === 'Delivered').length,
@@ -1942,7 +1943,12 @@ exports.getDeliveryOrderHistory = async (req, res) => {
       totalEarnings: orders
         .filter(o => o.status === 'Delivered')
         .reduce((sum, o) => sum + (o.deliveryEarning || 0), 0),
-      totalDistance: parseFloat(orders.reduce((sum, o) => sum + (o.deliveryDistance || 0), 0).toFixed(1))
+      totalDistance: parseFloat(
+        orders
+          .filter(o => o.status === 'Delivered')
+          .reduce((sum, o) => sum + (o.deliveryDistance || 0), 0)
+          .toFixed(1)
+      )
     };
 
     const groupedOrders = {};
@@ -1973,7 +1979,7 @@ exports.getDeliveryOrderHistory = async (req, res) => {
 
       let statusColor = 'grey';
       let statusIcon = 'clock';
-      
+
       switch (order.status) {
         case 'Delivered':
           statusColor = 'green';
@@ -2003,7 +2009,10 @@ exports.getDeliveryOrderHistory = async (req, res) => {
         statusColor,
         statusIcon,
         earning: parseFloat((order.deliveryEarning || 0).toFixed(2)),
-        distance: parseFloat((order.deliveryDistance || 0).toFixed(1)),
+        // ✅ FIX: only show distance on card if order was Delivered
+        distance: order.status === 'Delivered'
+          ? parseFloat((order.deliveryDistance || 0).toFixed(1))
+          : 0,
         paymentType: order.paymentType || 'N/A',
         totalAmount: order.totalPayable || 0,
         shop: shop ? {
@@ -2412,6 +2421,61 @@ exports.forceLogoutDeliveryBoy = async (req, res) => {
     return res.status(500).json({
       success: false,
       message: 'Failed to force logout delivery boy',
+      error: error.message,
+    });
+  }
+};
+
+
+exports.forceLogoutByPhone = async (req, res) => {
+  try {
+    const { phone } = req.body;
+
+    if (!phone) {
+      return res.status(400).json({
+        success: false,
+        message: 'Phone number is required',
+      });
+    }
+
+    const deliveryBoy = await DeliveryBoy.findOne({ phone });
+
+    if (!deliveryBoy) {
+      return res.status(404).json({
+        success: false,
+        message: 'No account found with this phone number',
+      });
+    }
+
+    // ✅ Clear device session only — orders/profile untouched
+    deliveryBoy.activeDeviceInfo  = null;
+    deliveryBoy.activeDeviceToken = null;
+    deliveryBoy.lastLoginAt       = null;
+    deliveryBoy.isOnline          = false;
+    deliveryBoy.availability      = false;
+    await deliveryBoy.save();
+
+    logger.info(`✅ Force logout by phone: cleared session for ${phone}`);
+
+    // Kick old device via socket in real-time
+    try {
+      const io = require('../sockets/socket').getIO();
+      io.to(deliveryBoy._id.toString()).emit('force_logout', {
+        message: 'Your session was ended because you logged in on a new device.',
+      });
+    } catch (e) {
+      logger.warn(`⚠️ Could not emit force_logout socket: ${e.message}`);
+    }
+
+    return res.status(200).json({
+      success: true,
+      message: 'Previous device logged out. You can now login.',
+    });
+  } catch (error) {
+    logger.error('❌ Force Logout By Phone Error:', error);
+    return res.status(500).json({
+      success: false,
+      message: 'Failed to logout previous device',
       error: error.message,
     });
   }

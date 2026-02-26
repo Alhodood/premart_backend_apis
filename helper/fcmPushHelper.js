@@ -106,23 +106,40 @@ async function sendPushToToken(token, title, body, data) {
   try {
     await messaging.send({
       token,
+
+      // ✅ TOP-LEVEL notification — required for iOS sound to fire
+      notification: {
+        title: title || '🛵 New Order Available!',
+        body: body || `📍 Pickup: ${dataStr.pickup_distance}km away`,
+      },
+
       data: dataStr,
+
+      android: {
+        priority: 'high',
+        notification: {
+          sound: 'default',
+          channelId: 'high_importance_channel',
+        },
+      },
+
       apns: {
         headers: {
-          'apns-priority': '10',
-          'apns-push-type': 'alert',
+          'apns-priority': '10',           // ✅ 10 = alert push (sound), 5 = silent
+          'apns-push-type': 'alert',       // ✅ must be 'alert' for sound
         },
         payload: {
           aps: {
             alert: {
-              title: '🛵 New Order Available!',         // ✅ Custom title
-              subtitle: `Earn AED ${dataStr.earning}`,  // ✅ Subtitle (iOS only)
-              body: `📍 Pickup: ${dataStr.pickup_distance}km away\n⏱️ Est. ${dataStr.pickup_time}`, // ✅ Custom body
+              title: title || '🛵 New Order Available!',
+              subtitle: `Earn AED ${dataStr.earning}`,
+              body: body || `📍 Pickup: ${dataStr.pickup_distance}km away`,
             },
-            sound: 'default',
+            sound: 'default',              // ✅ THIS is what triggers the sound
             badge: 1,
-            'content-available': 1,
-            'mutable-content': 1,                      // ✅ Required for image
+            'mutable-content': 1,
+            // ❌ REMOVED 'content-available': 1 — this turns it into a
+            //    background/silent push which SUPPRESSES sound on iOS
           },
         },
         fcmOptions: {
@@ -133,6 +150,13 @@ async function sendPushToToken(token, title, body, data) {
     console.log('✅ FCM push sent to token');
   } catch (err) {
     console.error('FCM send error (token):', err.message);
+    if (
+      err.code === 'messaging/registration-token-not-registered' ||
+      err.code === 'messaging/invalid-registration-token'
+    ) {
+      await removeToken(token);
+      console.warn('FCM: removed invalid token');
+    }
   }
 }
 
