@@ -210,7 +210,7 @@ exports.createOrder = async (req, res) => {
           );
 
           deliveryDistance = +(distanceInMeters / 1000).toFixed(2);
-          deliveryEarning = +(settings.perKmRate * deliveryDistance).toFixed(2);
+          deliveryEarning: shopDeliveryCharge,
 
           logger.info(`📍 Shop ${shopId}: ${deliveryDistance}km @ ${settings.perKmRate} AED/km = ${deliveryEarning} AED`);
         }

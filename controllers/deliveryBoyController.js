@@ -1371,9 +1371,9 @@ if (existingEntry) {
       const startOfMonth = new Date(new Date().getFullYear(), new Date().getMonth(), 1);
       const endOfMonth   = new Date(new Date().getFullYear(), new Date().getMonth() + 1, 0);
 
-      const orderEarning           = Number(updatedOrder.deliveryEarning || 0);
-      const agencyCommissionAmount = (orderEarning * agencyCommission) / 100;
-      const netAgencyEarning       = orderEarning - agencyCommissionAmount;
+     const orderEarning = Number(updatedOrder.deliveryCharge || 0); // 80 AED flat
+const agencyCommissionAmount = (orderEarning * agencyCommission) / 100;
+const netAgencyEarning = orderEarning - agencyCommissionAmount;
 
       logger.info(`💰 Agency — Gross: ${orderEarning} AED | Commission: ${agencyCommissionAmount} AED (${agencyCommission}%) | Net: ${netAgencyEarning} AED`);
 
@@ -1414,9 +1414,9 @@ if (existingEntry) {
       }
 
       const shopId      = updatedOrder.shopId;
-      const orderAmount = Number(updatedOrder.totalPayable || 0);
-      const commission  = (orderAmount * shopCommission) / 100;
-      const netPayable  = orderAmount - commission;
+      const orderAmount = Number(updatedOrder.subtotal || 0); // product only, no delivery
+const commission  = (orderAmount * shopCommission) / 100;
+const netPayable  = orderAmount - commission;
 
       logger.info(`🏪 Shop — Total: ${orderAmount} AED | Commission: ${commission} AED (${shopCommission}%) | Net: ${netPayable} AED`);
 
