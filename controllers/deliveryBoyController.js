@@ -1373,7 +1373,7 @@ if (existingEntry) {
 
      const orderEarning = Number(updatedOrder.deliveryCharge || 0); // 80 AED flat
 const agencyCommissionAmount = (orderEarning * agencyCommission) / 100;
-const netAgencyEarning = orderEarning - agencyCommissionAmount;
+const netAgencyEarning = Number(updatedOrder.deliveryCharge || 0);
 
       logger.info(`💰 Agency — Gross: ${orderEarning} AED | Commission: ${agencyCommissionAmount} AED (${agencyCommission}%) | Net: ${netAgencyEarning} AED`);
 
