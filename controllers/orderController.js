@@ -210,14 +210,15 @@ exports.createOrder = async (req, res) => {
           );
 
           deliveryDistance = +(distanceInMeters / 1000).toFixed(2);
-          deliveryEarning: shopDeliveryCharge,
+          //deliveryEarning: shopDeliveryCharge,
 
           logger.info(`📍 Shop ${shopId}: ${deliveryDistance}km @ ${settings.perKmRate} AED/km = ${deliveryEarning} AED`);
         }
       }
 
       const shopDeliveryCharge = deliverycharge ? settings.deliveryCharge : 0;
-      const shopFinalPayable = shopTotal - shopDiscount + shopDeliveryCharge;
+deliveryEarning = shopDeliveryCharge; // ← flat delivery charge to agency
+const shopFinalPayable = shopTotal - shopDiscount + shopDeliveryCharge;
 
       for (const p of shopProducts) {
         await ShopProduct.findByIdAndUpdate(p.shopProductId, { $inc: { stock: -p.quantity } });
