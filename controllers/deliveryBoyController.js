@@ -1549,11 +1549,12 @@ exports.getDeliveryBoysByAgency = async (req, res) => {
       .select('-password -countryCode -__v -availability -accountVerify -assignedOrders')
       .lean();
 
-    const formatted = deliveryBoys.map(({ dob, isOnline, ...rest }) => ({
-      ...rest,
-      DOB: dob || null,
-      status: isOnline ? 'Online' : 'Offline',
-    }));
+   const formatted = deliveryBoys.map(({ dob, isOnline, emirates, emiratesId, ...rest }) => ({
+  ...rest,
+  DOB: dob || null,
+  status: isOnline ? 'Online' : 'Offline',
+  'Emirates ID': emiratesId || emirates || null,   // ← renamed key
+}));
 
     return res.status(200).json({
       message: 'Delivery boys fetched successfully',

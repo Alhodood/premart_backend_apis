@@ -409,6 +409,7 @@ exports.updateAgencySettings = async (req, res) => {
   'emiratesIdImage',   // ✅ ADD
   'agencyLicenseImage', // ✅ ADD (also missing)
   'agencyLocation',    // ✅ ADD (also missing)
+  'profileImage'
     ];
 
     allowedFields.forEach(field => {
