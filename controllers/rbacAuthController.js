@@ -20,12 +20,53 @@ const JWT_EXPIRE = '7d';
 const generateToken = (payload) => jwt.sign(payload, JWT_SECRET, { expiresIn: JWT_EXPIRE });
 function generateOtp() { return String(Math.floor(100000 + Math.random() * 900000)); }
 
+
+// ─────────────────────────────────────────────────────────────────────────
+// HELPER: build a clean duplicate-error response
+// ─────────────────────────────────────────────────────────────────────────
+function duplicateError(res, field, value, entityName = 'Account') {
+  const messages = {
+    email:       `${entityName} with this email address (${value}) already exists. Please use a different email.`,
+    phone:       `${entityName} with this phone number (${value}) already exists. Please use a different phone number.`,
+    agencyEmail: `Agency with this email address (${value}) is already registered. Please use a different email.`,
+    shopMail:    `A shop is already registered with this email (${value}). Please use a different email.`,
+    shopContact: `A shop is already registered with this phone number (${value}). Please use a different phone number.`,
+    licenseNo:   `A delivery partner with this license number (${value}) already exists.`,
+    emiratesId:  `A delivery partner with this Emirates ID (${value}) already exists.`,
+    agencyContact:`An agency is already registered with this contact number (${value}). Please use a different number.`,
+    agencyLicense:`An agency is already registered with this license number (${value}). Please use a different license number.`,
+  };
+  return res.status(409).json({
+    success: false,
+    message: messages[field] || `${entityName}: ${field} (${value}) is already in use.`,
+    error: 'DUPLICATE_ENTRY',
+    field,
+    value,
+  });
+}
+
+// ─────────────────────────────────────────────────────────────────────────
+// HELPER: handle MongoDB E11000 duplicate key errors from .create()
+// ─────────────────────────────────────────────────────────────────────────
+function handleMongoDbDuplicate(res, err, entityName = 'Account') {
+  if (err.code === 11000) {
+    const field = Object.keys(err.keyPattern || {})[0] || 'field';
+    const value = err.keyValue?.[field] || '';
+    return duplicateError(res, field, value, entityName);
+  }
+  return null; // not a duplicate error — caller should handle normally
+}
+
 // ─────────────────────────────────────────────────────────────────────────────
 // REGISTER
 // ─────────────────────────────────────────────────────────────────────────────
 exports.register = async (req, res) => {
   try {
-    const { name, email, dob, phone, password, countryCode, role, latitude, longitude, agencyId, emiratesId, areaAssigned, licenseNo, city, profileImage, licenseImage } = req.body;
+    const {
+      name, email, dob, phone, password, countryCode, role,
+      latitude, longitude, agencyId, emiratesId, areaAssigned,
+      licenseNo, city, profileImage, licenseImage
+    } = req.body;
 
     if (!phone || !password || !countryCode) {
       return res.status(400).json({ success: false, message: 'Phone, password, and country code are required' });
@@ -45,11 +86,38 @@ exports.register = async (req, res) => {
       }
     }
 
-    let existingUser;
-    if (role === ROLES.CUSTOMER) existingUser = await User.findOne({ phone });
-    else if (role === ROLES.DELIVERY_BOY) existingUser = await DeliveryBoy.findOne({ phone });
-    else if (role === ROLES.SHOP_ADMIN) existingUser = await ShopAdmin.findOne({ phone });
-    if (existingUser) return res.status(400).json({ success: false, message: 'User with this phone number already exists' });
+    // ── ✅ DUPLICATE CHECKS ──────────────────────────────────────────────
+    let Model;
+    let entityName;
+    if (role === ROLES.CUSTOMER)      { Model = User;        entityName = 'Customer'; }
+    else if (role === ROLES.DELIVERY_BOY) { Model = DeliveryBoy; entityName = 'Delivery partner'; }
+    else if (role === ROLES.SHOP_ADMIN)   { Model = ShopAdmin;   entityName = 'Shop admin'; }
+    else {
+      return res.status(400).json({ success: false, message: 'Invalid role specified' });
+    }
+
+    // Phone — all roles
+    const phoneConflict = await Model.findOne({ phone });
+    if (phoneConflict) return duplicateError(res, 'phone', phone, entityName);
+
+    // Email — when provided
+    if (email) {
+      const emailConflict = await Model.findOne({ email });
+      if (emailConflict) return duplicateError(res, 'email', email, entityName);
+    }
+
+    // Delivery boy specific unique fields
+    if (role === ROLES.DELIVERY_BOY) {
+      if (licenseNo) {
+        const licenseConflict = await DeliveryBoy.findOne({ licenseNo });
+        if (licenseConflict) return duplicateError(res, 'licenseNo', licenseNo, entityName);
+      }
+      if (emiratesId) {
+        const emiratesConflict = await DeliveryBoy.findOne({ emiratesId });
+        if (emiratesConflict) return duplicateError(res, 'emiratesId', emiratesId, entityName);
+      }
+    }
+    // ────────────────────────────────────────────────────────────────────
 
     let newUser;
     if (role === ROLES.CUSTOMER) {
@@ -63,19 +131,17 @@ exports.register = async (req, res) => {
       });
       if (newUser.email) {
         sendDeliveryBoyWelcomeEmail(newUser.email, newUser.name, newUser.phone)
-          .then(sent => { if (!sent) logger.warn('Welcome email failed for delivery boy', { email: newUser.email }); }) // ← replaced console.warn
-          .catch(e => logger.warn('Welcome email error for delivery boy', { email: newUser.email, error: e.message })); // ← replaced console.warn
+          .then(sent => { if (!sent) logger.warn('Welcome email failed for delivery boy', { email: newUser.email }); })
+          .catch(e => logger.warn('Welcome email error for delivery boy', { email: newUser.email, error: e.message }));
       }
     } else if (role === ROLES.SHOP_ADMIN) {
       newUser = await ShopAdmin.create({ name, email, dob, phone, password, countryCode, role: ROLES.SHOP_ADMIN });
-    } else {
-      return res.status(400).json({ success: false, message: 'Invalid role specified' });
     }
 
     if (newUser.email) {
       sendGreetings(newUser.email, newUser.name || newUser.agencyDetails?.name)
-        .then((r) => { if (!r.sent) logger.warn('Welcome email skipped', { email: newUser.email, error: r.error }); }) // ← replaced console.warn
-        .catch((e) => logger.warn('Welcome email error', { email: newUser.email, error: e.message })); // ← replaced console.warn
+        .then((r) => { if (!r.sent) logger.warn('Welcome email skipped', { email: newUser.email, error: r.error }); })
+        .catch((e) => logger.warn('Welcome email error', { email: newUser.email, error: e.message }));
     }
 
     return res.status(201).json({
@@ -93,7 +159,10 @@ exports.register = async (req, res) => {
       }
     });
   } catch (err) {
-    logger.error('register failed', { role: req.body.role, phone: req.body.phone, error: err.message, stack: err.stack }); // ← replaced console.error
+    // Catch any race-condition duplicate from MongoDB index
+    const dupResponse = handleMongoDbDuplicate(res, err, 'Account');
+    if (dupResponse) return dupResponse;
+    logger.error('register failed', { role: req.body.role, phone: req.body.phone, error: err.message, stack: err.stack });
     return res.status(500).json({ success: false, message: 'Registration failed', error: err.message });
   }
 };
@@ -140,6 +209,7 @@ exports.sendRegistrationVerification = async (req, res) => {
     );
 
     const sent = await sendOTPEmail(email.trim(), otp);
+    console.log(`OTP for ${email}: ${otp} (expires at ${expiresAt.toISOString()})`); // For debugging; remove in production
     if (!sent) return res.status(500).json({ success: false, message: 'Failed to send verification email' });
 
     return res.status(200).json({
@@ -412,22 +482,47 @@ exports.createSuperAdmin = async (req, res) => {
 exports.createShopAdmin = async (req, res) => {
   try {
     const { name, email, password, phone } = req.body;
-    if (!name || !email || !password) return res.status(400).json({ success: false, message: 'Name, email, and password are required' });
 
+    if (!name || !email || !password)
+      return res.status(400).json({ success: false, message: 'Name, email, and password are required' });
+
+    // ── ✅ DUPLICATE CHECKS ──────────────────────────────────────────────
     const Model = roleModelMap[ROLES.SHOP_ADMIN];
-    const exists = await Model.findOne({ email });
-    if (exists) return res.status(400).json({ success: false, message: 'Shop admin with this email already exists' });
 
-    const shop = await Shop.create({ shopeDetails: { shopName: name, shopMail: email, shopContact: phone || '' } });
+    const emailConflict = await Model.findOne({ email });
+    if (emailConflict) return duplicateError(res, 'email', email, 'Shop admin');
+
+    if (phone) {
+      const phoneConflict = await Model.findOne({ phone });
+      if (phoneConflict) return duplicateError(res, 'phone', phone, 'Shop admin');
+
+      // Also check Shop collection for phone
+      const shopContactConflict = await Shop.findOne({ 'shopeDetails.shopContact': phone });
+      if (shopContactConflict) return duplicateError(res, 'shopContact', phone, 'Shop');
+    }
+
+    // Check Shop collection for email
+    const shopMailConflict = await Shop.findOne({ 'shopeDetails.shopMail': email });
+    if (shopMailConflict) return duplicateError(res, 'shopMail', email, 'Shop');
+    // ────────────────────────────────────────────────────────────────────
+
+    const shop = await Shop.create({
+      shopeDetails: { shopName: name, shopMail: email, shopContact: phone || '' }
+    });
     const admin = await Model.create({ name, email, password, phone: phone || '', role: ROLES.SHOP_ADMIN, shopId: shop._id });
 
     return res.status(201).json({
       success: true,
       message: 'Shop admin and shop created successfully',
-      data: { adminId: admin._id.toString(), shopId: shop._id.toString(), email: admin.email, name: admin.name, phone: admin.phone, role: admin.role }
+      data: {
+        adminId: admin._id.toString(), shopId: shop._id.toString(),
+        email: admin.email, name: admin.name, phone: admin.phone, role: admin.role
+      }
     });
   } catch (err) {
-    logger.error('createShopAdmin failed', { email: req.body.email, error: err.message, stack: err.stack }); // ← replaced console.error
+    const dupResponse = handleMongoDbDuplicate(res, err, 'Shop admin');
+    if (dupResponse) return dupResponse;
+    logger.error('createShopAdmin failed', { email: req.body.email, error: err.message, stack: err.stack });
     return res.status(500).json({ success: false, message: 'Failed to create shop admin', error: err.message });
   }
 };
@@ -435,21 +530,64 @@ exports.createShopAdmin = async (req, res) => {
 exports.createAgency = async (req, res) => {
   try {
     const { agencyDetails } = req.body;
-    if (!agencyDetails?.agencyName || !agencyDetails?.agencyMail) return res.status(400).json({ success: false, message: 'Agency name and email are required' });
-    if (!agencyDetails?.agencyContact) return res.status(400).json({ success: false, message: 'Agency contact is required' });
-    if (!agencyDetails?.city) return res.status(400).json({ success: false, message: 'City is required' });
-    if (!agencyDetails?.emirates || !Array.isArray(agencyDetails.emirates) || agencyDetails.emirates.length === 0) return res.status(400).json({ success: false, message: 'At least one emirate is required' });
-    if (!agencyDetails?.licenseAuthority) return res.status(400).json({ success: false, message: 'License issuing authority is required' });
 
+    // ── Existing required-field validations (UNCHANGED) ──────────────────
+    if (!agencyDetails?.agencyName || !agencyDetails?.agencyMail)
+      return res.status(400).json({ success: false, message: 'Agency name and email are required' });
+    if (!agencyDetails?.agencyContact)
+      return res.status(400).json({ success: false, message: 'Agency contact is required' });
+    if (!agencyDetails?.city)
+      return res.status(400).json({ success: false, message: 'City is required' });
+    if (!agencyDetails?.emirates || !Array.isArray(agencyDetails.emirates) || agencyDetails.emirates.length === 0)
+      return res.status(400).json({ success: false, message: 'At least one emirate is required' });
+    if (!agencyDetails?.licenseAuthority)
+      return res.status(400).json({ success: false, message: 'License issuing authority is required' });
+
+    // ── ✅ DUPLICATE CHECKS ──────────────────────────────────────────────
     const { DeliveryAgency } = require('../models/DeliveryAgency');
-    const exists = await DeliveryAgency.findOne({ 'agencyDetails.email': agencyDetails.agencyMail });
-    if (exists) return res.status(400).json({ success: false, message: 'Agency with this email already exists' });
 
-    const agency = await DeliveryAgency.create({ agencyDetails: { ...agencyDetails, email: agencyDetails.agencyMail, password: agencyDetails.password || 'password@123', role: ROLES.AGENCY } });
-    return res.status(201).json({ success: true, message: 'Agency created successfully', data: { agencyId: agency._id, agencyName: agency.agencyDetails.agencyName, agencyEmail: agency.agencyDetails.agencyMail } });
+    // agencyMail (used as login email for agency)
+    const emailConflict = await DeliveryAgency.findOne({ 'agencyDetails.agencyMail': agencyDetails.agencyMail });
+    if (emailConflict) return duplicateError(res, 'agencyEmail', agencyDetails.agencyMail, 'Agency');
+
+    // Also check the agencyDetails.email field
+    const emailConflict2 = await DeliveryAgency.findOne({ 'agencyDetails.email': agencyDetails.agencyMail });
+    if (emailConflict2) return duplicateError(res, 'agencyEmail', agencyDetails.agencyMail, 'Agency');
+
+    // Contact number
+    const contactConflict = await DeliveryAgency.findOne({ 'agencyDetails.agencyContact': agencyDetails.agencyContact });
+    if (contactConflict) return duplicateError(res, 'agencyContact', agencyDetails.agencyContact, 'Agency');
+
+    // License number (if provided)
+    if (agencyDetails.agencyLicenseNumber) {
+      const licenseConflict = await DeliveryAgency.findOne({ 'agencyDetails.agencyLicenseNumber': agencyDetails.agencyLicenseNumber });
+      if (licenseConflict) return duplicateError(res, 'agencyLicense', agencyDetails.agencyLicenseNumber, 'Agency');
+    }
+    // ────────────────────────────────────────────────────────────────────
+
+    const agency = await DeliveryAgency.create({
+      agencyDetails: {
+        ...agencyDetails,
+        email: agencyDetails.agencyMail,
+        password: agencyDetails.password || 'password@123',
+        role: ROLES.AGENCY
+      }
+    });
+
+    return res.status(201).json({
+      success: true,
+      message: 'Agency created successfully',
+      data: {
+        agencyId: agency._id,
+        agencyName: agency.agencyDetails.agencyName,
+        agencyEmail: agency.agencyDetails.agencyMail
+      }
+    });
   } catch (err) {
-    logger.error('createAgency failed', { error: err.message, stack: err.stack }); // ← replaced console.error
-    res.status(500).json({ success: false, message: 'Failed to create agency', error: err.message });
+    const dupResponse = handleMongoDbDuplicate(res, err, 'Agency');
+    if (dupResponse) return dupResponse;
+    logger.error('createAgency failed', { error: err.message, stack: err.stack });
+    return res.status(500).json({ success: false, message: 'Failed to create agency', error: err.message });
   }
 };
 
@@ -509,47 +647,133 @@ exports.getCustomerOrders = async (req, res) => {
 exports.registerAgency = async (req, res) => {
   try {
     const { email, password, agencyDetails } = req.body;
-    if (!email || !password) return res.status(400).json({ success: false, message: 'Email and password are required' });
-    if (!agencyDetails?.agencyName || !agencyDetails?.agencyContact) return res.status(400).json({ success: false, message: 'Agency name and contact are required' });
-    if (!agencyDetails?.city) return res.status(400).json({ success: false, message: 'City is required' });
-    if (!agencyDetails?.emirates || !Array.isArray(agencyDetails.emirates) || agencyDetails.emirates.length === 0) return res.status(400).json({ success: false, message: 'At least one emirate is required' });
-    if (!agencyDetails?.licenseAuthority) return res.status(400).json({ success: false, message: 'License issuing authority is required' });
 
+    // ── Existing required-field validations (UNCHANGED) ──────────────────
+    if (!email || !password)
+      return res.status(400).json({ success: false, message: 'Email and password are required' });
+    if (!agencyDetails?.agencyName || !agencyDetails?.agencyContact)
+      return res.status(400).json({ success: false, message: 'Agency name and contact are required' });
+    if (!agencyDetails?.city)
+      return res.status(400).json({ success: false, message: 'City is required' });
+    if (!agencyDetails?.emirates || !Array.isArray(agencyDetails.emirates) || agencyDetails.emirates.length === 0)
+      return res.status(400).json({ success: false, message: 'At least one emirate is required' });
+    if (!agencyDetails?.licenseAuthority)
+      return res.status(400).json({ success: false, message: 'License issuing authority is required' });
+
+    // ── ✅ DUPLICATE CHECKS ──────────────────────────────────────────────
     const { DeliveryAgency } = require('../models/DeliveryAgency');
-    const existingAgency = await DeliveryAgency.findOne({ 'agencyDetails.email': email });
-    if (existingAgency) return res.status(400).json({ success: false, message: 'Agency with this email already exists' });
 
-    const agency = await DeliveryAgency.create({ agencyDetails: { ...agencyDetails, email, password, role: ROLES.AGENCY }, isVerified: false });
+    // Email (stored in agencyDetails.email)
+    const emailConflict = await DeliveryAgency.findOne({ 'agencyDetails.email': email });
+    if (emailConflict) return duplicateError(res, 'agencyEmail', email, 'Agency');
+
+    // agencyMail (may differ from login email)
+    if (agencyDetails.agencyMail && agencyDetails.agencyMail !== email) {
+      const agencyMailConflict = await DeliveryAgency.findOne({ 'agencyDetails.agencyMail': agencyDetails.agencyMail });
+      if (agencyMailConflict) return duplicateError(res, 'agencyEmail', agencyDetails.agencyMail, 'Agency');
+    }
+
+    // Contact number
+    const contactConflict = await DeliveryAgency.findOne({ 'agencyDetails.agencyContact': agencyDetails.agencyContact });
+    if (contactConflict) return duplicateError(res, 'agencyContact', agencyDetails.agencyContact, 'Agency');
+
+    // License number (if provided)
+    if (agencyDetails.agencyLicenseNumber) {
+      const licenseConflict = await DeliveryAgency.findOne({ 'agencyDetails.agencyLicenseNumber': agencyDetails.agencyLicenseNumber });
+      if (licenseConflict) return duplicateError(res, 'agencyLicense', agencyDetails.agencyLicenseNumber, 'Agency');
+    }
+    // ────────────────────────────────────────────────────────────────────
+
+    const agency = await DeliveryAgency.create({
+      agencyDetails: { ...agencyDetails, email, password, role: ROLES.AGENCY },
+      isVerified: false
+    });
 
     try {
       await notifyRegistrationRequest('Agency', agency._id, agency.agencyDetails?.agencyName || 'New Agency');
     } catch (notifErr) {
-      logger.warn('Registration notification failed for agency', { agencyId: agency._id, error: notifErr.message }); // ← replaced console.warn
+      logger.warn('Registration notification failed for agency', { agencyId: agency._id, error: notifErr.message });
     }
 
     const token = generateToken({ id: agency._id, role: ROLES.AGENCY });
-    return res.status(201).json({ success: true, message: 'Agency registered successfully. Awaiting admin verification.', data: { agencyId: agency._id, role: ROLES.AGENCY, token, isVerified: false } });
+    return res.status(201).json({
+      success: true,
+      message: 'Agency registered successfully. Awaiting admin verification.',
+      data: { agencyId: agency._id, role: ROLES.AGENCY, token, isVerified: false }
+    });
   } catch (err) {
-    logger.error('registerAgency failed', { email: req.body.email, error: err.message, stack: err.stack }); // ← replaced console.error
+    const dupResponse = handleMongoDbDuplicate(res, err, 'Agency');
+    if (dupResponse) return dupResponse;
+    logger.error('registerAgency failed', { email: req.body.email, error: err.message, stack: err.stack });
     return res.status(500).json({ success: false, message: 'Agency registration failed', error: err.message });
   }
 };
 
 exports.registerShopAdmin = async (req, res) => {
   try {
-    const { name, email, phone, password, supportMail, supportNumber, shopLicenseNumber, shopLicenseExpiry, EmiratesId, taxRegistrationNumber, location, shopAddress, city, emirates, bankName, accountNumber, ibanNumber, branch, swiftCode, shopLicenseImage, EmiratesIdImage, firebaseUid, emailVerified } = req.body;
+    const {
+      name, email, phone, password, supportMail, supportNumber,
+      shopLicenseNumber, shopLicenseExpiry, EmiratesId, taxRegistrationNumber,
+      location, shopAddress, city, emirates, bankName, accountNumber,
+      ibanNumber, branch, swiftCode, shopLicenseImage, EmiratesIdImage,
+      firebaseUid, emailVerified
+    } = req.body;
 
-    if (!name || !email || !phone || !password) return res.status(400).json({ success: false, message: 'Name, email, phone, and password are required' });
-    if (!supportMail || !supportNumber) return res.status(400).json({ success: false, message: 'Support email and phone are required' });
-    if (!shopLicenseNumber || !shopLicenseExpiry) return res.status(400).json({ success: false, message: 'Trade license number and expiry date are required' });
-    if (!taxRegistrationNumber) return res.status(400).json({ success: false, message: 'Tax Registration Number (TRN) is required' });
-    if (!location || !shopAddress) return res.status(400).json({ success: false, message: 'Shop location and address are required' });
-    if (!shopLicenseImage || !EmiratesIdImage) return res.status(400).json({ success: false, message: 'Trade license and Emirates ID images are required' });
-    if (password.length < 6) return res.status(400).json({ success: false, message: 'Password must be at least 6 characters long' });
+    // ── Existing required-field validations (UNCHANGED) ──────────────────
+    if (!name || !email || !phone || !password)
+      return res.status(400).json({ success: false, message: 'Name, email, phone, and password are required' });
+    if (!supportMail || !supportNumber)
+      return res.status(400).json({ success: false, message: 'Support email and phone are required' });
+    if (!shopLicenseNumber || !shopLicenseExpiry)
+      return res.status(400).json({ success: false, message: 'Trade license number and expiry date are required' });
+    if (!taxRegistrationNumber)
+      return res.status(400).json({ success: false, message: 'Tax Registration Number (TRN) is required' });
+    if (!location || !shopAddress)
+      return res.status(400).json({ success: false, message: 'Shop location and address are required' });
+    if (!shopLicenseImage || !EmiratesIdImage)
+      return res.status(400).json({ success: false, message: 'Trade license and Emirates ID images are required' });
+    if (password.length < 6)
+      return res.status(400).json({ success: false, message: 'Password must be at least 6 characters long' });
 
-    const existingAdmin = await ShopAdmin.findOne({ email });
-    if (existingAdmin) return res.status(400).json({ success: false, message: 'Shop with this email already exists' });
+    // ── ✅ DUPLICATE CHECKS ──────────────────────────────────────────────
+    // ShopAdmin model: email unique
+    const adminEmailConflict = await ShopAdmin.findOne({ email });
+    if (adminEmailConflict) return duplicateError(res, 'email', email, 'Shop admin');
 
+    // ShopAdmin model: phone unique
+    const adminPhoneConflict = await ShopAdmin.findOne({ phone });
+    if (adminPhoneConflict) return duplicateError(res, 'phone', phone, 'Shop admin');
+
+    // Shop collection: shopMail unique
+    const shopMailConflict = await Shop.findOne({ 'shopeDetails.shopMail': email });
+    if (shopMailConflict) return duplicateError(res, 'shopMail', email, 'Shop');
+
+    // Shop collection: shopContact (phone) unique
+    const shopContactConflict = await Shop.findOne({ 'shopeDetails.shopContact': phone });
+    if (shopContactConflict) return duplicateError(res, 'shopContact', phone, 'Shop');
+
+    // Shop collection: shopLicenseNumber unique
+    const licenseConflict = await Shop.findOne({ 'shopeDetails.shopLicenseNumber': shopLicenseNumber });
+    if (licenseConflict) return res.status(409).json({
+      success: false,
+      message: `A shop is already registered with trade license number (${shopLicenseNumber}). Each license can only be registered once.`,
+      error: 'DUPLICATE_ENTRY',
+      field: 'shopLicenseNumber',
+      value: shopLicenseNumber,
+    });
+
+    // Shop collection: taxRegistrationNumber (TRN) unique
+    const trnConflict = await Shop.findOne({ 'shopeDetails.taxRegistrationNumber': taxRegistrationNumber });
+    if (trnConflict) return res.status(409).json({
+      success: false,
+      message: `A shop is already registered with Tax Registration Number (${taxRegistrationNumber}). Each TRN can only be registered once.`,
+      error: 'DUPLICATE_ENTRY',
+      field: 'taxRegistrationNumber',
+      value: taxRegistrationNumber,
+    });
+    // ────────────────────────────────────────────────────────────────────
+
+    // All original creation logic — UNCHANGED
     const shop = await Shop.create({
       shopeDetails: {
         shopName: name, shopMail: email, shopContact: phone,
@@ -567,7 +791,7 @@ exports.registerShopAdmin = async (req, res) => {
     try {
       await notifyRegistrationRequest('Shop', shop._id, name);
     } catch (notifErr) {
-      logger.warn('Registration notification failed for shop', { shopId: shop._id, error: notifErr.message }); // ← replaced console.warn
+      logger.warn('Registration notification failed for shop', { shopId: shop._id, error: notifErr.message });
     }
 
     const token = generateToken({ id: admin._id, role: ROLES.SHOP_ADMIN });
@@ -576,11 +800,17 @@ exports.registerShopAdmin = async (req, res) => {
       message: 'Shop registered successfully. Awaiting admin verification.',
       data: {
         adminId: admin._id, shopId: shop._id, role: ROLES.SHOP_ADMIN, token, isVerified: false,
-        shopDetails: { shopName: shop.shopeDetails.shopName, shopMail: shop.shopeDetails.shopMail, shopContact: shop.shopeDetails.shopContact, emirates: shop.shopeDetails.emirates, shopLicenseNumber: shop.shopeDetails.shopLicenseNumber }
+        shopDetails: {
+          shopName: shop.shopeDetails.shopName, shopMail: shop.shopeDetails.shopMail,
+          shopContact: shop.shopeDetails.shopContact, emirates: shop.shopeDetails.emirates,
+          shopLicenseNumber: shop.shopeDetails.shopLicenseNumber
+        }
       }
     });
   } catch (err) {
-    logger.error('registerShopAdmin failed', { email: req.body.email, error: err.message, stack: err.stack }); // ← replaced console.error
+    const dupResponse = handleMongoDbDuplicate(res, err, 'Shop');
+    if (dupResponse) return dupResponse;
+    logger.error('registerShopAdmin failed', { email: req.body.email, error: err.message, stack: err.stack });
     return res.status(500).json({ success: false, message: 'Shop registration failed', error: err.message });
   }
 };
