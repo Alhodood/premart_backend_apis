@@ -13,12 +13,11 @@ const shopDetailsSchema = new mongoose.Schema({
     shopName: { type: String },
     shopAddress: { type: String },
     shopMail: { type: String },
-    
     shopContact: { type: String },
     shopLicenseNumber: { type: String },
     shopLicenseExpiry: { type: String },
     EmiratesId: { type: String },
-     EmiratesIdImage: { type: String },
+    EmiratesIdImage: { type: String },
     shopLocation: { type: String },
     shopLicenseImage: { type: String },
     taxRegistrationNumber: { type: String },
@@ -26,18 +25,16 @@ const shopDetailsSchema = new mongoose.Schema({
     supportMail: { type: String },
     supportNumber: { type: String },
     password: { type: String },
- resetPasswordOTP:     { type: String, default: null },
-  resetPasswordExpires: { type: Date,   default: null },
-  rejectionReason: {
-  type: String,
-  default: null
-},
-rejectedAt: {
-  type: Date,
-  default: null
-},
-    shopBankDetails: bankDetailsSchema
 
+    // ✅ NEW — Shop logo (same as agencyDetails.profileImage)
+    profileImage: { type: String, default: null },
+
+    resetPasswordOTP:     { type: String, default: null },
+    resetPasswordExpires: { type: Date,   default: null },
+    rejectionReason: { type: String, default: null },
+    rejectedAt:      { type: Date,   default: null },
+
+    shopBankDetails: bankDetailsSchema
 
 }, { timestamps: true });
 
@@ -48,7 +45,6 @@ const shopSchema = new mongoose.Schema({
     orders: [
         {
             orderId: { type: mongoose.Schema.Types.ObjectId, ref: 'Order' },
-
         }
     ],
     isVerified: { type: Boolean, default: false },
@@ -58,3 +54,4 @@ const shopSchema = new mongoose.Schema({
 const Shop = mongoose.model('Shop', shopSchema);
 
 module.exports = { Shop };
+
