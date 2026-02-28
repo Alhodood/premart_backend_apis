@@ -227,6 +227,7 @@ exports.getAllAgencies = async (req, res) => {
       licenseAuthority:    agency.agencyDetails?.licenseAuthority,
       agencyLicenseImage:  agency.agencyDetails?.agencyLicenseImage,
       emiratesId:          agency.agencyDetails?.emiratesId,
+      profileImage:        agency.agencyDetails?.profileImage,
       emiratesIdImage:     agency.agencyDetails?.emiratesIdImage,
       trn:                 agency.agencyDetails?.trn,
       city:                agency.agencyDetails?.city,

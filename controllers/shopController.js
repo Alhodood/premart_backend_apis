@@ -83,6 +83,7 @@ exports.getAllShops = async (req, res) => {
       shopContact:          shop.shopeDetails?.shopContact,
       shopLicenseNumber:    shop.shopeDetails?.shopLicenseNumber,
       shopLicenseExpiry:    shop.shopeDetails?.shopLicenseExpiry,
+      profileImage:         shop.shopeDetails?.profileImage, 
       shopLicenseImage:     shop.shopeDetails?.shopLicenseImage,
       EmiratesId:           shop.shopeDetails?.EmiratesId,
       EmiratesIdImage:      shop.shopeDetails?.EmiratesIdImage,
