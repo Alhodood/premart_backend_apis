@@ -1014,8 +1014,15 @@ exports.viewMyOrders = async (req, res) => {
 exports.viewOrdersByShopAdmin = async (req, res) => {
   try {
     const { shopId } = req.params;
+     if (!mongoose.Types.ObjectId.isValid(shopId)) {
+      return res.status(400).json({ success: false, message: 'Invalid shopId' });
+    }
+    const shopObjectId = new mongoose.Types.ObjectId(shopId);
+     const count = await Order.countDocuments({ shopId: shopObjectId });
+    logger.info(`viewOrdersByShopAdmin: shopId=${shopId}, found=${count}`);
+
     const { status, startDate, endDate } = req.query;
-    const filter = { shopId };
+     const filter = { shopId: shopObjectId };
     if (status) filter.status = status;
     if (startDate || endDate) {
       filter.createdAt = {};
@@ -1044,7 +1051,7 @@ exports.viewOrdersByShopAdmin = async (req, res) => {
             select: 'partName images'
           }
         })
-        .sort({ createdAt: 1 })
+        .sort({ createdAt: -1 })
         .lean(),
       Order.countDocuments(filter)
     ]);
@@ -1232,7 +1239,8 @@ exports.updateOrderStatus = async (req, res) => {
 exports.cancelOrder = async (req, res) => {
   try {
     const orderId = req.params.orderId;
-    const { reason, additionalComments, cancelledBy } = req.body;
+    const body = req.body || {};
+    const { reason, additionalComments, cancelledBy } = body;
 
     if (!orderId) {
       return res.status(400).json({
@@ -1302,6 +1310,42 @@ exports.cancelOrder = async (req, res) => {
         $inc: { stock: item.quantity }
       });
     }
+
+// ✅ Bell notifications for cancellation
+try {
+  const { createNotification } = require('./bellNotifications');
+
+  // ✅ FIX: Use the Shop already imported at top of file
+  // DO NOT re-require Shop here — it's already available as { Shop }
+  const shop = await Shop.findById(updatedOrder.shopId).lean();
+  const shopName = shop?.shopeDetails?.shopName || 'Unknown Shop';
+  const shortId  = updatedOrder._id.toString().slice(-6);
+  const cancelledByLabel = cancelledBy || 'customer';
+
+  await createNotification({
+    title:    '❌ Order Cancelled',
+    message:  `Order #${shortId} was cancelled by ${cancelledByLabel}. Reason: ${reason}`,
+    type:     'order',
+    role:     'shopAdmin',
+    targetId: updatedOrder.shopId,
+  });
+
+  await createNotification({
+    title:    '❌ Order Cancelled',
+    message:  `${shopName} — Order #${shortId} cancelled by ${cancelledByLabel}. Reason: ${reason}`,
+    type:     'order',
+    role:     'superAdmin',
+    targetId: updatedOrder._id,
+  });
+
+  logger.info('cancelOrder: bell notifications sent', { orderId: updatedOrder._id, cancelledBy });
+} catch (notifErr) {
+  // ✅ FIX: Log the full error so you can see what's failing
+  logger.warn('cancelOrder: bell notification failed', { 
+    error: notifErr.message, 
+    stack: notifErr.stack  // ← add stack trace
+  });
+}
 
     // Emit socket event for order cancellation
     try {
@@ -2549,58 +2593,52 @@ exports.sendInvoiceByEmail = async (req, res) => {
 // Get all pending orders
 exports.getAllPendingOrders = async (req, res) => {
   try {
-    const orders = await Order.find({ orderStatus: 'Pending' }).sort({ createdAt: -1 }).lean();
+    // ✅ FIX 1: 'status' not 'orderStatus'
+    // ✅ FIX 2: include all pipeline-relevant statuses
+    const pendingStatuses = ['Pending', 'Processing', 'Confirmed', 'Assigned'];
+    
+    const orders = await Order.find({ 
+      status: { $in: pendingStatuses } 
+    })
+    .sort({ createdAt: -1 })
+    .lean();
 
     const mappedOrders = orders.map(order => {
       const deliveryAddress = order.deliveryAddress || {};
-
-      let productIdField = null, quantityField = null;
-      if (Array.isArray(order.productId) && order.productId.length > 0) {
-        productIdField = order.productId[0].productId || null;
-        quantityField = order.productId[0].quantity || null;
-      }
-
-      let firstProduct = null;
-      if (Array.isArray(order.products) && order.products.length > 0) {
-        firstProduct = order.products[0];
-      }
-
-      let partName = null, partNumber = null, brand = null, year = null, model = null, category = null;
-      if (firstProduct && Array.isArray(firstProduct.subCategories) && firstProduct.subCategories.length > 0) {
-        const firstSubCat = firstProduct.subCategories[0];
-        if (Array.isArray(firstSubCat.parts) && firstSubCat.parts.length > 0) {
-          const firstPart = firstSubCat.parts[0];
-          partName = firstPart.partName || null;
-          partNumber = firstPart.partNumber || null;
-        }
-        category = firstSubCat.categoryTab || null;
-        brand = firstProduct.brand || null;
-        year = firstProduct.year || null;
-        model = firstProduct.model || null;
-      }
+      
+      // ✅ FIX 3: use 'items' array with 'snapshot', not 'products'/'productId'
+      const firstItem = Array.isArray(order.items) && order.items.length > 0 
+        ? order.items[0] 
+        : null;
 
       return {
         _id: order._id,
         userId: order.userId,
+        shopId: order.shopId,
+        masterOrderId: order.masterOrderId,
+        agencyId: order.agencyId,
+        status: order.status,
         customer: deliveryAddress.name || null,
         contact: deliveryAddress.contact || null,
-        Date: order.createdAt,
         address: deliveryAddress.address || null,
         area: deliveryAddress.area || null,
         place: deliveryAddress.place || null,
-        totalAmount: order.totalAmount,
-        finalPayable: order.finalPayable,
-        deliverycharge: order.deliverycharge,
+        date: order.createdAt,
+        // ✅ FIX 4: correct field names from schema
+        subtotal: order.subtotal,
+        discount: order.discount,
+        deliveryCharge: order.deliveryCharge,   // was: order.deliverycharge
+        totalPayable: order.totalPayable,       // was: order.totalAmount / order.finalPayable
         paymentType: order.paymentType,
-        masterOrderId: order.masterOrderId,
-        productId: productIdField,
-        quantity: quantityField,
-        product: partName,
-        partNumber,
-        brand,
-        year,
-        model,
-        category
+        paymentStatus: order.paymentStatus,
+        itemCount: order.items?.length || 0,
+        // ✅ FIX 5: read from items[0].snapshot
+        partName: firstItem?.snapshot?.partName || null,
+        partNumber: firstItem?.snapshot?.partNumber || null,
+        price: firstItem?.snapshot?.price || null,
+        quantity: firstItem?.quantity || null,
+        productImage: firstItem?.snapshot?.image || null,
+        assignedDeliveryBoy: order.assignedDeliveryBoy || null,
       };
     });
 
@@ -2609,8 +2647,8 @@ exports.getAllPendingOrders = async (req, res) => {
       message: "Pending orders fetched successfully",
       data: mappedOrders
     });
-
   } catch (error) {
+    logger.error('getAllPendingOrders failed', { error: error.message, stack: error.stack });
     res.status(500).json({
       success: false,
       message: "Failed to fetch pending orders",
@@ -2647,6 +2685,53 @@ exports.getCancellationReasons = async (req, res) => {
       success: false,
       message: 'Failed to fetch cancellation reasons',
       error: error.message
+    });
+  }
+};
+
+exports.getAllDeliveredOrders = async (req, res) => {
+  try {
+    const orders = await Order.find({ status: 'Delivered' })
+      .sort({ createdAt: -1 })
+      .lean();
+
+    const mappedOrders = orders.map(order => {
+      const firstItem = Array.isArray(order.items) && order.items.length > 0
+        ? order.items[0]
+        : null;
+      const deliveryAddress = order.deliveryAddress || {};
+
+      return {
+        _id: order._id,
+        customerName: deliveryAddress.name || null,
+        customerPhone: deliveryAddress.contact || null,
+        orderStatus: order.status,
+        paymentStatus: order.paymentStatus,
+        paymentType: order.paymentType,
+        totalPayable: order.totalPayable,
+        deliveryCharge: order.deliveryCharge,
+        itemCount: order.items?.length || 0,
+        productName: firstItem?.snapshot?.partName || null,
+        productImage: firstItem?.snapshot?.image || null,
+        quantity: firstItem?.quantity || null,
+        shopId: order.shopId,
+        agencyId: order.agencyId,
+        deliveredAt: order.deliveredAt,
+        createdAt: order.createdAt,
+      };
+    });
+
+    res.status(200).json({
+      success: true,
+      message: 'Delivered orders fetched successfully',
+      data: mappedOrders,
+    });
+  } catch (error) {
+    logger.error('getAllDeliveredOrders failed', { error: error.message });
+    res.status(500).json({
+      success: false,
+      message: 'Failed to fetch delivered orders',
+      error: error.message,
     });
   }
 };

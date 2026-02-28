@@ -47,6 +47,6 @@ router.patch('/auto-assign/:orderId', orderController.autoAssignDeliveryBoyWithi
 
  router.post('/send-invoice/:orderId', protect, orderController.sendInvoiceByEmail);
 
-
+router.get('/delivered-orders', orderController.getAllDeliveredOrders);
 
 module.exports = router;

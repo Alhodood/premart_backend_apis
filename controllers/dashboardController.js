@@ -4,6 +4,7 @@ const mongoose = require('mongoose');
 const { Shop } = require('../models/Shop');
 const logger = require('../config/logger'); // ← Winston logger
 const ShopPayout = require('../models/ShopPayout');
+const moment = require('moment');
 
 exports.getSuperAdminDashboard = async (req, res) => {
   try {
@@ -32,33 +33,50 @@ exports.getSuperAdminDashboard = async (req, res) => {
       return `${sign}${rounded}%`;
     };
 
-    // ── Total Orders (paid only) ─────────────────────────────────────────
-    const [totalOrders, previousOrders] = await Promise.all([
-      Order.countDocuments({ createdAt: { $gte: currentMonthStart } }),
-      Order.countDocuments({ createdAt: { $gte: lastMonthStart, $lt: currentMonthStart } }),
-    ]);
 
-    // ── Total Sales (paid only) ──────────────────────────────────────────
-    const sumPayable = {
-      $sum: {
-        $cond: [
-          { $eq: [{ $type: '$totalPayable' }, 'string'] },
-          { $toDouble: '$totalPayable' },
-          { $ifNull: ['$totalPayable', 0] },
-        ],
-      },
-    };
+    // ── Total Orders (exclude Cancelled) ─────────────────────────────────────
+const [totalOrders, previousOrders] = await Promise.all([
+  Order.countDocuments({ 
+    createdAt: { $gte: currentMonthStart },
+    status: { $nin: ['Cancelled'] }
+  }),
+  Order.countDocuments({ 
+    createdAt: { $gte: lastMonthStart, $lt: currentMonthStart },
+    status: { $nin: ['Cancelled'] }
+  }),
+]);
 
-    const [thisSales, lastSales] = await Promise.all([
-      Order.aggregate([
-        { $match: { createdAt: { $gte: currentMonthStart }, paymentStatus: 'Paid' } },
-        { $group: { _id: null, total: sumPayable } },
-      ]),
-      Order.aggregate([
-        { $match: { createdAt: { $gte: lastMonthStart, $lt: currentMonthStart }, paymentStatus: 'Paid' } },
-        { $group: { _id: null, total: sumPayable } },
-      ]),
-    ]);
+// ── Total Sales (Delivered orders only) ──────────────────────────────────
+const sumPayable = {
+  $sum: {
+    $cond: [
+      { $eq: [{ $type: '$totalPayable' }, 'string'] },
+      { $toDouble: '$totalPayable' },
+      { $ifNull: ['$totalPayable', 0] },
+    ],
+  },
+};
+
+const [thisSales, lastSales] = await Promise.all([
+  Order.aggregate([
+    { 
+      $match: { 
+        createdAt: { $gte: currentMonthStart }, 
+        status: 'Delivered'   // ← only Delivered
+      } 
+    },
+    { $group: { _id: null, total: sumPayable } },
+  ]),
+  Order.aggregate([
+    { 
+      $match: { 
+        createdAt: { $gte: lastMonthStart, $lt: currentMonthStart }, 
+        status: 'Delivered'   // ← only Delivered
+      } 
+    },
+    { $group: { _id: null, total: sumPayable } },
+  ]),
+]);
 
     const totalSalesAmount    = thisSales[0]?.total || 0;
     const previousSalesAmount = lastSales[0]?.total || 0;
@@ -90,42 +108,56 @@ exports.getSuperAdminDashboard = async (req, res) => {
       logger.warn(`⚠️ Agency payable calculation failed: ${error.message}`);
     }
 
-    // ── Top products (paid + delivered) ─────────────────────────────────
-    let topSellingProductsTotalAmount = 0;
-    let topSellingProductsLastAmount  = 0;
-    try {
-      const topProductSalesCurrentMonthAgg = await Order.aggregate([
-        { $match: { status: 'Delivered', paymentStatus: 'Paid', createdAt: { $gte: currentMonthStart } } },
-        { $unwind: '$items' },
-        {
-          $group: {
-            _id: '$items.shopProductId',
-            totalAmount: { $sum: { $cond: [{ $eq: [{ $type: '$totalPayable' }, 'string'] }, { $toDouble: '$totalPayable' }, { $ifNull: ['$totalPayable', 0] }] } },
-            count: { $sum: '$items.quantity' },
-          },
-        },
-        { $sort: { count: -1 } },
-        { $limit: 1 },
-      ]);
-
-      if (topProductSalesCurrentMonthAgg.length > 0) {
-        topSellingProductsTotalAmount = topProductSalesCurrentMonthAgg[0].totalAmount || 0;
-        const topProductSalesLastMonthAgg = await Order.aggregate([
-          { $match: { status: 'Delivered', paymentStatus: 'Paid', createdAt: { $gte: lastMonthStart, $lt: currentMonthStart } } },
-          { $unwind: '$items' },
-          { $match: { 'items.shopProductId': topProductSalesCurrentMonthAgg[0]._id } },
-          {
-            $group: {
-              _id: '$items.shopProductId',
-              totalAmount: { $sum: { $cond: [{ $eq: [{ $type: '$totalPayable' }, 'string'] }, { $toDouble: '$totalPayable' }, { $ifNull: ['$totalPayable', 0] }] } },
-            },
-          },
-        ]);
-        topSellingProductsLastAmount = topProductSalesLastMonthAgg[0]?.totalAmount || 0;
+  // ── Top products (match getTopSellingProducts exactly) ───────────────
+let topSellingProductsTotalAmount = 0;
+let topSellingProductsLastAmount  = 0;
+try {
+  const [thisMonth, lastMonth] = await Promise.all([
+    Order.aggregate([
+      { 
+        $match: { 
+          status: 'Delivered', 
+          createdAt: { $gte: currentMonthStart } 
+        } 
+      },
+      { $unwind: '$items' },
+      {
+        $group: {
+          _id: null,
+          total: {
+            $sum: {
+              $multiply: ['$items.quantity', '$items.snapshot.price']
+            }
+          }
+        }
       }
-    } catch (error) {
-      logger.warn(`⚠️ Top products calculation failed: ${error.message}`);
-    }
+    ]),
+    Order.aggregate([
+      { 
+        $match: { 
+          status: 'Delivered', 
+          createdAt: { $gte: lastMonthStart, $lt: currentMonthStart } 
+        } 
+      },
+      { $unwind: '$items' },
+      {
+        $group: {
+          _id: null,
+          total: {
+            $sum: {
+              $multiply: ['$items.quantity', '$items.snapshot.price']
+            }
+          }
+        }
+      }
+    ])
+  ]);
+
+  topSellingProductsTotalAmount = thisMonth[0]?.total || 0;
+  topSellingProductsLastAmount  = lastMonth[0]?.total || 0;
+} catch (error) {
+  logger.warn(`⚠️ Top products calculation failed: ${error.message}`);
+}
 
     // ── Visitors ─────────────────────────────────────────────────────────
     const [newVisitorsThisMonth, newVisitorsLastMonth] = await Promise.all([
@@ -281,82 +313,73 @@ exports.getSuperAdminDashboard = async (req, res) => {
   }
 };
 
+// ==================== WEEKLY SALES ====================
 exports.getWeeklySales = async (req, res) => {
   try {
-    logger.info('📊 Fetching Weekly Sales Data');
+    const { date } = req.query;
 
-    const { startDate, endDate } = req.query;
     let start, end;
-
-    if (startDate && endDate) {
-      const startRaw = new Date(startDate);
-      const endRaw   = new Date(endDate);
-      if (isNaN(startRaw) || isNaN(endRaw)) {
-        return res.status(400).json({ success: false, message: 'Invalid date format' });
-      }
-      start = new Date(Date.UTC(startRaw.getUTCFullYear(), startRaw.getUTCMonth(), startRaw.getUTCDate(), 0, 0, 0, 0));
-      end   = new Date(Date.UTC(endRaw.getUTCFullYear(),   endRaw.getUTCMonth(),   endRaw.getUTCDate(),   23, 59, 59, 999));
+    if (date) {
+      const refDate = moment(date).utcOffset('+04:00');
+      start = new Date(refDate.clone().startOf('week').format('YYYY-MM-DDTHH:mm:ss') + '+04:00');
+      end   = new Date(refDate.clone().endOf('week').format('YYYY-MM-DDTHH:mm:ss') + '+04:00');
     } else {
-      const now = new Date();
-      end   = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate(), 23, 59, 59, 999));
-      start = new Date(end);
-      start.setUTCDate(end.getUTCDate() - 6);
-      start.setUTCHours(0, 0, 0, 0);
+      const nowUAE = moment().utcOffset('+04:00');
+      start = new Date(nowUAE.clone().startOf('week').format('YYYY-MM-DDTHH:mm:ss') + '+04:00');
+      end   = new Date(nowUAE.clone().endOf('week').format('YYYY-MM-DDTHH:mm:ss') + '+04:00');
     }
 
-    logger.info(`📅 Query range: ${start.toISOString()} to ${end.toISOString()}`);
+    const orders = await Order.find({
+      status: 'Delivered',
+      updatedAt: { $gte: start, $lte: end }  // ✅ updatedAt + UAE timezone
+    })
+    .populate('shopId', 'shopeDetails.shopName')
+    .lean();
 
-    const weeklySales = await Order.aggregate([
-      { $match: { status: 'Delivered', createdAt: { $gte: start, $lte: end } } },
-      {
-        $group: {
-          _id: { $dateToString: { format: '%Y-%m-%d', date: '$createdAt', timezone: 'UTC' } },
-          totalSales: {
-            $sum: {
-              $cond: [
-                { $eq: [{ $type: '$totalPayable' }, 'string'] },
-                { $toDouble: '$totalPayable' },
-                { $ifNull: ['$totalPayable', 0] },
-              ],
-            },
-          },
-          orderCount: { $sum: 1 },
-        },
-      },
-      { $sort: { _id: 1 } },
-    ]);
+    const total = orders.reduce((sum, order) => sum + (order.totalPayable || 0), 0);
 
-    const salesMap = {};
-    weeklySales.forEach((item) => {
-      salesMap[item._id] = { totalSales: Math.round(item.totalSales), orderCount: item.orderCount };
+    const dailyBreakdown = {};
+    orders.forEach(order => {
+      const day = moment(order.updatedAt).utcOffset('+04:00').format('YYYY-MM-DD');
+      if (!dailyBreakdown[day]) {
+        dailyBreakdown[day] = { date: day, sales: 0, orders: 0 };
+      }
+      dailyBreakdown[day].sales += order.totalPayable || 0;
+      dailyBreakdown[day].orders += 1;
     });
 
-    const dayNames  = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
-    const msInDay   = 24 * 60 * 60 * 1000;
-    const totalDays = Math.floor((end - start) / msInDay) + 1;
-    const salesByDay = [];
-
-    for (let i = 0; i < totalDays; i++) {
-      const currentDate = new Date(start.getTime() + i * msInDay);
-      const dateStr = currentDate.toISOString().split('T')[0];
-      const dayData = salesMap[dateStr] || { totalSales: 0, orderCount: 0 };
-      salesByDay.push({
-        date: dateStr,
-        day: dayNames[currentDate.getDay()],
-        totalSales: dayData.totalSales,
-        orderCount: dayData.orderCount,
-      });
-    }
+    const formatted = orders.map(order => ({
+      orderId: order._id,
+      orderDate: order.createdAt,
+      deliveredAt: order.updatedAt,
+      dayOfWeek: moment(order.updatedAt).utcOffset('+04:00').format('dddd'),
+      shopName: order.shopId?.shopeDetails?.shopName || 'Unknown',
+      customerName: order.deliveryAddress?.name || '-',
+      itemCount: order.items?.length || 0,
+      subtotal: order.subtotal,
+      discount: order.discount,
+      deliveryCharge: order.deliveryCharge,
+      totalAmount: order.totalPayable,
+      paymentMethod: order.paymentType
+    }));
 
     res.status(200).json({
-      message: 'Weekly sales fetched successfully',
       success: true,
-      data: salesByDay,
-      dateRange: { start: start.toISOString(), end: end.toISOString() },
+      totalSales: Math.round(total * 100) / 100,
+      count: orders.length,
+      dateRange: { from: start, to: end },
+      dailyBreakdown: Object.values(dailyBreakdown)
+        .map(d => ({ ...d, sales: Math.round(d.sales * 100) / 100 }))
+        .sort((a, b) => new Date(a.date) - new Date(b.date)),
+      data: formatted
     });
   } catch (err) {
-    logger.error('❌ Weekly Sales Error:', err);
-    res.status(500).json({ message: 'Failed to fetch weekly sales', success: false, error: err.message });
+    console.error('Weekly Sales Error:', err);
+    res.status(500).json({
+      success: false,
+      message: 'Failed to fetch weekly sales',
+      error: err.message
+    });
   }
 };
 
@@ -460,87 +483,103 @@ exports.getShopDashboardByShopId = async (req, res) => {
       },
     };
 
+    const fmtMonth = (date) =>
+      date.toLocaleString('default', { month: 'long', year: 'numeric' });
+
+    const getGrowth = (current, previous) => {
+      if (current === 0 && previous === 0) return '0%';
+      if (previous === 0 && current > 0)   return '+100%';
+      if (current === 0 && previous > 0)   return '-100%';
+      const pct     = ((current - previous) / previous) * 100;
+      const rounded = Math.round(pct);
+      if (rounded >  999) return '+999%+';
+      if (rounded < -999) return '-999%+';
+      return `${rounded >= 0 ? '+' : ''}${rounded}%`;
+    };
+
     logger.info(`📊 Fetching shop dashboard for shopId: ${shopId}`);
 
-    const [
-      // ── Revenue from ShopPayout (Paid status only) ──
-      thisPayout, lastPayout,
-      thisPayoutOrders, lastPayoutOrders,
+ const [
+  // ── Revenue (ShopPayout Paid) ────────────────────────────────────────
+  thisPayout, lastPayout,
 
-      // ── Pipeline / pending orders from Order collection ──
-      totalOrdersAll, totalOrdersAllLast,
-      pendingAgg, pendingPreAgg,
-      delivThis, cancelThis,
-      delivLast, cancelLast,
-      repeatAgg, repeatPreAgg,
-    ] = await Promise.all([
-      // Revenue = netPayable from ShopPayout where status = 'Paid'
-      ShopPayout.aggregate([
-        { $match: { shopId: shopOid, status: 'Paid', createdAt: curR } },
-        { $group: { _id: null, v: { $sum: '$netPayable' } } },
-      ]),
-      ShopPayout.aggregate([
-        { $match: { shopId: shopOid, status: 'Paid', createdAt: preR } },
-        { $group: { _id: null, v: { $sum: '$netPayable' } } },
-      ]),
+  // ── Orders + Sales from ALL ShopPayouts (any status) ─────────────────
+  thisOrderCount, lastOrderCount, 
 
-      // Total paid orders = sum of totalOrders from ShopPayout where status = 'Paid'
-      ShopPayout.aggregate([
-        { $match: { shopId: shopOid, status: 'Paid', createdAt: curR } },
-        { $group: { _id: null, v: { $sum: '$totalOrders' } } },
-      ]),
-      ShopPayout.aggregate([
-        { $match: { shopId: shopOid, status: 'Paid', createdAt: preR } },
-        { $group: { _id: null, v: { $sum: '$totalOrders' } } },
-      ]),
+  // ── Pipeline = unpaid ShopPayouts (Pending/Processing/Failed) ────────
+  thisPipeline, lastPipeline,
 
-      // All orders (for conversion rate calc)
-      Order.countDocuments({ shopId: shopOid, createdAt: curR }),
-      Order.countDocuments({ shopId: shopOid, createdAt: preR }),
+  // ── Fulfilment ────────────────────────────────────────────────────────
+  delivThis, cancelThis,
+  delivLast, cancelLast,
 
-      // Pending pipeline value
-      Order.aggregate([
-        { $match: { shopId: shopOid, status: { $in: ['Pending', 'Processing', 'Confirmed', 'Assigned'] }, createdAt: curR } },
-        { $group: { _id: null, value: sumPayable, count: { $sum: 1 } } },
-      ]),
-      Order.aggregate([
-        { $match: { shopId: shopOid, status: { $in: ['Pending', 'Processing', 'Confirmed', 'Assigned'] }, createdAt: preR } },
-        { $group: { _id: null, value: sumPayable } },
-      ]),
+  // ── Repeat Customers ─────────────────────────────────────────────────
+  repeatAgg, repeatPreAgg,
+] = await Promise.all([
 
-      // Fulfilment
-      Order.countDocuments({ shopId: shopOid, status: 'Delivered', createdAt: curR }),
-      Order.countDocuments({ shopId: shopOid, status: 'Cancelled', createdAt: curR }),
-      Order.countDocuments({ shopId: shopOid, status: 'Delivered', createdAt: preR }),
-      Order.countDocuments({ shopId: shopOid, status: 'Cancelled', createdAt: preR }),
+  // Revenue: Paid payouts only
+  ShopPayout.aggregate([
+    { $match: { shopId: shopOid, status: 'Paid', createdAt: curR } },
+    { $group: { _id: null, v: { $sum: '$netPayable' }, orders: { $sum: '$totalOrders' } } },
+  ]),
+  ShopPayout.aggregate([
+    { $match: { shopId: shopOid, status: 'Paid', createdAt: preR } },
+    { $group: { _id: null, v: { $sum: '$netPayable' }, orders: { $sum: '$totalOrders' } } },
+  ]),
 
-      // Repeat customers (still from orders for accuracy)
-      Order.aggregate([
-        { $match: { shopId: shopOid, paymentStatus: 'Paid', createdAt: curR } },
-        { $group: { _id: '$userId', n: { $sum: 1 } } },
-        { $match: { n: { $gte: 2 } } },
-        { $count: 'c' },
-      ]),
-      Order.aggregate([
-        { $match: { shopId: shopOid, paymentStatus: 'Paid', createdAt: preR } },
-        { $group: { _id: '$userId', n: { $sum: 1 } } },
-        { $match: { n: { $gte: 2 } } },
-        { $count: 'c' },
-      ]),
-    ]);
+  // All payouts (any status) for total orders + avg
+ Order.countDocuments({ shopId: shopOid, createdAt: curR }),           // ordersThis
+Order.countDocuments({ shopId: shopOid, createdAt: preR }),           // ordersLast
 
-    // ── Extract values ──────────────────────────────────────────────────────
-    const revThis    = thisPayout[0]?.v        || 0;
-    const revLast    = lastPayout[0]?.v        || 0;
-    const ordersThis = thisPayoutOrders[0]?.v  || 0;
-    const ordersLast = lastPayoutOrders[0]?.v  || 0;
+  // Pipeline: unpaid payouts (Pending/Processing/Failed)
+  ShopPayout.aggregate([
+    { $match: { shopId: shopOid, status: { $nin: ['Paid'] }, createdAt: curR } },
+    { $group: { _id: null, value: { $sum: '$netPayable' }, count: { $sum: 1 }, orders: { $sum: '$totalOrders' } } },
+  ]),
+  ShopPayout.aggregate([
+    { $match: { shopId: shopOid, status: { $nin: ['Paid'] }, createdAt: preR } },
+    { $group: { _id: null, value: { $sum: '$netPayable' } } },
+  ]),
 
-    const avgThis = ordersThis > 0 ? Math.round(revThis / ordersThis) : 0;
-    const avgLast = ordersLast > 0 ? Math.round(revLast / ordersLast) : 0;
+  // Fulfilment (still from Order)
+  Order.countDocuments({ shopId: shopOid, status: 'Delivered', createdAt: curR }),
+  Order.countDocuments({ shopId: shopOid, status: 'Cancelled',  createdAt: curR }),
+  Order.countDocuments({ shopId: shopOid, status: 'Delivered', createdAt: preR }),
+  Order.countDocuments({ shopId: shopOid, status: 'Cancelled',  createdAt: preR }),
 
-    const pndVal  = pendingAgg[0]?.value  || 0;
-    const pndCnt  = pendingAgg[0]?.count  || 0;
-    const pndLast = pendingPreAgg[0]?.value || 0;
+  // Repeat customers (still from Order)
+  Order.aggregate([
+    { $match: { shopId: shopOid, paymentStatus: 'Paid', createdAt: curR } },
+    { $group: { _id: '$userId', n: { $sum: 1 } } },
+    { $match: { n: { $gte: 2 } } },
+    { $count: 'c' },
+  ]),
+  Order.aggregate([
+    { $match: { shopId: shopOid, paymentStatus: 'Paid', createdAt: preR } },
+    { $group: { _id: '$userId', n: { $sum: 1 } } },
+    { $match: { n: { $gte: 2 } } },
+    { $count: 'c' },
+  ]),
+]);
+
+// ── Extract KPI values ──────────────────────────────────────────────────
+const revThis      = thisPayout[0]?.v      || 0;
+const revLast      = lastPayout[0]?.v      || 0;
+const paidOrdersThisCount = thisPayout[0]?.orders || 0;  // for Revenue subtext
+
+const ordersThis = thisOrderCount  || 0;   // direct count from Order collection
+const ordersLast = lastOrderCount  || 0;
+// For avg order value, keep using paid orders revenue:
+const salesThis  = revThis;   // reuse paid revenue for avg calculation
+const salesLast  = revLast;
+
+const avgThis = ordersThis > 0 ? Math.round(salesThis / ordersThis) : 0;
+const avgLast = ordersLast > 0 ? Math.round(salesLast / ordersLast) : 0;
+
+const pndVal    = thisPipeline[0]?.value  || 0;
+const pndCnt    = thisPipeline[0]?.count  || 0;   // number of unpaid payout records
+const pndOrders = thisPipeline[0]?.orders || 0;   // number of unpaid orders → subtext
+const pndLast   = lastPipeline[0]?.value  || 0;
 
     const closedThis = delivThis + cancelThis;
     const closedLast = delivLast + cancelLast;
@@ -550,10 +589,10 @@ exports.getShopDashboardByShopId = async (req, res) => {
     const repThis = repeatAgg[0]?.c    || 0;
     const repLast = repeatPreAgg[0]?.c || 0;
 
-    // Conversion Rate (paid orders vs all orders)
-    const conversionRate     = totalOrdersAll     > 0 ? Math.round((ordersThis / totalOrdersAll)     * 100) : 0;
-    const conversionRateLast = totalOrdersAllLast > 0 ? Math.round((ordersLast / totalOrdersAllLast) * 100) : 0;
-
+    const paidOrdersThis = await Order.countDocuments({ shopId: shopOid, paymentStatus: 'Paid', createdAt: curR });
+    const paidOrdersLast = await Order.countDocuments({ shopId: shopOid, paymentStatus: 'Paid', createdAt: preR });
+   const conversionRate     = ordersThis > 0 ? Math.round((paidOrdersThis / ordersThis) * 100) : 0;
+const conversionRateLast = ordersLast > 0 ? Math.round((paidOrdersLast / ordersLast) * 100) : 0;
     // ── Average Delivery Time ───────────────────────────────────────────────
     const deliveredOrders = await Order.find({
       shopId: shopOid,
@@ -586,8 +625,8 @@ exports.getShopDashboardByShopId = async (req, res) => {
       }
     } catch (err) {
       logger.warn('⚠️ Reviews model not available, using default satisfaction');
-      avgRating   = 4.8;
-      reviewCount = 127;
+      avgRating   = 0;
+      reviewCount = 0;
     }
 
     // ── Revenue by Category ─────────────────────────────────────────────────
@@ -606,7 +645,7 @@ exports.getShopDashboardByShopId = async (req, res) => {
 
     const totalCategoryRevenue = revenueByCategory.reduce((sum, c) => sum + c.revenue, 0);
     const categoryData = revenueByCategory.map(c => ({
-      category: c._id || 'Other',
+      category:   c._id?.toString() || 'Other',
       percentage: totalCategoryRevenue > 0 ? Math.round((c.revenue / totalCategoryRevenue) * 100) : 0,
     }));
 
@@ -620,11 +659,11 @@ exports.getShopDashboardByShopId = async (req, res) => {
     }
 
     // ── Hourly Orders Distribution ──────────────────────────────────────────
-    const hourlyOrders = await Order.aggregate([
+    const hourlyOrdersAgg = await Order.aggregate([
       { $match: { shopId: shopOid, createdAt: curR } },
       {
         $group: {
-          _id: { $hour: { date: '$createdAt', timezone: 'Asia/Dubai' } },
+          _id:   { $hour: { date: '$createdAt', timezone: 'Asia/Dubai' } },
           count: { $sum: 1 },
         },
       },
@@ -632,31 +671,39 @@ exports.getShopDashboardByShopId = async (req, res) => {
     ]);
 
     const hourlyData = Array.from({ length: 24 }, (_, hour) => {
-      const data = hourlyOrders.find(h => h._id === hour);
+      const data = hourlyOrdersAgg.find(h => h._id === hour);
       return { hour, count: data?.count || 0 };
     });
 
     // ── Recent Activity ─────────────────────────────────────────────────────
-    const recentActivity = await Order.find({ shopId: shopOid })
+    const recentOrdersRaw = await Order.find({ shopId: shopOid })
       .sort({ updatedAt: -1 })
       .limit(5)
       .select('orderNumber status updatedAt totalPayable paymentStatus')
       .lean();
 
-    const activities = recentActivity.map(order => {
+    const getTimeAgo = (date) => {
+      const seconds = Math.floor((new Date() - new Date(date)) / 1000);
+      if (seconds < 60)   return `${seconds}s ago`;
+      if (seconds < 3600) return `${Math.floor(seconds / 60)}m ago`;
+      if (seconds < 86400) return `${Math.floor(seconds / 3600)}h ago`;
+      return `${Math.floor(seconds / 86400)}d ago`;
+    };
+
+    const activities = recentOrdersRaw.map(order => {
       let title = '';
       let type  = '';
       if (order.status === 'Delivered') {
-        title = `Order delivered #${order.orderNumber}`;
+        title = `Order delivered #${order.orderNumber || order._id.toString().slice(-6)}`;
         type  = 'delivered';
       } else if (order.paymentStatus === 'Paid') {
-        title = `Payment received #${order.orderNumber}`;
+        title = `Payment received #${order.orderNumber || order._id.toString().slice(-6)}`;
         type  = 'payment';
       } else if (order.status === 'Pending') {
-        title = `New order #${order.orderNumber}`;
+        title = `New order #${order.orderNumber || order._id.toString().slice(-6)}`;
         type  = 'new_order';
       } else {
-        title = `Order ${order.status.toLowerCase()} #${order.orderNumber}`;
+        title = `Order ${order.status.toLowerCase()} #${order.orderNumber || order._id.toString().slice(-6)}`;
         type  = order.status.toLowerCase();
       }
       return {
@@ -672,7 +719,7 @@ exports.getShopDashboardByShopId = async (req, res) => {
       { $match: { shopId: shopOid, paymentStatus: 'Paid', createdAt: curR } },
       {
         $group: {
-          _id: '$userId',
+          _id:        '$userId',
           totalSpent: sumPayable,
           orderCount: { $sum: 1 },
         },
@@ -707,8 +754,8 @@ exports.getShopDashboardByShopId = async (req, res) => {
     try {
       const ShopProduct = require('../models/ShopProduct');
       const lowStock = await ShopProduct.find({
-        shopId: shopOid,
-        stock: { $lte: 10 },
+        shopId:      shopOid,
+        stock:       { $lte: 10 },
         isAvailable: true,
       })
         .populate('part', 'partName')
@@ -741,7 +788,7 @@ exports.getShopDashboardByShopId = async (req, res) => {
       { $group: { _id: '$paymentType', count: { $sum: 1 } } },
     ]);
 
-    const totalPaidOrders = ordersThis;
+    const totalPaidOrders = paidOrdersThis;
     let paymentData = paymentMethodsAgg.map(pm => ({
       method:     pm._id || 'Cash',
       percentage: totalPaidOrders > 0 ? Math.round((pm.count / totalPaidOrders) * 100) : 0,
@@ -761,7 +808,13 @@ exports.getShopDashboardByShopId = async (req, res) => {
     startDay.setUTCHours(0, 0, 0, 0);
 
     const wAgg = await Order.aggregate([
-      { $match: { shopId: shopOid, paymentStatus: 'Paid', createdAt: { $gte: startDay, $lte: endDay } } },
+      {
+        $match: {
+          shopId:        shopOid,
+          paymentStatus: 'Paid',
+          createdAt:     { $gte: startDay, $lte: endDay },
+        },
+      },
       {
         $group: {
           _id:     { $dateToString: { format: '%Y-%m-%d', date: '$createdAt', timezone: 'UTC' } },
@@ -817,21 +870,23 @@ exports.getShopDashboardByShopId = async (req, res) => {
         currentMonthLabel: fmtMonth(now),
         lastMonthLabel:    fmtMonth(preStart),
 
-        // ── KPI Cards ──
+        // ── KPI Cards ──────────────────────────────────────────────────────
         shopRevenue:          Math.round(revThis).toString(),
         shopRevenueGrowth:    getGrowth(revThis, revLast),
         shopRevenuePrev:      fmtMonth(preStart),
+        shopRevenuePaidOrders: paidOrdersThisCount,
 
-        totalOrders:          ordersThis,
+        totalOrders:          ordersThis,           // ALL non-cancelled orders
         totalOrdersGrowth:    getGrowth(ordersThis, ordersLast),
         totalOrdersPrev:      fmtMonth(preStart),
 
-        avgOrderValue:        avgThis.toString(),
+        avgOrderValue:        avgThis.toString(),   // total revenue / total orders
         avgOrderValueGrowth:  getGrowth(avgThis, avgLast),
         avgOrderValuePrev:    fmtMonth(preStart),
 
-        pendingValue:         Math.round(pndVal).toString(),
+        pendingValue:         Math.round(pndVal).toString(), // unpaid + active
         pendingCount:         pndCnt,
+        pendingOrders:        pndOrders, 
         pendingValueGrowth:   getGrowth(pndVal, pndLast),
         pendingValuePrev:     fmtMonth(preStart),
 
@@ -843,7 +898,7 @@ exports.getShopDashboardByShopId = async (req, res) => {
         repeatCustomersGrowth: getGrowth(repThis, repLast),
         repeatCustomersPrev:   fmtMonth(preStart),
 
-        // ── Charts ──
+        // ── Charts ─────────────────────────────────────────────────────────
         weeklyRevenue,
         statusPipeline: statusPipelineAgg.map(s => ({
           status: s._id || 'Unknown',
@@ -859,7 +914,7 @@ exports.getShopDashboardByShopId = async (req, res) => {
           sales:      Math.round(p.sales),
         })),
 
-        // ── Extended Analytics ──
+        // ── Extended Analytics ──────────────────────────────────────────────
         conversionRate,
         conversionRateGrowth: getGrowth(conversionRate, conversionRateLast),
         avgDeliveryTime,
@@ -878,7 +933,7 @@ exports.getShopDashboardByShopId = async (req, res) => {
     return res.status(500).json({
       success: false,
       message: 'Failed to fetch shop dashboard',
-      error: err.message,
+      error:   err.message,
     });
   }
 };
