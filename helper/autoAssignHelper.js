@@ -231,7 +231,7 @@ exports.autoAssignDeliveryBoyWithin5kmHelper = async (orderId) => {
         );
 
         const totalDistance = pickupDistance + dropDistance;
-        const earning       = +(dropDistance * PER_KM_RATE).toFixed(2);
+       const earning = +(totalDistance * PER_KM_RATE).toFixed(2);
         const pickupTime    = Math.ceil((pickupDistance / 30) * 60);
         const dropTime      = Math.ceil((dropDistance / 30) * 60);
         const totalTime     = pickupTime + dropTime;
