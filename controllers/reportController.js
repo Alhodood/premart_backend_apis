@@ -201,19 +201,22 @@ exports.getDailySales = async (req, res) => {
 
     const total = orders.reduce((sum, order) => sum + (order.totalPayable || 0), 0);
 
-    const formatted = orders.map(order => ({
-      orderId: order._id,
-      orderDate: order.createdAt,
-      deliveredAt: order.updatedAt,
-      shopName: order.shopId?.shopeDetails?.shopName || 'Unknown',
-      customerName: order.deliveryAddress?.name || '-',
-      itemCount: order.items?.length || 0,
-      subtotal: order.subtotal,
-      discount: order.discount,
-      deliveryCharge: order.deliveryCharge,
-      totalAmount: order.totalPayable,
-      paymentMethod: order.paymentType
-    }));
+   const formatted = orders.flatMap(order =>
+  (order.items || []).map(item => ({
+    orderId: order._id,
+    orderDate: order.createdAt,
+    deliveredAt: order.updatedAt,
+    shopName: order.shopId?.shopeDetails?.shopName || 'Unknown',
+    customerName: order.deliveryAddress?.name || '-',
+    paymentMethod: order.paymentType,
+    partName: item.snapshot?.partName || '-',
+    partNumber: item.snapshot?.partNumber || '-',
+    quantity: item.quantity || 1,
+    unitPrice: item.snapshot?.discountedPrice ?? item.snapshot?.price ?? 0,
+    lineTotal: (item.quantity || 1) * (item.snapshot?.discountedPrice ?? item.snapshot?.price ?? 0),
+    orderTotal: Math.round((order.totalPayable || 0) * 100) / 100,
+  }))
+);
 
     res.status(200).json({ 
       success: true, 
@@ -247,15 +250,21 @@ exports.getWeeklySales = async (req, res) => {
 
     const total = orders.reduce((sum, order) => sum + (order.totalPayable || 0), 0);
 
-    const formatted = orders.map(order => ({
-      orderId: order._id,
-      orderDate: order.createdAt,
-      shopName: order.shopId?.shopeDetails?.shopName || 'Unknown',
-      customerName: order.deliveryAddress?.name || '-',
-      itemCount: order.items?.length || 0,
-      totalAmount: order.totalPayable,
-      paymentMethod: order.paymentType
-    }));
+    const formatted = orders.flatMap(order =>
+  (order.items || []).map(item => ({
+    orderId: order._id,
+    orderDate: order.createdAt,
+    shopName: order.shopId?.shopeDetails?.shopName || 'Unknown',
+    customerName: order.deliveryAddress?.name || '-',
+    paymentMethod: order.paymentType,
+    partName: item.snapshot?.partName || '-',
+    partNumber: item.snapshot?.partNumber || '-',
+    quantity: item.quantity || 1,
+    unitPrice: item.snapshot?.discountedPrice ?? item.snapshot?.price ?? 0,
+    lineTotal: (item.quantity || 1) * (item.snapshot?.discountedPrice ?? item.snapshot?.price ?? 0),
+    orderTotal: Math.round((order.totalPayable || 0) * 100) / 100,
+  }))
+);
 
     res.status(200).json({ 
       success: true, 
@@ -331,21 +340,24 @@ exports.getMonthlySales = async (req, res) => {
       dailyBreakdown[day].orders += 1;
     });
 
-    const formatted = orders.map(order => ({
-      orderId: order._id,
-      orderDate: order.createdAt,
-      deliveredAt: order.updatedAt,
-      orderDate_UAE: moment(order.createdAt).utcOffset('+04:00').format('YYYY-MM-DD'),
-      deliveredDate_UAE: moment(order.updatedAt).utcOffset('+04:00').format('YYYY-MM-DD'),
-      shopName: order.shopId?.shopeDetails?.shopName || 'Unknown',
-      customerName: order.deliveryAddress?.name || '-',
-      itemCount: order.items?.length || 0,
-      subtotal: order.subtotal,
-      discount: order.discount,
-      deliveryCharge: order.deliveryCharge,
-      totalAmount: order.totalPayable,
-      paymentMethod: order.paymentType
-    }));
+   const formatted = orders.flatMap(order =>
+  (order.items || []).map(item => ({
+    orderId: order._id,
+    orderDate: order.createdAt,
+    deliveredAt: order.updatedAt,
+    orderDate_UAE: moment(order.createdAt).utcOffset('+04:00').format('YYYY-MM-DD'),
+    deliveredDate_UAE: moment(order.updatedAt).utcOffset('+04:00').format('YYYY-MM-DD'),
+    shopName: order.shopId?.shopeDetails?.shopName || 'Unknown',
+    customerName: order.deliveryAddress?.name || '-',
+    paymentMethod: order.paymentType,
+    partName: item.snapshot?.partName || '-',
+    partNumber: item.snapshot?.partNumber || '-',
+    quantity: item.quantity || 1,
+    unitPrice: item.snapshot?.discountedPrice ?? item.snapshot?.price ?? 0,
+    lineTotal: (item.quantity || 1) * (item.snapshot?.discountedPrice ?? item.snapshot?.price ?? 0),
+    orderTotal: Math.round((order.totalPayable || 0) * 100) / 100,
+  }))
+);
 
     res.status(200).json({
       success: true,
@@ -1066,16 +1078,22 @@ exports.getShopDailySales = async (req, res) => {
     const totalSales = orders.reduce((sum, order) => sum + (order.totalPayable || 0), 0);
     const totalOrders = orders.length;
 
-    const formatted = orders.map(order => ({
-      orderId: order._id,
-      orderNumber: order.orderNumber || `ORD-${order._id.toString().slice(-6)}`,
-      customerName: order.deliveryAddress?.name || order.userId?.name || '-',
-      itemCount: order.items?.length || 0,
-      totalAmount: Math.round((order.totalPayable || 0) * 100) / 100,
-      paymentMethod: order.paymentType || 'COD',
-      orderTime: order.createdAt,
-      deliveredTime: order.updatedAt
-    }));
+  const formatted = orders.flatMap(order =>
+  (order.items || []).map(item => ({
+    orderId: order._id,
+    orderNumber: order.orderNumber || `ORD-${order._id.toString().slice(-6)}`,
+    customerName: order.deliveryAddress?.name || order.userId?.name || '-',
+    paymentMethod: order.paymentType || 'COD',
+    orderTime: order.createdAt,
+    deliveredTime: order.updatedAt,
+    partName: item.snapshot?.partName || '-',
+    partNumber: item.snapshot?.partNumber || '-',
+    quantity: item.quantity || 1,
+    unitPrice: item.snapshot?.discountedPrice ?? item.snapshot?.price ?? 0,
+    lineTotal: (item.quantity || 1) * (item.snapshot?.discountedPrice ?? item.snapshot?.price ?? 0),
+    orderTotal: Math.round((order.totalPayable || 0) * 100) / 100,
+  }))
+);
 
     res.status(200).json({
       success: true,
@@ -1128,16 +1146,23 @@ exports.getShopWeeklySales = async (req, res) => {
       dailyBreakdown[day].orders += 1;
     });
 
-    const formatted = orders.map(order => ({
-      orderId: order._id,
-      orderNumber: order.orderNumber || `ORD-${order._id.toString().slice(-6)}`,
-      customerName: order.deliveryAddress?.name || order.userId?.name || '-',
-      itemCount: order.items?.length || 0,
-      totalAmount: Math.round((order.totalPayable || 0) * 100) / 100,
-      orderDate: moment(order.createdAt).utcOffset('+04:00').format('YYYY-MM-DD'),
-      deliveredDate: moment(order.updatedAt).utcOffset('+04:00').format('YYYY-MM-DD'),
-      dayOfWeek: moment(order.updatedAt).utcOffset('+04:00').format('dddd')
-    }));
+const formatted = orders.flatMap(order =>
+  (order.items || []).map(item => ({
+    orderId: order._id,
+    orderNumber: order.orderNumber || `ORD-${order._id.toString().slice(-6)}`,
+    customerName: order.deliveryAddress?.name || order.userId?.name || '-',
+    paymentMethod: order.paymentType || 'COD',
+    orderDate: moment(order.createdAt).utcOffset('+04:00').format('YYYY-MM-DD'),
+    deliveredDate: moment(order.updatedAt).utcOffset('+04:00').format('YYYY-MM-DD'),
+    dayOfWeek: moment(order.updatedAt).utcOffset('+04:00').format('dddd'),
+    partName: item.snapshot?.partName || '-',
+    partNumber: item.snapshot?.partNumber || '-',
+    quantity: item.quantity || 1,
+    unitPrice: item.snapshot?.discountedPrice ?? item.snapshot?.price ?? 0,
+    lineTotal: (item.quantity || 1) * (item.snapshot?.discountedPrice ?? item.snapshot?.price ?? 0),
+    orderTotal: Math.round((order.totalPayable || 0) * 100) / 100,
+  }))
+);
 
     res.status(200).json({
       success: true,
@@ -1207,15 +1232,22 @@ exports.getShopMonthlySales = async (req, res) => {
       weeklyBreakdown[week].orders += 1;
     });
 
-    const formatted = orders.map(order => ({
-      orderId: order._id,
-      orderNumber: order.orderNumber || `ORD-${order._id.toString().slice(-6)}`,
-      customerName: order.deliveryAddress?.name || order.userId?.name || '-',
-      itemCount: order.items?.length || 0,
-      totalAmount: Math.round((order.totalPayable || 0) * 100) / 100,
-      orderDate: moment(order.createdAt).utcOffset('+04:00').format('YYYY-MM-DD'),
-      deliveredDate: moment(order.updatedAt).utcOffset('+04:00').format('YYYY-MM-DD')
-    }));
+const formatted = orders.flatMap(order =>
+  (order.items || []).map(item => ({
+    orderId: order._id,
+    orderNumber: order.orderNumber || `ORD-${order._id.toString().slice(-6)}`,
+    customerName: order.deliveryAddress?.name || order.userId?.name || '-',
+    paymentMethod: order.paymentType || 'COD',
+    orderDate: moment(order.createdAt).utcOffset('+04:00').format('YYYY-MM-DD'),
+    deliveredDate: moment(order.updatedAt).utcOffset('+04:00').format('YYYY-MM-DD'),
+    partName: item.snapshot?.partName || '-',
+    partNumber: item.snapshot?.partNumber || '-',
+    quantity: item.quantity || 1,
+    unitPrice: item.snapshot?.discountedPrice ?? item.snapshot?.price ?? 0,
+    lineTotal: (item.quantity || 1) * (item.snapshot?.discountedPrice ?? item.snapshot?.price ?? 0),
+    orderTotal: Math.round((order.totalPayable || 0) * 100) / 100,
+  }))
+);
 
     res.status(200).json({
       success: true,
