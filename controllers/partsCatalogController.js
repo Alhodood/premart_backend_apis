@@ -251,69 +251,112 @@ exports.getAllParts = async (req, res) => {
 };
 
 // GET PART BY ID - FIXED
+// GET PART BY ID (WITH SHOP PROFILE IMAGE)
 exports.getPartById = async (req, res) => {
   try {
-    const part = await PartsCatalog.findById(req.params.id)
+    const { id } = req.params;
+
+    // 1️⃣ Fetch Part With Required Populations
+    const part = await PartsCatalog.findById(id)
       .populate('category', 'categoryName')
       .populate('subCategory', 'subCategoryName')
       .populate({
         path: 'compatibleVehicleConfigs',
         populate: {
           path: 'brand model',
-          select: 'brandName modelName year engineType transmission'
+          select: 'brandName modelName'
         }
       });
 
     if (!part || !part.isActive) {
-      return res.status(404).json({ success: false, message: 'Part not found' });
+      return res.status(404).json({
+        success: false,
+        message: 'Part not found'
+      });
     }
 
-    // Get all shop products for this part
+    // 2️⃣ Fetch Shop Products For This Part
     const shopProducts = await ShopProduct.find({
-      part: req.params.id,
+      part: id,
       isAvailable: true
     }).populate({
       path: 'shopId',
-      select: 'shopeDetails.shopName shopeDetails.shopAddress shopeDetails.shopContact shopeDetails.shopLocation shopeDetails.supportMail shopeDetails.supportNumber'
+      select: `
+        shopeDetails.shopName
+        shopeDetails.shopAddress
+        shopeDetails.shopContact
+        shopeDetails.shopLocation
+        shopeDetails.supportMail
+        shopeDetails.supportNumber
+        shopeDetails.profileImage
+      `
     });
 
-    // Format shops array
+    // 3️⃣ Format Shops Response
     const shops = shopProducts.map(sp => {
-      const shop = sp.shopId?.shopeDetails || {};
+      const shopDetails = sp.shopId?.shopeDetails || {};
+
       return {
         shopProductId: sp._id,
-        shopId: sp.shopId?._id,
-        shopName: shop.shopName || '',
-        shopAddress: shop.shopAddress || '',
-        shopContact: shop.shopContact || '',
-        shopLocation: shop.shopLocation || '',
-        supportMail: shop.supportMail || '',
-        supportNumber: shop.supportNumber || '',
+        shopId: sp.shopId?._id || null,
+
+        shopName: shopDetails.shopName || '',
+        shopAddress: shopDetails.shopAddress || '',
+        shopContact: shopDetails.shopContact || '',
+        shopLocation: shopDetails.shopLocation || '',
+        supportMail: shopDetails.supportMail || '',
+        supportNumber: shopDetails.supportNumber || '',
+
+        // ✅ NEW: Profile Image
+        profileImage: shopDetails.profileImage || null,
+
         price: sp.price,
         discountedPrice: sp.discountedPrice,
-        finalPrice: sp.discountedPrice || sp.price,
+        finalPrice: sp.discountedPrice ?? sp.price,
         stock: sp.stock,
         isAvailable: sp.isAvailable,
-        hasDiscount: sp.discountedPrice !== null && sp.discountedPrice < sp.price
+        hasDiscount:
+          sp.discountedPrice !== null &&
+          sp.discountedPrice < sp.price
       };
     });
 
-    // Return part with shop details
-    res.json({
+    // 4️⃣ Price Calculations
+    const minPrice =
+      shops.length > 0
+        ? Math.min(...shops.map(s => s.finalPrice))
+        : null;
+
+    const maxPrice =
+      shops.length > 0
+        ? Math.max(...shops.map(s => s.finalPrice))
+        : null;
+
+    const inStock = shops.some(s => s.stock > 0);
+
+    // 5️⃣ Final Response
+    return res.status(200).json({
       success: true,
       data: {
         ...part.toObject(),
-        shops: shops,
+        shops,
         shopCount: shops.length,
-        minPrice: shops.length > 0 ? Math.min(...shops.map(s => s.finalPrice)) : null,
-        maxPrice: shops.length > 0 ? Math.max(...shops.map(s => s.finalPrice)) : null,
-        inStock: shops.some(s => s.stock > 0)
+        minPrice,
+        maxPrice,
+        inStock
       }
     });
 
-  } catch (err) {
-    logger.error('Get Part Error: ' + err.message, { stack: err.stack });
-    res.status(500).json({ success: false, error: err.message });
+  } catch (error) {
+    logger.error('Get Part Error:', {
+      message: error.message,
+      stack: error.stack
+    });
+
+    return res.status(500).json({
+      success: false,
+      error: error.message
+    });
   }
 };
 
@@ -328,7 +371,7 @@ exports.searchParts = async (req, res) => {
       brand,
       model,
       year,
-      vehicleConfig, // Direct vehicle config ID
+      vehicleConfig,
       page = 1,
       limit = 20,
       minPrice,
@@ -341,29 +384,21 @@ exports.searchParts = async (req, res) => {
     if (partNumber) filter.partNumber = new RegExp(partNumber, 'i');
     if (partName) filter.partName = new RegExp(partName, 'i');
 
-    // Validate category is a valid ObjectId
     if (category) {
       if (mongoose.Types.ObjectId.isValid(category)) {
         filter.category = category;
       } else {
-        return res.status(400).json({
-          success: false,
-          message: 'Invalid category ID format'
-        });
+        return res.status(400).json({ success: false, message: 'Invalid category ID format' });
       }
     }
 
-    // Validate subCategory - handle both ObjectId and name (URL decoded)
     if (subCategory) {
       try {
-        // Decode URL-encoded subcategory name (e.g., "Spark%20Plugs" -> "Spark Plugs")
         const decodedSubCategory = decodeURIComponent(String(subCategory));
 
         if (mongoose.Types.ObjectId.isValid(decodedSubCategory)) {
-          // It's a valid ObjectId
           filter.subCategory = decodedSubCategory;
         } else {
-          // It might be a subcategory name, try to find it
           const foundSubCategory = await SubCategory.findOne({
             subCategoryName: new RegExp(decodedSubCategory.trim(), 'i')
           }).select('_id');
@@ -371,69 +406,45 @@ exports.searchParts = async (req, res) => {
           if (foundSubCategory) {
             filter.subCategory = foundSubCategory._id;
           } else {
-            // Invalid subcategory, return empty results instead of error
             logger.warn(`⚠️ SubCategory not found: "${decodedSubCategory}"`);
             return res.json({
-              success: true,
-              count: 0,
-              page: parseInt(page),
-              limit: parseInt(limit),
-              totalPages: 0,
-              data: [],
+              success: true, count: 0, page: parseInt(page),
+              limit: parseInt(limit), totalPages: 0, data: [],
               message: `No subcategory found matching: ${decodedSubCategory}`
             });
           }
         }
       } catch (subCatErr) {
         logger.error('❌ SubCategory lookup error: ' + subCatErr.message, { stack: subCatErr.stack });
-        return res.status(500).json({
-          success: false,
-          message: 'Error looking up subcategory',
-          error: subCatErr.message
-        });
+        return res.status(500).json({ success: false, message: 'Error looking up subcategory', error: subCatErr.message });
       }
     }
 
-    // Handle vehicle config filtering
-    // Priority: vehicleConfig (direct ID) > brand/model/year lookup
     let vehicleConfigIds = null;
 
     if (vehicleConfig) {
-      // Direct vehicle config ID provided
       if (mongoose.Types.ObjectId.isValid(vehicleConfig)) {
         vehicleConfigIds = [vehicleConfig];
         filter.compatibleVehicleConfigs = { $in: vehicleConfigIds };
       } else {
-        return res.status(400).json({
-          success: false,
-          message: 'Invalid vehicleConfig ID format'
-        });
+        return res.status(400).json({ success: false, message: 'Invalid vehicleConfig ID format' });
       }
     } else if (brand || model || year) {
-      // Look up vehicle configs by brand/model/year
       const vehicleFilter = {};
 
-      // Validate brand is a valid ObjectId
       if (brand) {
         if (mongoose.Types.ObjectId.isValid(brand)) {
           vehicleFilter.brand = brand;
         } else {
-          return res.status(400).json({
-            success: false,
-            message: 'Invalid brand ID format'
-          });
+          return res.status(400).json({ success: false, message: 'Invalid brand ID format' });
         }
       }
 
-      // Validate model is a valid ObjectId
       if (model) {
         if (mongoose.Types.ObjectId.isValid(model)) {
           vehicleFilter.model = model;
         } else {
-          return res.status(400).json({
-            success: false,
-            message: 'Invalid model ID format'
-          });
+          return res.status(400).json({ success: false, message: 'Invalid model ID format' });
         }
       }
 
@@ -446,28 +457,18 @@ exports.searchParts = async (req, res) => {
         if (vehicleConfigIds.length > 0) {
           filter.compatibleVehicleConfigs = { $in: vehicleConfigIds };
         } else {
-          // No matching configs found, return empty
           return res.json({
-            success: true,
-            count: 0,
-            page: parseInt(page),
-            limit: parseInt(limit),
-            totalPages: 0,
-            data: [],
+            success: true, count: 0, page: parseInt(page),
+            limit: parseInt(limit), totalPages: 0, data: [],
             message: 'No vehicle configurations found matching the criteria'
           });
         }
       } catch (vehicleConfigErr) {
         logger.error('VehicleConfig lookup error: ' + vehicleConfigErr.message, { stack: vehicleConfigErr.stack });
-        return res.status(500).json({
-          success: false,
-          message: 'Error looking up vehicle configurations',
-          error: vehicleConfigErr.message
-        });
+        return res.status(500).json({ success: false, message: 'Error looking up vehicle configurations', error: vehicleConfigErr.message });
       }
     }
 
-    // Get parts matching the filter
     logger.info('🔍 Search filter: ' + JSON.stringify(filter, null, 2));
 
     const results = await PartsCatalog.find(filter)
@@ -484,104 +485,86 @@ exports.searchParts = async (req, res) => {
 
     logger.info(`✅ Found ${results.length} parts matching filter`);
 
-    // If no parts found, return early
     if (results.length === 0) {
       return res.json({
-        success: true,
-        count: 0,
-        page: parseInt(page),
-        limit: parseInt(limit),
-        totalPages: 0,
-        data: []
+        success: true, count: 0, page: parseInt(page),
+        limit: parseInt(limit), totalPages: 0, data: []
       });
     }
 
-    // OPTIMIZED: Fetch all shop products for all parts in one query (avoid N+1 problem)
     const partIds = results.map(p => p._id);
 
-    // Build shop product filter
-    const shopProductFilter = {
-      part: { $in: partIds },
-      isAvailable: true
-    };
+    const shopProductFilter = { part: { $in: partIds }, isAvailable: true };
 
-    // Optional filters for shop products
     if (minPrice) shopProductFilter.price = { $gte: Number(minPrice) };
     if (maxPrice) {
       shopProductFilter.price = shopProductFilter.price || {};
       shopProductFilter.price.$lte = Number(maxPrice);
     }
-    if (inStock === 'true') {
-      shopProductFilter.stock = { $gt: 0 };
-    }
+    if (inStock === 'true') shopProductFilter.stock = { $gt: 0 };
 
-    // Fetch all shop products for these parts in one query
+    // ── CHANGE 1: added profileImage to the select ────────────────────────
     const allShopProducts = await ShopProduct.find(shopProductFilter)
       .populate({
         path: 'shopId',
-        select: 'shopeDetails.shopName shopeDetails.shopAddress shopeDetails.shopLocation shopeDetails.shopContact shopeDetails.supportMail shopeDetails.supportNumber'
+        select: 'shopeDetails.shopName shopeDetails.shopAddress shopeDetails.shopLocation shopeDetails.shopContact shopeDetails.supportMail shopeDetails.supportNumber shopeDetails.profileImage'
       })
-      .sort({ price: 1 }); // Sort by price ascending
+      .sort({ price: 1 });
 
-    // Group shop products by part ID
     const shopProductsByPart = {};
     allShopProducts.forEach(sp => {
       const partIdStr = sp.part.toString();
-      if (!shopProductsByPart[partIdStr]) {
-        shopProductsByPart[partIdStr] = [];
-      }
+      if (!shopProductsByPart[partIdStr]) shopProductsByPart[partIdStr] = [];
       shopProductsByPart[partIdStr].push(sp);
     });
 
-    // Map shops to each part
     const partsWithShops = results.map(part => {
       const shopProducts = shopProductsByPart[part._id.toString()] || [];
 
-      // Format shop data
       const shops = shopProducts
-        .filter(sp => sp.shopId) // Filter out null shops
+        .filter(sp => sp.shopId)
         .map(sp => ({
-          shopId: sp.shopId._id,
-          shopProductId: sp._id, // Important for cart/order
-          shopName: sp.shopId.shopeDetails?.shopName || 'Unknown Shop',
-          shopAddress: sp.shopId.shopeDetails?.shopAddress || '',
-          shopLocation: sp.shopId.shopeDetails?.shopLocation || '',
-          shopContact: sp.shopId.shopeDetails?.shopContact || '',
-          supportMail: sp.shopId.shopeDetails?.supportMail || '',
-          supportNumber: sp.shopId.shopeDetails?.supportNumber || '',
-          price: sp.price,
+          shopId:          sp.shopId._id,
+          shopProductId:   sp._id,
+          shopName:        sp.shopId.shopeDetails?.shopName        || 'Unknown Shop',
+          shopAddress:     sp.shopId.shopeDetails?.shopAddress     || '',
+          shopLocation:    sp.shopId.shopeDetails?.shopLocation    || '',
+          shopContact:     sp.shopId.shopeDetails?.shopContact     || '',
+          supportMail:     sp.shopId.shopeDetails?.supportMail     || '',
+          supportNumber:   sp.shopId.shopeDetails?.supportNumber   || '',
+          // ── CHANGE 2: include profileImage in response ────────────────
+          profileImage:    sp.shopId.shopeDetails?.profileImage    || null,
+          price:           sp.price,
           discountedPrice: sp.discountedPrice,
-          stock: sp.stock,
-          isAvailable: sp.isAvailable,
-          hasDiscount: !!sp.discountedPrice,
-          finalPrice: sp.discountedPrice || sp.price
+          stock:           sp.stock,
+          isAvailable:     sp.isAvailable,
+          hasDiscount:     !!sp.discountedPrice,
+          finalPrice:      sp.discountedPrice || sp.price
         }));
 
       return {
         ...part.toObject(),
-        shops: shops,
+        shops,
         shopCount: shops.length,
-        minPrice: shops.length > 0 ? Math.min(...shops.map(s => s.finalPrice)) : null,
-        maxPrice: shops.length > 0 ? Math.max(...shops.map(s => s.finalPrice)) : null,
-        inStock: shops.some(s => s.stock > 0)
+        minPrice:  shops.length > 0 ? Math.min(...shops.map(s => s.finalPrice)) : null,
+        maxPrice:  shops.length > 0 ? Math.max(...shops.map(s => s.finalPrice)) : null,
+        inStock:   shops.some(s => s.stock > 0)
       };
     });
 
-    // Pagination
-    const pageNum = parseInt(page);
-    const limitNum = parseInt(limit);
+    const pageNum    = parseInt(page);
+    const limitNum   = parseInt(limit);
     const totalCount = partsWithShops.length;
     const totalPages = Math.ceil(totalCount / limitNum);
     const startIndex = (pageNum - 1) * limitNum;
-    const endIndex = startIndex + limitNum;
-    const paginatedParts = partsWithShops.slice(startIndex, endIndex);
+    const paginatedParts = partsWithShops.slice(startIndex, startIndex + limitNum);
 
     res.json({
       success: true,
       count: totalCount,
       page: pageNum,
       limit: limitNum,
-      totalPages: totalPages,
+      totalPages,
       data: paginatedParts
     });
 
