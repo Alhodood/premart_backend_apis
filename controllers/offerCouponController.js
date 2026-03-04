@@ -70,7 +70,6 @@ exports.applyCoupon = async (req, res) => {
       return res.status(200).json({ message: 'Invalid or inactive coupon code', success: false, data: [] });
     }
 
-    // ✅ Check if coupon has valid discount fields
     if (!coupon.discountType || coupon.discountValue === undefined) {
       return res.status(200).json({
         message: 'Coupon data is invalid. Missing discountType or discountValue',
@@ -78,26 +77,18 @@ exports.applyCoupon = async (req, res) => {
       });
     }
 
-    // ✅ Check if coupon has valid discount fields
-    if (!coupon.discountType || coupon.discountValue === undefined) {
-      return res.status(400).json({
-        message: 'Coupon data is invalid. Missing discountType or discountValue',
-        success: false
-      });
-    }
-
-    // ✅ Check expiry
+    // Check expiry
     const now = new Date();
     if (coupon.expiryDate && coupon.expiryDate < now) {
       return res.status(200).json({ message: 'Coupon has expired', success: false, data: [] });
     }
 
-    // ✅ Check if already used
+    // Check if already used
     if (coupon.usedBy && coupon.usedBy.includes(userId)) {
       return res.status(400).json({ message: 'Coupon already used by this user', success: false });
     }
 
-    // ✅ Check minimum order amount
+    // Check minimum order amount
     if (coupon.minOrderAmount && orderAmount < coupon.minOrderAmount) {
       return res.status(200).json({
         message: `Minimum order amount is ${coupon.minOrderAmount}`,
@@ -105,22 +96,24 @@ exports.applyCoupon = async (req, res) => {
       });
     }
 
-    // ✅ Check usage limit
+    // Check usage limit
     if (coupon.usageLimit && coupon.usedCount >= coupon.usageLimit) {
       return res.status(200).json({ message: 'Coupon usage limit reached', success: false, data: [] });
     }
 
-    // ✅ Calculate discount
+    // ✅ FIX: "amount" and "flat" are both flat-value discounts
     let discount = 0;
-    if (coupon.discountType === 'flat') {
+    const type = coupon.discountType.toLowerCase();
+
+    if (type === 'flat' || type === 'amount') {
       discount = coupon.discountValue;
-    } else if (coupon.discountType === 'percent') {
+    } else if (type === 'percent' || type === 'percentage') {
       discount = (orderAmount * coupon.discountValue) / 100;
+      if (coupon.maxDiscount) discount = Math.min(discount, coupon.maxDiscount);
     }
 
+    discount = Math.min(discount, orderAmount); // discount can't exceed order amount
     const finalAmount = Math.max(orderAmount - discount, 0);
-
-    // 💡 Do not mark it used here — as per your instruction
 
     return res.status(200).json({
       message: 'Coupon applied successfully',
