@@ -603,16 +603,11 @@ exports.searchByPartNumber = async (req, res) => {
     const { partNumber, page = 1, limit = 20 } = req.query;
 
     if (!partNumber) {
-      return res.status(400).json({
-        success: false,
-        message: 'Part number is required'
-      });
+      return res.status(400).json({ success: false, message: 'Part number is required' });
     }
 
-    // Normalize part number (trim, uppercase)
     const normalizedPartNumber = partNumber.trim().toUpperCase();
 
-    // Search for parts matching the part number (exact or partial match)
     const filter = {
       isActive: true,
       partNumber: new RegExp(normalizedPartNumber.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), 'i')
@@ -620,7 +615,6 @@ exports.searchByPartNumber = async (req, res) => {
 
     const skip = (parseInt(page) - 1) * parseInt(limit);
 
-    // Find parts matching the part number
     const parts = await PartsCatalog.find(filter)
       .populate('category', 'categoryName')
       .populate('subCategory', 'subCategoryName')
@@ -638,80 +632,78 @@ exports.searchByPartNumber = async (req, res) => {
     const total = await PartsCatalog.countDocuments(filter);
     const partIds = parts.map(p => p._id);
 
-    // Fetch all shop products for these parts in a single query
     const shopProducts = await ShopProduct.find({
       part: { $in: partIds },
       isAvailable: true
-    }).populate('shopId', 'shopeDetails');
+    }).populate({
+      path: 'shopId',
+      // ✅ FIX: added profileImage to select
+      select: 'shopeDetails.shopName shopeDetails.shopAddress shopeDetails.shopContact shopeDetails.shopMail shopeDetails.shopLocation shopeDetails.profileImage'
+    });
 
-    // Group shop products by part ID
     const shopProductsByPart = {};
     shopProducts.forEach(sp => {
       const partId = sp.part.toString();
-      if (!shopProductsByPart[partId]) {
-        shopProductsByPart[partId] = [];
-      }
+      if (!shopProductsByPart[partId]) shopProductsByPart[partId] = [];
       shopProductsByPart[partId].push(sp);
     });
 
-    // Format response with shop information
     const formattedParts = parts.map(part => {
       const partShopProducts = shopProductsByPart[part._id.toString()] || [];
 
-      // Calculate price range and stock status
-      const prices = partShopProducts.map(sp => sp.discountedPrice || sp.price);
+      const prices   = partShopProducts.map(sp => sp.discountedPrice || sp.price);
       const minPrice = prices.length > 0 ? Math.min(...prices) : null;
       const maxPrice = prices.length > 0 ? Math.max(...prices) : null;
-      const inStock = partShopProducts.some(sp => sp.stock > 0);
+      const inStock  = partShopProducts.some(sp => sp.stock > 0);
 
-      // Format shops array
       const shops = partShopProducts.map(sp => {
-        const shop = sp.shopId;
-        const shopDetails = shop?.shopeDetails || {};
+        const shopDetails = sp.shopId?.shopeDetails || {};
         return {
-          shopId: shop?._id || null,
-          shopProductId: sp._id,
-          shopName: shopDetails.shopName || null,
-          shopAddress: shopDetails.shopAddress || null,
-          shopContact: shopDetails.shopContact || null,
-          shopMail: shopDetails.shopMail || null,
-          shopLocation: shopDetails.shopLocation || null,
-          price: sp.price,
-          discountedPrice: sp.discountedPrice || null,
-          stock: sp.stock || 0,
-          isAvailable: sp.isAvailable,
-          hasDiscount: sp.discountedPrice !== null && sp.discountedPrice < sp.price,
-          finalPrice: sp.discountedPrice || sp.price
+          shopId:          sp.shopId?._id          || null,
+          shopProductId:   sp._id,
+          shopName:        shopDetails.shopName     || null,
+          shopAddress:     shopDetails.shopAddress  || null,
+          shopContact:     shopDetails.shopContact  || null,
+          shopMail:        shopDetails.shopMail     || null,
+          shopLocation:    shopDetails.shopLocation || null,
+          // ✅ FIX: profileImage added
+          profileImage:    shopDetails.profileImage || null,
+          price:           sp.price,
+          discountedPrice: sp.discountedPrice       || null,
+          stock:           sp.stock                 || 0,
+          isAvailable:     sp.isAvailable,
+          hasDiscount:     sp.discountedPrice !== null && sp.discountedPrice < sp.price,
+          finalPrice:      sp.discountedPrice       || sp.price
         };
       });
 
       return {
-        _id: part._id,
-        partNumber: part.partNumber,
-        partName: part.partName,
-        description: part.description,
-        category: part.category,
-        subCategory: part.subCategory,
+        _id:                    part._id,
+        partNumber:             part.partNumber,
+        partName:               part.partName,
+        description:            part.description,
+        category:               part.category,
+        subCategory:            part.subCategory,
         compatibleVehicleConfigs: part.compatibleVehicleConfigs,
-        images: part.images,
-        madeIn: part.madeIn,
-        weight: part.weight,
-        dimensions: part.dimensions,
-        oemNumber: part.oemNumber,
-        warranty: part.warranty,
-        isActive: part.isActive,
-        shops: shops,
-        shopCount: shops.length,
-        minPrice: minPrice,
-        maxPrice: maxPrice,
-        inStock: inStock
+        images:                 part.images,
+        madeIn:                 part.madeIn,
+        weight:                 part.weight,
+        dimensions:             part.dimensions,
+        oemNumber:              part.oemNumber,
+        warranty:               part.warranty,
+        isActive:               part.isActive,
+        shops,
+        shopCount:              shops.length,
+        minPrice,
+        maxPrice,
+        inStock
       };
     });
 
     res.json({
       success: true,
       count: formattedParts.length,
-      total: total,
+      total,
       page: parseInt(page),
       limit: parseInt(limit),
       totalPages: Math.ceil(total / parseInt(limit)),
