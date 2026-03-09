@@ -87,6 +87,8 @@ const allowedOrigins = [
   "http://www.autopartsnow.uk",
   "http://premart2026.s3-website-us-east-1.amazonaws.com",
   "https://n8fd2gwd-3005.inc1.devtunnels.ms/",
+  "http://localhost:5050",
+
 ];
 
 app.use(cors({
@@ -109,28 +111,28 @@ app.use(cors({
 // Applied before body parsing (so oversized payloads don't bypass limits)
 // ─────────────────────────────────────────────────────────────────────────────
 
-app.use('/api/payment/webhook',              webhookLimiter);
+// app.use('/api/payment/webhook',              webhookLimiter);
 
-// OTP — tightest limits, applied before the broader authLimiter
-app.use('/api/auth/send-otp',           authLimiter     );
-app.use('/api/auth/resend-otp',            authLimiter  );
-app.use('/api/auth/verify-otp',             authLimiter );
+// // OTP — tightest limits, applied before the broader authLimiter
+// app.use('/api/auth/send-otp',           authLimiter     );
+// app.use('/api/auth/resend-otp',            authLimiter  );
+// app.use('/api/auth/verify-otp',             authLimiter );
 
-// Auth — brute-force protection on login/register
-app.use('/api/auth',                        authLimiter);
+// // Auth — brute-force protection on login/register
+// app.use('/api/auth',                        authLimiter);
 
-// Upload / S3 presigned URL — cost protection
-app.use('/api/upload-url',                  uploadLimiter);
-app.use('/generatePresignedUrl',            uploadLimiter);
-app.use('/generatePresignedDownloadUrl',    uploadLimiter);
-app.use('/generatePresignedDownloadUrlApp', uploadLimiter);
+// // Upload / S3 presigned URL — cost protection
+// app.use('/api/upload-url',                  uploadLimiter);
+// app.use('/generatePresignedUrl',            uploadLimiter);
+// app.use('/generatePresignedDownloadUrl',    uploadLimiter);
+// app.use('/generatePresignedDownloadUrlApp', uploadLimiter);
 
-// Search / catalog — relaxed for read-heavy mobile traffic
-app.use('/api/catalog',                     searchLimiter);
-app.use('/api/places',                      searchLimiter);
+// // Search / catalog — relaxed for read-heavy mobile traffic
+// app.use('/api/catalog',                     searchLimiter);
+// app.use('/api/places',                      searchLimiter);
 
-// Baseline DDoS guard on everything else
-app.use('/api',                             generalLimiter);
+// // Baseline DDoS guard on everything else
+// app.use('/api',                             generalLimiter);
 
 // ─────────────────────────────────────────────────────────────────────────────
 // BODY PARSING
@@ -155,6 +157,7 @@ app.use(express.urlencoded({ extended: true, limit: '10mb' }));
 // ─────────────────────────────────────────────────────────────────────────────
 const server = http.createServer(app);
 const socket = require('./sockets/socket');
+const { debug } = require('util');
 const io = socket.init(server);
 global.io = io;
 global.connectedUsers = {};
@@ -362,4 +365,5 @@ const HOST = process.env.HOST || '0.0.0.0';
 
 server.listen(PORT, HOST, () => {
   logger.info('server: PreMart API listening', { host: HOST, port: PORT });
+  
 });
